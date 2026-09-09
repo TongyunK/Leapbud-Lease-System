@@ -1,0 +1,9 @@
+---
+description: 项目约定：弹窗行为与改完后不自动重启服务
+alwaysApply: true
+---
+
+# Leapbud 约定
+
+- 所有 `el-dialog` / `ElMessageBox` 弹窗默认窗口居中、标题栏可拖动；已在 `App.vue` 的 `ElConfigProvider` 与 `main.ts` 全局配置，新增弹窗无需重复写 `align-center` / `draggable`（除非要覆盖）。
+- 完成代码修改后**不要**主动重启 backend / frontend 开发服务；由用户自行刷新或重启。

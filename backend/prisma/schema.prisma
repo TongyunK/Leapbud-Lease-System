@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// 房间状态（仅四种）
+enum RoomStatus {
+  idle // 闲置中
+  signing // 签约中
+  leased // 租赁中
+  terminating // 退租中
+}
+
+/// 用户角色
+enum UserRole {
+  admin // 工程师 / 管理员
+  user // 普通用户
+}
+
+/// 用户状态
+enum UserStatus {
+  active // 启用
+  disabled // 停用
+}
+
+/// 房间配置字典类型
+enum RoomConfigType {
+  size // 尺寸区间
+  window // 窗户
+  ac // 空调
+}
+
+/// 系统用户
+model User {
+  /// 主键
+  id           String     @id @default(cuid())
+  /// 登录账号（手机号或系统账号）
+  account      String     @unique
+  /// 密码哈希（不可明文存储）
+  passwordHash String     @map("password_hash")
+  /// 显示名称
+  displayName  String     @default("") @map("display_name")
+  /// 角色：admin=管理员，user=普通用户
+  role         UserRole   @default(user)
+  /// 账号状态：active=启用，disabled=停用
+  status       UserStatus @default(active)
+  /// 联系电话
+  phone        String     @default("")
+  /// 邮箱
+  email        String     @default("")
+  /// 创建时间
+  createdAt    DateTime   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([role])
+  @@map("users")
+}
+
+/// 房间配置字典：尺寸区间 / 窗户 / 空调
+model RoomConfigOption {
+  /// 主键
+  id        String         @id @default(cuid())
+  /// 配置类型：size / window / ac
+  type      RoomConfigType
+  /// 配置描述（展示用标签）
+  label     String
+  /// 尺寸下限（平方呎，含下限；仅 size 类型使用）
+  minSqft   Decimal?       @map("min_sqft") @db.Decimal(12, 2)
+  /// 尺寸上限（平方呎，不含上限；仅 size 类型使用）
+  maxSqft   Decimal?       @map("max_sqft") @db.Decimal(12, 2)
+  /// 空调品牌（仅 ac 类型可选）
+  brand     String         @default("")
+  /// 空调型号（仅 ac 类型可选）
+  model     String         @default("")
+  /// 排序权重，越小越靠前
+  sortOrder Int            @default(0) @map("sort_order")
+  /// 是否启用（停用后表单不下拉展示）
+  active    Boolean        @default(true)
+  /// 创建时间
+  createdAt DateTime       @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  @@index([type, active])
+  @@index([type, sortOrder])
+  @@map("room_config_options")
+}
+
+/// 房间类型字典（辦公室 / 會議室等，可后台维护）
+model RoomTypeOption {
+  /// 主键
+  id        String   @id @default(cuid())
+  /// 类型名称（业务唯一，写入房间 room_type）
+  label     String   @unique
+  /// 展示色系：office / meeting / desk / studio / other
+  tone      String   @default("other")
+  /// 表单选择时的简短说明
+  hint      String   @default("")
+  /// 排序权重，越小越靠前
+  sortOrder Int      @default(0) @map("sort_order")
+  /// 是否启用
+  active    Boolean  @default(true)
+  /// 创建时间
+  createdAt DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([active, sortOrder])
+  @@map("room_type_options")
+}
+
+/// 大厦信息
+model Building {
+  /// 主键
+  id                String   @id @default(cuid())
+  /// 大厦名称
+  name              String
+  /// 地址（中文）
+  address           String   @default("")
+  /// 地址（英文）
+  addressEn         String   @default("") @map("address_en")
+  /// 负责人
+  manager           String   @default("")
+  /// 负责人电话
+  managerPhone      String   @default("") @map("manager_phone")
+  /// 协议书模板
+  agreementTemplate String?  @map("agreement_template")
+  /// 协议书 Logo
+  agreementLogo     String?  @map("agreement_logo")
+  /// API 模板名称后缀
+  apiTemplateSuffix String?  @map("api_template_suffix")
+  /// 备用 Logo
+  logo2             String?
+  /// 大厦邮箱
+  email             String   @default("")
+  /// 工作时间
+  workingHours      String   @default("") @map("working_hours")
+  /// 发票模板
+  invoiceTemplate   String?  @map("invoice_template")
+  /// 发票 Logo
+  invoiceLogo       String?  @map("invoice_logo")
+  /// FPS 收款标识
+  fpsId             String?  @map("fps_id")
+  /// 银行户主名称
+  bankAccountHolder String?  @map("bank_account_holder")
+  /// 大厦银行账户
+  bankAccount       String?  @map("bank_account")
+  /// 支票付款抬头
+  chequePaymentBy   String?  @map("cheque_payment_by")
+  /// 付款提示 / Payment Advice
+  paymentAdvice     String?  @map("payment_advice")
+  /// 收据模板
+  receiptTemplate   String?  @map("receipt_template")
+  /// 收据顶部 Logo
+  receiptTopLogo    String?  @map("receipt_top_logo")
+  /// 收据左侧 Logo
+  receiptLeftLogo   String?  @map("receipt_left_logo")
+  /// 收据右侧 Logo
+  receiptRightLogo  String?  @map("receipt_right_logo")
+  /// 大厦配置（扩展 JSON/文本）
+  buildingConfig    String?  @map("building_config")
+  /// 是否使用 WBA_NUMBER
+  useWbaNumber      String?  @map("use_wba_number")
+  /// 是否启用（停用后不出现在房间快捷胶囊等）
+  active            Boolean  @default(true)
+  /// 创建时间
+  createdAt         DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  /// 下属房间
+  rooms             Room[]
+
+  @@index([active])
+  @@map("buildings")
+}
+
+/// 房间信息
+model Room {
+  /// 主键
+  id              String     @id @default(cuid())
+  /// 房间编号（业务唯一）
+  roomCode        String     @unique @map("room_code")
+  /// 房间名称
+  name            String
+  /// 房间类型（如办公室、会议室等）
+  roomType        String     @default("") @map("room_type")
+  /// 所属大厦 ID
+  buildingId      String     @map("building_id")
+  /// 所属大厦
+  building        Building   @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  /// 房间状态：idle=闲置中，signing=签约中，leased=租赁中，terminating=退租中
+  status          RoomStatus @default(idle)
+  /// 内部序号 / 流水号
+  serialNo        String     @default("") @map("serial_no")
+  /// 月租
+  monthlyRent     Decimal    @default(0) @map("monthly_rent") @db.Decimal(12, 2)
+  /// 日租
+  dailyRent       Decimal    @default(0) @map("daily_rent") @db.Decimal(12, 2)
+  /// 时租
+  hourlyRent      Decimal    @default(0) @map("hourly_rent") @db.Decimal(12, 2)
+  /// 房间呎寸（平方呎）
+  sizeSqft        Decimal    @default(0) @map("size_sqft") @db.Decimal(12, 2)
+  /// 房间图片 1
+  image1          String?
+  /// 房间图片 2
+  image2          String?
+  /// 房间图片 3
+  image3          String?
+  /// 房间描述
+  description     String?
+  /// 备注
+  remark          String?
+  /// 窗户配置
+  windowConfig    String?    @map("window_config")
+  /// 空调配置
+  acConfig        String?    @map("ac_config")
+  /// 最新合约标识 / 编号
+  latestContract  String?    @map("latest_contract")
+  /// 历史合约记录列表
+  contractRecords String[]   @default([]) @map("contract_records")
+  /// 创建人
+  createdBy       String     @default("") @map("created_by")
+  /// 分租标记
+  subleaseMark    String?    @map("sublease_mark")
+  /// 创建时间
+  createdAt       DateTime   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  @@index([buildingId])
+  @@index([status])
+  @@map("rooms")
+}

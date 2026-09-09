@@ -1,0 +1,30 @@
+export interface BuildingRecord {
+  id: string
+  name: string
+  address: string
+  addressEn: string
+  manager: string
+  managerPhone: string
+  agreementTemplate?: string
+  agreementLogo?: string
+  apiTemplateSuffix?: string
+  logo2?: string
+  email: string
+  workingHours: string
+  invoiceTemplate?: string
+  invoiceLogo?: string
+  fpsId?: string
+  bankAccountHolder?: string
+  bankAccount?: string
+  chequePaymentBy?: string
+  paymentAdvice?: string
+  receiptTemplate?: string
+  receiptTopLogo?: string
+  receiptLeftLogo?: string
+  receiptRightLogo?: string
+  roomIds: string[]
+  buildingConfig?: string
+  useWbaNumber?: string
+  active: boolean
+  updatedAt: string
+}
