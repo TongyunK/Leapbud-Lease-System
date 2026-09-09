@@ -19,6 +19,10 @@ function cloneMockItem (item) {
   for (const [k, v] of Object.entries(out)) {
     if (Array.isArray(v)) out[k] = v.slice()
   }
+  if (out.createdBy == null) out.createdBy = ''
+  if (out.updatedBy == null) out.updatedBy = ''
+  if (out.createdAt == null) out.createdAt = out.updatedAt || ''
+  if (out.updatedAt == null) out.updatedAt = out.createdAt || ''
   return out
 }
 
@@ -235,6 +239,11 @@ function ensureBuildings () {
   ]
   for (const b of _buildings) {
     if (b.active == null) b.active = true
+    if (b.createdBy == null) b.createdBy = ''
+    if (b.updatedBy == null) b.updatedBy = ''
+    if (b.createdAt == null) b.createdAt = b.updatedAt || '2026-01-01 10:00'
+    if (b.updatedAt == null) b.updatedAt = b.createdAt
+    if (!Array.isArray(b.roomIds)) b.roomIds = []
   }
   const legacy = _buildings.find((b) => b.id === 'b7')
   if (legacy) legacy.active = false
@@ -371,6 +380,10 @@ function ensureRooms () {
     "createdAt": "2026-07-15 10:00"
   }
 ]
+  for (const r of _rooms) {
+    if (r.updatedBy == null) r.updatedBy = ''
+    if (r.updatedAt == null) r.updatedAt = r.createdAt || ''
+  }
   return _rooms
 }
 

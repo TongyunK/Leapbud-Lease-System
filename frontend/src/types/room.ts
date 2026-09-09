@@ -24,5 +24,7 @@ export interface RoomRecord {
   contractRecords?: string[]
   createdBy: string
   createdAt: string
+  updatedBy: string
+  updatedAt: string
   subleaseMark?: string
 }

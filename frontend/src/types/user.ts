@@ -10,6 +10,8 @@ export interface UserRecord {
   status: UserStatus
   phone: string
   email: string
+  createdBy: string
   createdAt: string
+  updatedBy: string
   updatedAt: string
 }

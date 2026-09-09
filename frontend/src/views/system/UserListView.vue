@@ -17,6 +17,7 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { userStatusTone } from '@/constants/statusBadges'
+import AuditDetailSection from '@/components/AuditDetailSection.vue'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -46,6 +47,9 @@ const columnGetters = {
   displayName: (u: UserRecord) => u.displayName,
   role: (u: UserRecord) => u.role,
   status: (u: UserRecord) => u.status,
+  createdBy: (u: UserRecord) => u.createdBy,
+  createdAt: (u: UserRecord) => u.createdAt,
+  updatedBy: (u: UserRecord) => u.updatedBy,
   updatedAt: (u: UserRecord) => u.updatedAt,
 }
 
@@ -263,7 +267,19 @@ async function onDelete(row: UserRecord) {
           </el-table-column>
           <el-table-column prop="phone" :label="t('user.fields.phone')" min-width="120" />
           <el-table-column prop="email" :label="t('user.fields.email')" min-width="180" />
-          <el-table-column prop="updatedAt" min-width="152">
+          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="createdAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                :sort-order="sortOrderOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="updatedAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
@@ -314,6 +330,22 @@ async function onDelete(row: UserRecord) {
           <div>
             <dt>{{ t('user.fields.email') }}</dt>
             <dd>{{ row.email || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.createdBy') }}</dt>
+            <dd>{{ row.createdBy || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.createdAt') }}</dt>
+            <dd>{{ row.createdAt || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.updatedBy') }}</dt>
+            <dd>{{ row.updatedBy || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.updatedAt') }}</dt>
+            <dd>{{ row.updatedAt || '—' }}</dd>
           </div>
         </dl>
         <div class="data-card__actions action-pills">
@@ -367,6 +399,13 @@ async function onDelete(row: UserRecord) {
         <el-form-item :label="t('user.fields.email')">
           <el-input v-model="form.email" />
         </el-form-item>
+        <AuditDetailSection
+          v-if="editing"
+          :created-by="editing.createdBy"
+          :created-at="editing.createdAt"
+          :updated-by="editing.updatedBy"
+          :updated-at="editing.updatedAt"
+        />
       </el-form>
       <template #footer>
         <div class="dialog-footer">

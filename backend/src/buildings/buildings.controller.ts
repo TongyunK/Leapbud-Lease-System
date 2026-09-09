@@ -11,9 +11,10 @@ import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger
 import { UserRole } from '@prisma/client';
 import { BuildingsService } from './buildings.service';
 import { UpdateBuildingDto } from './dto/building.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentUser, actorAccount } from '../auth/current-user.decorator';
 
 @ApiTags('buildings')
 @Controller('buildings')
@@ -41,7 +42,11 @@ export class BuildingsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.admin)
-  update(@Param('id') id: string, @Body() dto: UpdateBuildingDto) {
-    return this.buildingsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateBuildingDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.buildingsService.update(id, dto, actorAccount(user));
   }
 }

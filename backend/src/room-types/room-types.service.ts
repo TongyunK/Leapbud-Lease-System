@@ -30,7 +30,7 @@ export class RoomTypesService {
     return toRoomTypeDto(row);
   }
 
-  async create(dto: CreateRoomTypeDto) {
+  async create(dto: CreateRoomTypeDto, actor = '') {
     const label = dto.label.trim();
     if (!label) throw new BadRequestException('Label is required');
 
@@ -42,6 +42,8 @@ export class RoomTypesService {
           hint: dto.hint?.trim() || '',
           sortOrder: dto.sortOrder ?? 0,
           active: dto.active ?? true,
+          createdBy: actor,
+          updatedBy: actor,
         },
       });
       return toRoomTypeDto(row);
@@ -53,7 +55,7 @@ export class RoomTypesService {
     }
   }
 
-  async update(id: string, dto: UpdateRoomTypeDto) {
+  async update(id: string, dto: UpdateRoomTypeDto, actor = '') {
     const existing = await this.prisma.roomTypeOption.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Room type ${id} not found`);
 
@@ -66,6 +68,7 @@ export class RoomTypesService {
           hint: dto.hint !== undefined ? dto.hint.trim() : undefined,
           sortOrder: dto.sortOrder,
           active: dto.active,
+          updatedBy: actor || undefined,
         },
       });
       return toRoomTypeDto(row);

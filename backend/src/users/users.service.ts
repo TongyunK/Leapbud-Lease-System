@@ -41,7 +41,7 @@ export class UsersService {
     return toUserDto(row);
   }
 
-  async create(dto: CreateUserDto) {
+  async create(dto: CreateUserDto, actor = '') {
     const account = dto.account.trim();
     const exists = await this.prisma.user.findUnique({ where: { account } });
     if (exists) throw new ConflictException('Account already exists');
@@ -56,12 +56,14 @@ export class UsersService {
         status: dto.status ?? UserStatus.active,
         phone: dto.phone?.trim() || '',
         email: dto.email?.trim() || '',
+        createdBy: actor,
+        updatedBy: actor,
       },
     });
     return toUserDto(row);
   }
 
-  async update(id: string, dto: UpdateUserDto) {
+  async update(id: string, dto: UpdateUserDto, actor = '') {
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`User ${id} not found`);
 
@@ -72,6 +74,7 @@ export class UsersService {
     if (dto.phone !== undefined) data.phone = dto.phone.trim();
     if (dto.email !== undefined) data.email = dto.email.trim();
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
+    if (actor) data.updatedBy = actor;
 
     const row = await this.prisma.user.update({ where: { id }, data });
     return toUserDto(row);

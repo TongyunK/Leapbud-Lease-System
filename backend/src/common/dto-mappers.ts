@@ -43,6 +43,9 @@ export function toBuildingDto(row: BuildingWithRooms) {
     buildingConfig: row.buildingConfig ?? undefined,
     useWbaNumber: row.useWbaNumber ?? undefined,
     active: row.active,
+    createdBy: row.createdBy,
+    createdAt: formatDateTime(row.createdAt),
+    updatedBy: row.updatedBy,
     updatedAt: formatDateTime(row.updatedAt),
   };
 }
@@ -75,6 +78,8 @@ export function toRoomDto(row: RoomWithBuilding) {
     contractRecords: row.contractRecords ?? [],
     createdBy: row.createdBy,
     createdAt: formatDateTime(row.createdAt),
+    updatedBy: row.updatedBy,
+    updatedAt: formatDateTime(row.updatedAt),
     subleaseMark: row.subleaseMark ?? undefined,
   };
 }

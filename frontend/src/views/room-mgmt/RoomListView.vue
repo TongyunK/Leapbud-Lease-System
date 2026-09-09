@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Plus, Search, CaretLeft, CaretRight, Upload, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
-import { fetchBuildings } from '@/api/buildings'
+import { fetchBuildings, fetchBuilding } from '@/api/buildings'
 import { fetchRooms } from '@/api/rooms'
 import { fetchRoomConfigs, matchSizeOption } from '@/api/room-configs'
 import { fetchRoomTypes } from '@/api/room-types'
@@ -19,12 +19,16 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
 import { roomStatusTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
 import { roomIoTemplateExampleRow, roomToIoRow } from '@/utils/roomExport'
+import { useUserStore } from '@/stores/user'
 
 const { t } = useI18n()
+const userStore = useUserStore()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
@@ -34,6 +38,8 @@ const drawerVisible = ref(false)
 const formVisible = ref(false)
 const current = ref<RoomRecord | null>(null)
 const editing = ref<RoomRecord | null>(null)
+const buildingDrawerVisible = ref(false)
+const relatedBuilding = ref<BuildingRecord | null>(null)
 
 const list = ref<RoomRecord[]>([])
 const buildings = ref<BuildingRecord[]>([])
@@ -73,6 +79,10 @@ const columnGetters = {
   sizeRange: (r: RoomRecord) => matchSizeOption(sizeOptions.value, r.sizeSqft)?.id || '',
   windowConfig: (r: RoomRecord) => r.windowConfig || '',
   acConfig: (r: RoomRecord) => r.acConfig || '',
+  createdBy: (r: RoomRecord) => r.createdBy,
+  createdAt: (r: RoomRecord) => r.createdAt,
+  updatedBy: (r: RoomRecord) => r.updatedBy,
+  updatedAt: (r: RoomRecord) => r.updatedAt,
 }
 
 const roomTypeFilterOptions = computed(() =>
@@ -277,6 +287,22 @@ function openDetail(row: RoomRecord) {
   drawerVisible.value = true
 }
 
+async function openBuildingDetail(buildingId: string) {
+  if (!buildingId) return
+  let building = buildings.value.find((b) => b.id === buildingId) || null
+  if (!building) {
+    try {
+      const res = await fetchBuilding(buildingId)
+      building = res.data
+    } catch {
+      ElMessage.warning(t('building.notFound'))
+      return
+    }
+  }
+  relatedBuilding.value = building
+  buildingDrawerVisible.value = true
+}
+
 function onRoomRowClick(row: RoomRecord, _column: unknown, event: Event) {
   const el = event.target as HTMLElement | null
   if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
@@ -387,13 +413,22 @@ function saveForm() {
     buildingName: building?.name || '',
   }
   if (editing.value) {
-    Object.assign(editing.value, payload)
+    const actor = userStore.user?.account || ''
+    Object.assign(editing.value, {
+      ...payload,
+      updatedBy: actor,
+      updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    })
   } else {
+    const actor = userStore.user?.account || 'admin'
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ')
     list.value.unshift({
       id: `r${Date.now()}`,
       ...payload,
-      createdBy: 'admin',
-      createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      createdBy: actor,
+      createdAt: now,
+      updatedBy: actor,
+      updatedAt: now,
       contractRecords: [],
     })
   }
@@ -577,6 +612,15 @@ function saveForm() {
                 @update:sort-order="(v) => setSort('buildingId', v)"
               />
             </template>
+            <template #default="{ row }">
+              <button
+                type="button"
+                class="fk-link"
+                @click.stop="openBuildingDetail((row as RoomRecord).buildingId)"
+              >
+                {{ (row as RoomRecord).buildingName }}
+              </button>
+            </template>
           </el-table-column>
           <el-table-column min-width="108">
             <template #header>
@@ -606,7 +650,7 @@ function saveForm() {
             </template>
             <template #default="{ row }">{{ money(row.monthlyRent) }}</template>
           </el-table-column>
-          <el-table-column min-width="100" align="right">
+          <el-table-column min-width="108" align="right">
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.dailyRent')"
@@ -617,7 +661,7 @@ function saveForm() {
             </template>
             <template #default="{ row }">{{ money(row.dailyRent) }}</template>
           </el-table-column>
-          <el-table-column min-width="100" align="right">
+          <el-table-column min-width="108" align="right">
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.hourlyRent')"
@@ -658,7 +702,7 @@ function saveForm() {
             </template>
             <template #default="{ row }">{{ row.windowConfig || '—' }}</template>
           </el-table-column>
-          <el-table-column min-width="118" show-overflow-tooltip>
+          <el-table-column min-width="136" show-overflow-tooltip>
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.acConfig')"
@@ -672,6 +716,28 @@ function saveForm() {
               />
             </template>
             <template #default="{ row }">{{ row.acConfig || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="createdAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                :sort-order="sortOrderOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="updatedAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedAt')"
+                sortable
+                :sort-order="sortOrderOf('updatedAt')"
+                @update:sort-order="(v) => setSort('updatedAt', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column :label="t('common.actions')" width="150" fixed="right">
             <template #default="{ row }">
@@ -697,7 +763,12 @@ function saveForm() {
         <div class="data-card__head">
           <div>
             <h3 class="data-card__title">{{ row.name }}</h3>
-            <p class="data-card__meta">{{ row.roomCode }} · {{ row.buildingName }}</p>
+            <p class="data-card__meta">
+              {{ row.roomCode }} ·
+              <button type="button" class="fk-link" @click="openBuildingDetail(row.buildingId)">
+                {{ row.buildingName }}
+              </button>
+            </p>
           </div>
           <StatusBadge :tone="roomStatusTone(row.status)" :label="t(`room.status.${row.status}`)" />
         </div>
@@ -759,7 +830,14 @@ function saveForm() {
             <div><dt>{{ t('room.fields.roomCode') }}</dt><dd>{{ current.roomCode }}</dd></div>
             <div><dt>{{ t('room.fields.name') }}</dt><dd>{{ current.name }}</dd></div>
             <div><dt>{{ t('room.fields.roomType') }}</dt><dd><RoomTypeBadge :value="current.roomType" :tone="toneForLabel(current.roomType)" /></dd></div>
-            <div><dt>{{ t('room.fields.building') }}</dt><dd>{{ current.buildingName }}</dd></div>
+            <div>
+              <dt>{{ t('room.fields.building') }}</dt>
+              <dd>
+                <button type="button" class="fk-link" @click="openBuildingDetail(current.buildingId)">
+                  {{ current.buildingName }}
+                </button>
+              </dd>
+            </div>
             <div>
               <dt>{{ t('room.fields.status') }}</dt>
               <dd><StatusBadge :tone="roomStatusTone(current.status)" :label="t(`room.status.${current.status}`)" /></dd>
@@ -810,12 +888,23 @@ function saveForm() {
               <dt>{{ t('room.fields.contractRecords') }}</dt>
               <dd>{{ current.contractRecords?.join(', ') || '—' }}</dd>
             </div>
-            <div><dt>{{ t('room.fields.createdBy') }}</dt><dd>{{ current.createdBy }}</dd></div>
-            <div><dt>{{ t('room.fields.createdAt') }}</dt><dd>{{ current.createdAt }}</dd></div>
           </dl>
         </section>
+
+        <AuditDetailSection
+          :created-by="current.createdBy"
+          :created-at="current.createdAt"
+          :updated-by="current.updatedBy"
+          :updated-at="current.updatedAt"
+        />
       </template>
     </el-drawer>
+
+    <BuildingDetailDrawer
+      v-model="buildingDrawerVisible"
+      :building="relatedBuilding"
+      desktop-direction="ltr"
+    />
 
     <el-dialog
       v-model="formVisible"

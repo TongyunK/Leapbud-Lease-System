@@ -11,7 +11,9 @@ export function toUserDto(user: User) {
     status: user.status,
     phone: user.phone,
     email: user.email,
+    createdBy: user.createdBy,
     createdAt: formatDateTime(user.createdAt),
+    updatedBy: user.updatedBy,
     updatedAt: formatDateTime(user.updatedAt),
   };
 }

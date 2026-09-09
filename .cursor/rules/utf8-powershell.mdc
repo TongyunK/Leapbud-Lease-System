@@ -1,0 +1,25 @@
+---
+description: Windows/PowerShell 下禁止破坏 UTF-8 源文件编码
+alwaysApply: true
+---
+
+# UTF-8 / PowerShell 编码红线（本机为 Windows）
+
+本仓库源码为 **UTF-8**（含中文、`—` 等）。在 Windows PowerShell 上**多次**因错误写文件方式损坏编码，导致 Vite `Unterminated string constant`、中文变 `??`/`�`。
+
+## 禁止
+
+- **禁止**用 PowerShell `Set-Content` / `Out-File` / `>` / `>>` 回写 `.vue` / `.ts` / `.css` / `.json` / `.md` / `.sql` 等源文件（默认常为系统代码页或 UTF-16，会毁掉 UTF-8）。
+- **禁止**用 `Get-Content ... -Raw` 读入后再 `Set-Content` 做批量替换来“修”前端/后端源码。
+- **禁止**在 PowerShell 里用含复杂引号/正则的 `node -e "..."` 大段内联脚本改源文件（易被 PS 解析二次破坏）。
+
+## 必须
+
+- 改源码优先用编辑工具：`ApplyPatch` / `Write` / `StrReplace`（保证按 UTF-8 写入）。
+- 若必须脚本批量处理：写成独立 `.mjs`/`.cjs` 文件，用 Node `fs.readFileSync/writeFileSync(..., 'utf8')` 执行；或 `python -c` 且显式 `encoding='utf-8'`。
+- PowerShell 若只做只读检查，可用 `rg`/`Select-String`；**不要**把检查结果写回源文件。
+- 改完含中文的文件后，若出现解析报错，先查是否出现 `�`、`??`、未闭合的 `'—` 类字符串，优先从 git 恢复该文件再重做修改（勿用 PS 二次“修复”）。
+
+## 允许的 Shell 用途
+
+- `git`、`npm`、`npx`、只读搜索、启动/查看进程等**不改写源文件内容**的命令。

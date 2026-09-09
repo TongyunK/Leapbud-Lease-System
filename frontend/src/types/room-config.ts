@@ -10,4 +10,8 @@ export interface RoomConfigOption {
   model: string
   sortOrder: number
   active: boolean
+  createdBy: string
+  createdAt: string
+  updatedBy: string
+  updatedAt: string
 }

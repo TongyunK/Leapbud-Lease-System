@@ -42,7 +42,7 @@ export class BuildingsService {
     return toBuildingDto(row);
   }
 
-  async update(id: string, dto: UpdateBuildingDto) {
+  async update(id: string, dto: UpdateBuildingDto, actor = '') {
     const existing = await this.prisma.building.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Building ${id} not found`);
 
@@ -65,6 +65,7 @@ export class BuildingsService {
         chequePaymentBy: dto.chequePaymentBy,
         paymentAdvice: dto.paymentAdvice,
         active: dto.active,
+        updatedBy: actor || undefined,
       },
       include: { rooms: { select: { id: true } } },
     });

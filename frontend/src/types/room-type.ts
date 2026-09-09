@@ -7,4 +7,8 @@ export interface RoomTypeOption {
   hint: string
   sortOrder: number
   active: boolean
+  createdBy: string
+  createdAt: string
+  updatedBy: string
+  updatedAt: string
 }

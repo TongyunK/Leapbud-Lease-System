@@ -26,5 +26,8 @@ export interface BuildingRecord {
   buildingConfig?: string
   useWbaNumber?: string
   active: boolean
+  createdBy: string
+  createdAt: string
+  updatedBy: string
   updatedAt: string
 }

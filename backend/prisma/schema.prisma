@@ -52,6 +52,10 @@ model User {
   phone        String     @default("")
   /// 邮箱
   email        String     @default("")
+  /// 创建人
+  createdBy    String     @default("") @map("created_by")
+  /// 更新人
+  updatedBy    String     @default("") @map("updated_by")
   /// 创建时间
   createdAt    DateTime   @default(now()) @map("created_at")
   /// 更新时间
@@ -82,6 +86,10 @@ model RoomConfigOption {
   sortOrder Int            @default(0) @map("sort_order")
   /// 是否启用（停用后表单不下拉展示）
   active    Boolean        @default(true)
+  /// 创建人
+  createdBy String         @default("") @map("created_by")
+  /// 更新人
+  updatedBy String         @default("") @map("updated_by")
   /// 创建时间
   createdAt DateTime       @default(now()) @map("created_at")
   /// 更新时间
@@ -106,6 +114,10 @@ model RoomTypeOption {
   sortOrder Int      @default(0) @map("sort_order")
   /// 是否启用
   active    Boolean  @default(true)
+  /// 创建人
+  createdBy String   @default("") @map("created_by")
+  /// 更新人
+  updatedBy String   @default("") @map("updated_by")
   /// 创建时间
   createdAt DateTime @default(now()) @map("created_at")
   /// 更新时间
@@ -169,6 +181,10 @@ model Building {
   useWbaNumber      String?  @map("use_wba_number")
   /// 是否启用（停用后不出现在房间快捷胶囊等）
   active            Boolean  @default(true)
+  /// 创建人
+  createdBy         String   @default("") @map("created_by")
+  /// 更新人
+  updatedBy         String   @default("") @map("updated_by")
   /// 创建时间
   createdAt         DateTime @default(now()) @map("created_at")
   /// 更新时间
@@ -226,6 +242,8 @@ model Room {
   contractRecords String[]   @default([]) @map("contract_records")
   /// 创建人
   createdBy       String     @default("") @map("created_by")
+  /// 更新人
+  updatedBy       String     @default("") @map("updated_by")
   /// 分租标记
   subleaseMark    String?    @map("sublease_mark")
   /// 创建时间

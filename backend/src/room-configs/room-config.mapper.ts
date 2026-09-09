@@ -17,7 +17,16 @@ export function toRoomConfigDto(row: RoomConfigOption) {
     model: row.model,
     sortOrder: row.sortOrder,
     active: row.active,
+    createdBy: row.createdBy,
+    createdAt: formatDateTime(row.createdAt),
+    updatedBy: row.updatedBy,
+    updatedAt: formatDateTime(row.updatedAt),
   };
+}
+
+function formatDateTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /** 由区间生成默认展示文案（呎） */

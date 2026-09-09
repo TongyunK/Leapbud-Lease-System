@@ -547,7 +547,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   --el-menu-item-height: 40px;
   --el-menu-base-level-padding: 10px;
   --el-menu-level-padding: 18px;
-  --el-menu-icon-width: 24px;
+  --el-menu-icon-width: 22px;
 }
 
 .sidebar-menu:not(.el-menu--collapse) {
@@ -586,7 +586,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 /* 参考图：白色实心剪影图标，无方框 */
 .sidebar-menu :deep(.nav-icon) {
-  margin-right: 12px;
+  margin-right: 8px;
   width: 1.35em;
   height: 1.35em;
   color: #fff;
@@ -623,7 +623,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .nav-label {
-  font-size: 0.92rem;
+  font-size: 0.84rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   overflow: hidden;
@@ -643,7 +643,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   }
 
   .nav-label {
-    font-size: 0.98rem;
+    font-size: 0.88rem;
   }
 
   .sidebar-menu :deep(.nav-icon) {
@@ -664,7 +664,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   }
 
   .nav-label {
-    font-size: 1.02rem;
+    font-size: 0.92rem;
   }
 }
 
@@ -875,13 +875,13 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .content-shell {
   flex: 1;
   min-height: 0;
-  margin: 12px 14px 14px;
+  margin: 10px 12px 12px;
   background: #fff;
   border-radius: 16px;
   border: 1px solid #e2e8e5;
   box-shadow: 0 8px 28px rgba(15, 40, 30, 0.06);
   overflow: hidden;
-  padding: 18px 20px 16px;
+  padding: 12px 14px 10px;
   display: flex;
   flex-direction: column;
 }
@@ -916,8 +916,8 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   }
 
   .content-shell {
-    margin: 8px;
-    padding: 12px;
+    margin: 6px;
+    padding: 10px;
     border-radius: 12px;
   }
 }
@@ -1007,7 +1007,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   padding: 0 12px !important;
   border-radius: 8px !important;
   color: #243029 !important;
-  font-size: 0.88rem !important;
+  font-size: 0.82rem !important;
   font-weight: 600 !important;
   display: flex !important;
   align-items: center !important;
@@ -1015,7 +1015,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .sidebar-menu-popper .el-menu-item .nav-icon {
-  margin-right: 10px !important;
+  margin-right: 8px !important;
   width: 1.15em !important;
   height: 1.15em !important;
   color: #5b6b63 !important;
@@ -1029,7 +1029,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 .sidebar-menu-popper .el-menu-item .nav-label {
   color: inherit;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 600;
 }
 

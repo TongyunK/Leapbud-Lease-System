@@ -28,7 +28,7 @@ export class RoomConfigsService {
     return toRoomConfigDto(row);
   }
 
-  async create(dto: CreateRoomConfigDto) {
+  async create(dto: CreateRoomConfigDto, actor = '') {
     const label = this.resolveLabel(dto.type, dto.label, dto.minSqft, dto.maxSqft);
     if (!label) throw new BadRequestException('Label is required');
 
@@ -42,12 +42,14 @@ export class RoomConfigsService {
         model: dto.model?.trim() || '',
         sortOrder: dto.sortOrder ?? 0,
         active: dto.active ?? true,
+        createdBy: actor,
+        updatedBy: actor,
       },
     });
     return toRoomConfigDto(row);
   }
 
-  async update(id: string, dto: UpdateRoomConfigDto) {
+  async update(id: string, dto: UpdateRoomConfigDto, actor = '') {
     const existing = await this.prisma.roomConfigOption.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Config ${id} not found`);
 
@@ -73,6 +75,7 @@ export class RoomConfigsService {
         model: dto.model !== undefined ? dto.model.trim() : undefined,
         sortOrder: dto.sortOrder,
         active: dto.active,
+        updatedBy: actor || undefined,
       },
     });
     return toRoomConfigDto(row);

@@ -20,6 +20,8 @@ export const ROOM_IO_FIELD_KEYS = [
   'latestContract',
   'createdBy',
   'createdAt',
+  'updatedBy',
+  'updatedAt',
 ] as const
 
 export type RoomIoFieldKey = (typeof ROOM_IO_FIELD_KEYS)[number]
@@ -51,8 +53,10 @@ export function roomToIoRow(
     [t('room.fields.description')]: r.description || '',
     [t('room.fields.remark')]: r.remark || '',
     [t('room.fields.latestContract')]: r.latestContract || '',
-    [t('room.fields.createdBy')]: r.createdBy || '',
-    [t('room.fields.createdAt')]: r.createdAt || '',
+    [t('common.createdBy')]: r.createdBy || '',
+    [t('common.createdAt')]: r.createdAt || '',
+    [t('common.updatedBy')]: r.updatedBy || '',
+    [t('common.updatedAt')]: r.updatedAt || '',
   }
 }
 
@@ -78,7 +82,9 @@ export function roomIoTemplateExampleRow(
     [h('description')]: '',
     [h('remark')]: '',
     [h('latestContract')]: '',
-    [h('createdBy')]: '',
-    [h('createdAt')]: '',
+    [t('common.createdBy')]: '',
+    [t('common.createdAt')]: '',
+    [t('common.updatedBy')]: '',
+    [t('common.updatedAt')]: '',
   }
 }

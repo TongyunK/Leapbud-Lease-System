@@ -16,6 +16,8 @@ import { CreateRoomConfigDto, UpdateRoomConfigDto } from './dto/room-config.dto'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentUser, actorAccount } from '../auth/current-user.decorator';
+import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 @ApiTags('room-configs')
 @Controller('room-configs')
@@ -44,16 +46,20 @@ export class RoomConfigsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.admin)
-  create(@Body() dto: CreateRoomConfigDto) {
-    return this.roomConfigsService.create(dto);
+  create(@Body() dto: CreateRoomConfigDto, @CurrentUser() user?: JwtPayload) {
+    return this.roomConfigsService.create(dto, actorAccount(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.admin)
-  update(@Param('id') id: string, @Body() dto: UpdateRoomConfigDto) {
-    return this.roomConfigsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateRoomConfigDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.roomConfigsService.update(id, dto, actorAccount(user));
   }
 
   @Delete(':id')

@@ -12,6 +12,8 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AcIcon: typeof import('./components/icons/AcIcon.vue')['default']
+    AuditDetailSection: typeof import('./components/AuditDetailSection.vue')['default']
+    BuildingDetailDrawer: typeof import('./components/BuildingDetailDrawer.vue')['default']
     DoorIcon: typeof import('./components/icons/DoorIcon.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
@@ -41,6 +43,7 @@ declare module 'vue' {
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
     ElTag: typeof import('element-plus/es')['ElTag']
+    ElTimePicker: typeof import('element-plus/es')['ElTimePicker']
     ExportIcon: typeof import('./components/icons/ExportIcon.vue')['default']
     GlobalStatusDialog: typeof import('./components/GlobalStatusDialog.vue')['default']
     LanguageSwitcher: typeof import('./components/LanguageSwitcher.vue')['default']
@@ -51,7 +54,9 @@ declare module 'vue' {
     StatusBadge: typeof import('./components/StatusBadge.vue')['default']
     TableColumnHeader: typeof import('./components/TableColumnHeader.vue')['default']
     TablePagination: typeof import('./components/TablePagination.vue')['default']
+    TimeHmField: typeof import('./components/TimeHmField.vue')['default']
     WindowIcon: typeof import('./components/icons/WindowIcon.vue')['default']
+    WorkingHoursField: typeof import('./components/WorkingHoursField.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

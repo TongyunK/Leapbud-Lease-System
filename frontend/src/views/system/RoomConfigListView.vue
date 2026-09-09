@@ -18,6 +18,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import SizeIcon from '@/components/icons/SizeIcon.vue'
 import WindowIcon from '@/components/icons/WindowIcon.vue'
 import AcIcon from '@/components/icons/AcIcon.vue'
+import AuditDetailSection from '@/components/AuditDetailSection.vue'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -312,6 +313,22 @@ async function toggleActive(row: RoomConfigOption) {
               <el-switch :model-value="row.active" @change="() => toggleActive(row)" />
             </template>
           </el-table-column>
+          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column
+            prop="createdAt"
+            :label="t('common.createdAt')"
+            width="160"
+            class-name="col-datetime"
+            label-class-name="col-datetime"
+          />
+          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column
+            prop="updatedAt"
+            :label="t('common.updatedAt')"
+            width="160"
+            class-name="col-datetime"
+            label-class-name="col-datetime"
+          />
           <el-table-column :label="t('common.actions')" width="150" fixed="right">
             <template #default="{ row }">
               <div class="action-pills">
@@ -390,6 +407,13 @@ async function toggleActive(row: RoomConfigOption) {
             <el-switch v-model="form.active" />
           </el-form-item>
         </div>
+        <AuditDetailSection
+          v-if="editing"
+          :created-by="editing.createdBy"
+          :created-at="editing.createdAt"
+          :updated-by="editing.updatedBy"
+          :updated-at="editing.updatedAt"
+        />
       </el-form>
       <template #footer>
         <div class="dialog-footer">

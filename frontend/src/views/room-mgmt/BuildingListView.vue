@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Upload, Download } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 import { fetchBuildings, updateBuildingApi } from '@/api/buildings'
 import type { BuildingRecord } from '@/types/building'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -9,8 +11,14 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
+import ExportIcon from '@/components/icons/ExportIcon.vue'
+import WorkingHoursField from '@/components/WorkingHoursField.vue'
+import { buildingIoTemplateExampleRow, buildingToIoRow } from '@/utils/buildingExport'
+import { useUserStore } from '@/stores/user'
 
 const { t } = useI18n()
+const userStore = useUserStore()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
@@ -20,6 +28,7 @@ const drawerVisible = ref(false)
 const formVisible = ref(false)
 const current = ref<BuildingRecord | null>(null)
 const editing = ref<BuildingRecord | null>(null)
+const importInputRef = ref<HTMLInputElement | null>(null)
 
 const list = ref<BuildingRecord[]>([])
 
@@ -39,6 +48,9 @@ const columnGetters = {
   manager: (b: BuildingRecord) => b.manager,
   roomCount: (b: BuildingRecord) => b.roomIds.length,
   active: (b: BuildingRecord) => String(b.active),
+  createdBy: (b: BuildingRecord) => b.createdBy,
+  createdAt: (b: BuildingRecord) => b.createdAt,
+  updatedBy: (b: BuildingRecord) => b.updatedBy,
   updatedAt: (b: BuildingRecord) => b.updatedAt,
 }
 
@@ -80,8 +92,7 @@ onMounted(() => {
   void loadList()
 })
 
-const dialogWidth = computed(() => (isMobile.value ? '94%' : '720px'))
-const drawerSize = computed(() => (isMobile.value ? '100%' : '520px'))
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 
 const form = reactive({
   name: '',
@@ -105,6 +116,49 @@ const form = reactive({
 function openDetail(row: BuildingRecord) {
   current.value = row
   drawerVisible.value = true
+}
+
+function onBuildingRowClick(row: BuildingRecord, _column: unknown, event: Event) {
+  const el = event.target as HTMLElement | null
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
+  openDetail(row)
+}
+
+function onDataIoCommand(cmd: string | number) {
+  if (cmd === 'import') {
+    importInputRef.value?.click()
+    return
+  }
+  if (cmd === 'template') {
+    const example = buildingIoTemplateExampleRow(t)
+    const ws = XLSX.utils.json_to_sheet([example])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Buildings')
+    XLSX.writeFile(wb, 'buildings-import-template.xlsx')
+    ElMessage.success(t('building.templateDone'))
+    return
+  }
+  if (cmd === 'export') {
+    const rows = filtered.value
+    if (!rows.length) {
+      ElMessage.warning(t('building.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((b) => buildingToIoRow(b, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Buildings')
+    XLSX.writeFile(wb, `buildings-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    ElMessage.success(t('building.exportDone', { n: rows.length }))
+  }
+}
+
+function onImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  ElMessage.info(t('building.importPending', { name: file.name }))
 }
 
 function openCreate() {
@@ -172,18 +226,19 @@ async function saveForm() {
       return
     }
   } else {
+    const actor = userStore.user?.account || ''
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ')
     list.value.unshift({
       id: `b${Date.now()}`,
       ...form,
       roomIds: [],
-      updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      createdBy: actor,
+      createdAt: now,
+      updatedBy: actor,
+      updatedAt: now,
     })
   }
   formVisible.value = false
-}
-
-function fileLabel(name?: string) {
-  return name || t('common.none')
 }
 </script>
 
@@ -202,14 +257,56 @@ function fileLabel(name?: string) {
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('building.create') }}
         </el-button>
+        <el-dropdown
+          trigger="hover"
+          placement="bottom-end"
+          popper-class="room-io-popper"
+          @command="onDataIoCommand"
+        >
+          <el-button class="room-io-btn" :aria-label="t('building.dataIo')">
+            <el-icon :size="16"><ExportIcon /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="import">
+                <el-icon><Upload /></el-icon>
+                <span>{{ t('building.import') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="template">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('building.downloadTemplate') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export" divided>
+                <el-icon><Download /></el-icon>
+                <span>{{ t('building.export') }}</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <input
+          ref="importInputRef"
+          type="file"
+          class="room-io-file"
+          accept=".xlsx,.xls,.csv"
+          @change="onImportFile"
+        />
       </div>
     </div>
 
     <div v-if="!useCards" class="table-card" v-loading="loading">
       <div class="table-scroll">
-        <el-table :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
+        <el-table
+          :data="paged"
+          height="100%"
+          stripe
+          border
+          empty-text="—"
+          class="building-table--clickable"
+          style="width: 100%"
+          @row-click="onBuildingRowClick"
+        >
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
-          <el-table-column prop="name" min-width="220">
+          <el-table-column prop="name" min-width="168">
             <template #header>
               <TableColumnHeader
                 :label="t('building.fields.name')"
@@ -227,7 +324,7 @@ function fileLabel(name?: string) {
             label-class-name="col-address"
             show-overflow-tooltip
           />
-          <el-table-column prop="manager" min-width="128">
+          <el-table-column prop="manager" min-width="110">
             <template #header>
               <TableColumnHeader
                 :label="t('building.fields.manager')"
@@ -241,10 +338,10 @@ function fileLabel(name?: string) {
               />
             </template>
           </el-table-column>
-          <el-table-column prop="managerPhone" :label="t('building.fields.managerPhone')" min-width="142" />
+          <el-table-column prop="managerPhone" :label="t('building.fields.managerPhone')" min-width="130" />
           <el-table-column prop="email" :label="t('building.fields.email')" min-width="200" />
           <el-table-column prop="workingHours" :label="t('building.fields.workingHours')" min-width="176" />
-          <el-table-column min-width="128" align="center">
+          <el-table-column min-width="88" align="center">
             <template #header>
               <TableColumnHeader
                 :label="t('building.fields.rooms')"
@@ -254,10 +351,15 @@ function fileLabel(name?: string) {
               />
             </template>
             <template #default="{ row }">
-              <el-tag effect="plain">{{ row.roomIds.length }}</el-tag>
+              <span
+                class="lb-room-count"
+                :class="{ 'is-empty': !(row as BuildingRecord).roomIds.length }"
+              >
+                {{ (row as BuildingRecord).roomIds.length }}
+              </span>
             </template>
           </el-table-column>
-          <el-table-column width="128">
+          <el-table-column width="88" align="center">
             <template #header>
               <TableColumnHeader
                 :label="t('building.fields.active')"
@@ -268,10 +370,25 @@ function fileLabel(name?: string) {
               />
             </template>
             <template #default="{ row }">
-              <el-switch :model-value="row.active" @change="() => toggleActive(row)" />
+              <el-switch
+                :model-value="(row as BuildingRecord).active"
+                @change="() => toggleActive(row as BuildingRecord)"
+              />
             </template>
           </el-table-column>
-          <el-table-column prop="updatedAt" min-width="152">
+          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="createdAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                :sort-order="sortOrderOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="updatedAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
@@ -284,10 +401,10 @@ function fileLabel(name?: string) {
           <el-table-column :label="t('common.actions')" width="150" fixed="right">
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--view" @click="openDetail(row as BuildingRecord)">
+                <button type="button" class="action-pill action-pill--view" @click.stop="openDetail(row as BuildingRecord)">
                   {{ t('common.detail') }}
                 </button>
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row as BuildingRecord)">
+                <button type="button" class="action-pill action-pill--edit" @click.stop="openEdit(row as BuildingRecord)">
                   {{ t('common.edit') }}
                 </button>
               </div>
@@ -307,7 +424,9 @@ function fileLabel(name?: string) {
             <h3 class="data-card__title">{{ row.name }}</h3>
             <p class="data-card__meta">{{ row.address }}</p>
           </div>
-          <el-tag effect="plain">{{ row.roomIds.length }} {{ t('building.fields.rooms') }}</el-tag>
+          <el-tag effect="plain" class="lb-room-count-tag" :class="{ 'is-empty': !row.roomIds.length }">
+            {{ row.roomIds.length }} {{ t('building.fields.rooms') }}
+          </el-tag>
         </div>
         <dl class="data-card__grid">
           <div>
@@ -333,8 +452,20 @@ function fileLabel(name?: string) {
             </dd>
           </div>
           <div>
+            <dt>{{ t('common.createdBy') }}</dt>
+            <dd>{{ row.createdBy || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.createdAt') }}</dt>
+            <dd>{{ row.createdAt || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.updatedBy') }}</dt>
+            <dd>{{ row.updatedBy || '—' }}</dd>
+          </div>
+          <div>
             <dt>{{ t('common.updatedAt') }}</dt>
-            <dd>{{ row.updatedAt }}</dd>
+            <dd>{{ row.updatedAt || '—' }}</dd>
           </div>
         </dl>
         <div class="data-card__actions">
@@ -352,73 +483,7 @@ function fileLabel(name?: string) {
       </div>
     </div>
 
-    <el-drawer
-      v-model="drawerVisible"
-      :size="drawerSize"
-      :title="t('building.detailTitle')"
-      :direction="isMobile ? 'btt' : 'rtl'"
-      class="responsive-drawer"
-    >
-      <template v-if="current">
-        <section class="detail-section">
-          <h3>{{ t('building.sections.basic') }}</h3>
-          <dl class="detail-grid">
-            <div><dt>{{ t('building.fields.name') }}</dt><dd>{{ current.name }}</dd></div>
-            <div><dt>{{ t('building.fields.address') }}</dt><dd>{{ current.address }}</dd></div>
-            <div><dt>{{ t('building.fields.addressEn') }}</dt><dd>{{ current.addressEn }}</dd></div>
-            <div><dt>{{ t('building.fields.manager') }}</dt><dd>{{ current.manager }}</dd></div>
-            <div><dt>{{ t('building.fields.managerPhone') }}</dt><dd>{{ current.managerPhone }}</dd></div>
-            <div><dt>{{ t('building.fields.email') }}</dt><dd>{{ current.email }}</dd></div>
-            <div><dt>{{ t('building.fields.workingHours') }}</dt><dd>{{ current.workingHours }}</dd></div>
-            <div>
-              <dt>{{ t('building.fields.active') }}</dt>
-              <dd>{{ current.active ? t('user.status.active') : t('user.status.disabled') }}</dd>
-            </div>
-            <div><dt>{{ t('building.fields.buildingConfig') }}</dt><dd>{{ current.buildingConfig || '—' }}</dd></div>
-            <div><dt>{{ t('building.fields.useWbaNumber') }}</dt><dd>{{ current.useWbaNumber || '—' }}</dd></div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
-          <h3>{{ t('building.sections.finance') }}</h3>
-          <dl class="detail-grid">
-            <div><dt>FPS_ID</dt><dd>{{ current.fpsId || '—' }}</dd></div>
-            <div><dt>{{ t('building.fields.bankAccountHolder') }}</dt><dd>{{ current.bankAccountHolder || '—' }}</dd></div>
-            <div><dt>{{ t('building.fields.bankAccount') }}</dt><dd>{{ current.bankAccount || '—' }}</dd></div>
-            <div><dt>Cheque Payment By</dt><dd>{{ current.chequePaymentBy || '—' }}</dd></div>
-            <div><dt>Payment Advice</dt><dd>{{ current.paymentAdvice || '—' }}</dd></div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
-          <h3>{{ t('building.sections.templates') }}</h3>
-          <dl class="detail-grid">
-            <div><dt>{{ t('building.fields.agreementTemplate') }}</dt><dd>{{ fileLabel(current.agreementTemplate) }}</dd></div>
-            <div><dt>{{ t('building.fields.invoiceTemplate') }}</dt><dd>{{ fileLabel(current.invoiceTemplate) }}</dd></div>
-            <div><dt>{{ t('building.fields.receiptTemplate') }}</dt><dd>{{ fileLabel(current.receiptTemplate) }}</dd></div>
-            <div><dt>{{ t('building.fields.apiTemplateSuffix') }}</dt><dd>{{ current.apiTemplateSuffix || '—' }}</dd></div>
-          </dl>
-          <div class="logo-row">
-            <div
-              v-for="item in [
-                { label: t('building.fields.agreementLogo'), src: current.agreementLogo },
-                { label: 'logo2', src: current.logo2 },
-                { label: t('building.fields.invoiceLogo'), src: current.invoiceLogo },
-                { label: t('building.fields.receiptTopLogo'), src: current.receiptTopLogo },
-                { label: t('building.fields.receiptLeftLogo'), src: current.receiptLeftLogo },
-                { label: t('building.fields.receiptRightLogo'), src: current.receiptRightLogo },
-              ]"
-              :key="item.label"
-              class="logo-item"
-            >
-              <span>{{ item.label }}</span>
-              <img v-if="item.src" :src="item.src" alt="" />
-              <em v-else>—</em>
-            </div>
-          </div>
-        </section>
-      </template>
-    </el-drawer>
+    <BuildingDetailDrawer v-model="drawerVisible" :building="current" />
 
     <el-dialog
       v-model="formVisible"
@@ -429,7 +494,7 @@ function fileLabel(name?: string) {
       align-center
       class="lb-dialog"
     >
-      <el-form label-position="top">
+      <el-form label-position="top" class="building-form">
         <div class="form-grid">
           <div class="form-section">
             <h3>{{ t('building.sections.basic') }}</h3>
@@ -452,14 +517,14 @@ function fileLabel(name?: string) {
           <el-form-item :label="t('building.fields.email')">
             <el-input v-model="form.email" />
           </el-form-item>
-          <el-form-item :label="t('building.fields.workingHours')">
-            <el-input v-model="form.workingHours" />
-          </el-form-item>
-          <el-form-item :label="t('building.fields.active')">
-            <el-switch v-model="form.active" />
+          <el-form-item :label="t('building.fields.workingHours')" class="span-2">
+            <WorkingHoursField v-model="form.workingHours" />
           </el-form-item>
           <el-form-item :label="t('building.fields.buildingConfig')">
             <el-input v-model="form.buildingConfig" />
+          </el-form-item>
+          <el-form-item :label="t('building.fields.active')">
+            <el-switch v-model="form.active" />
           </el-form-item>
 
           <div class="form-section">
@@ -497,32 +562,16 @@ function fileLabel(name?: string) {
 </template>
 
 <style scoped>
-.logo-row {
-  margin-top: 14px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+.building-table--clickable :deep(.el-table__body tr) {
+  cursor: pointer;
 }
 
-.logo-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--lb-muted);
+.building-form :deep(.el-form-item) {
+  margin-bottom: 10px;
 }
 
-.logo-item img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid var(--lb-border);
-}
-
-@media (max-width: 640px) {
-  .logo-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.building-form :deep(.el-form-item__label) {
+  margin-bottom: 4px !important;
+  line-height: 1.2;
 }
 </style>

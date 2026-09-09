@@ -16,6 +16,8 @@ import { CreateRoomTypeDto, UpdateRoomTypeDto } from './dto/room-type.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentUser, actorAccount } from '../auth/current-user.decorator';
+import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 @ApiTags('room-types')
 @Controller('room-types')
@@ -39,16 +41,20 @@ export class RoomTypesController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.admin)
-  create(@Body() dto: CreateRoomTypeDto) {
-    return this.roomTypesService.create(dto);
+  create(@Body() dto: CreateRoomTypeDto, @CurrentUser() user?: JwtPayload) {
+    return this.roomTypesService.create(dto, actorAccount(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.admin)
-  update(@Param('id') id: string, @Body() dto: UpdateRoomTypeDto) {
-    return this.roomTypesService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateRoomTypeDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.roomTypesService.update(id, dto, actorAccount(user));
   }
 
   @Delete(':id')
