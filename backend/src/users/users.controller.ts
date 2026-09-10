@@ -7,7 +7,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { CurrentUser, actorAccount } from '../auth/current-user.decorator';
+import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 @ApiTags('users')
@@ -32,7 +32,7 @@ export class UsersController {
 
   @Post()
   create(@Body() dto: CreateUserDto, @CurrentUser() user?: JwtPayload) {
-    return this.usersService.create(dto, actorAccount(user));
+    return this.usersService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
@@ -41,7 +41,7 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.usersService.update(id, dto, actorAccount(user));
+    return this.usersService.update(id, dto, actorUserId(user));
   }
 
   @Delete(':id')

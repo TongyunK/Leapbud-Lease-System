@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { Plus, Search, CaretLeft, CaretRight, Upload, Download } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import * as XLSX from 'xlsx'
 import { fetchBuildings, fetchBuilding } from '@/api/buildings'
-import { fetchRooms } from '@/api/rooms'
+import {
+  fetchRooms,
+  createRoomApi,
+  updateRoomApi,
+  importRoomsApi,
+} from '@/api/rooms'
+import type { RoomWritePayload } from '@/api/rooms'
 import { fetchRoomConfigs, matchSizeOption } from '@/api/room-configs'
 import { fetchRoomTypes } from '@/api/room-types'
 import type { BuildingRecord } from '@/types/building'
@@ -21,14 +22,31 @@ import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
+import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
+import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import { roomStatusTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
-import { roomIoTemplateExampleRow, roomToIoRow } from '@/utils/roomExport'
+import {
+  roomIoTemplateExampleRow,
+  roomToIoRow,
+  rowToRoomIoPayload,
+} from '@/utils/roomExport'
 import { useUserStore } from '@/stores/user'
+import { useImportProgress } from '@/composables/useImportProgress'
+import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { useActionColWidth } from '@/composables/useActionColWidth'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Plus, Search, CaretLeft, CaretRight, Upload, Download } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 const { t } = useI18n()
 const userStore = useUserStore()
+const isAdmin = computed(() => userStore.isAdmin)
+const { actionColWidth } = useActionColWidth()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
@@ -39,7 +57,11 @@ const formVisible = ref(false)
 const current = ref<RoomRecord | null>(null)
 const editing = ref<RoomRecord | null>(null)
 const buildingDrawerVisible = ref(false)
+const relatedRoomsDrawer = ref(false)
+const relatedRoomDrawer = ref(false)
 const relatedBuilding = ref<BuildingRecord | null>(null)
+const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
+const relatedRoom = ref<RoomRecord | null>(null)
 
 const list = ref<RoomRecord[]>([])
 const buildings = ref<BuildingRecord[]>([])
@@ -303,6 +325,17 @@ async function openBuildingDetail(buildingId: string) {
   buildingDrawerVisible.value = true
 }
 
+function openRoomsSide(row: BuildingRecord) {
+  if (!row.roomIds?.length) return
+  relatedRoomsBuilding.value = row
+  relatedRoomsDrawer.value = true
+}
+
+function onOpenRoomFromList(room: RoomRecord) {
+  relatedRoom.value = room
+  relatedRoomDrawer.value = true
+}
+
 function onRoomRowClick(row: RoomRecord, _column: unknown, event: Event) {
   const el = event.target as HTMLElement | null
   if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
@@ -310,6 +343,19 @@ function onRoomRowClick(row: RoomRecord, _column: unknown, event: Event) {
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
+const {
+  state: importState,
+  percentage: importPercentage,
+  importing,
+  begin: beginImport,
+  setTotal: setImportTotal,
+  setPreparing: setImportPreparing,
+  setProcessing: setImportProcessing,
+  bump: bumpImport,
+  finish: finishImport,
+  fail: failImport,
+  close: closeImport,
+} = useImportProgress()
 
 function onDataIoCommand(cmd: string | number) {
   if (cmd === 'import') {
@@ -349,11 +395,85 @@ function exportRoomsXlsx() {
 }
 
 function onImportFile(ev: Event) {
+  void runImportFile(ev)
+}
+
+async function runImportFile(ev: Event) {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  ElMessage.info(t('room.importPending', { name: file.name }))
+  if (!isAdmin.value) {
+    ElMessage.warning(t('room.importAdminOnly'))
+    return
+  }
+
+  beginImport({
+    fileName: file.name,
+    statKeys: ['created', 'updated', 'skipped', 'unlinked', 'failed'],
+  })
+  try {
+    setImportPreparing()
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const sheet = wb.Sheets[wb.SheetNames[0]]
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    if (!rawRows.length) {
+      finishImport({ tone: 'warning', message: t('room.importEmpty') })
+      return
+    }
+
+    const payloads: RoomWritePayload[] = []
+    for (const row of rawRows) {
+      const parsed = rowToRoomIoPayload(row, t)
+      if (!parsed) {
+        bumpImport('skipped')
+        continue
+      }
+      payloads.push({
+        roomCode: parsed.roomCode,
+        name: parsed.name,
+        roomType: parsed.roomType,
+        buildingName: parsed.buildingName,
+        status: parsed.status,
+        serialNo: parsed.serialNo,
+        monthlyRent: parsed.monthlyRent,
+        dailyRent: parsed.dailyRent,
+        hourlyRent: parsed.hourlyRent,
+        sizeSqft: parsed.sizeSqft,
+        windowConfig: parsed.windowConfig,
+        acConfig: parsed.acConfig,
+        subleaseMark: parsed.subleaseMark,
+        description: parsed.description,
+        remark: parsed.remark,
+        latestContract: parsed.latestContract,
+      })
+    }
+
+    setImportTotal(rawRows.length)
+    const batches = chunkArray(payloads, IMPORT_BATCH_SIZE)
+    let processed = importState.stats.skipped
+    for (const batch of batches) {
+      processed += batch.length
+      setImportProcessing(Math.min(processed, rawRows.length))
+      try {
+        const { data } = await importRoomsApi(batch)
+        if (data.created) bumpImport('created', data.created)
+        if (data.updated) bumpImport('updated', data.updated)
+        if (data.skipped) bumpImport('skipped', data.skipped)
+        if (data.unlinked) bumpImport('unlinked', data.unlinked)
+        if (data.failed) bumpImport('failed', data.failed)
+      } catch {
+        bumpImport('failed', batch.length)
+      }
+    }
+
+    await loadList()
+    resetPage()
+    finishImport()
+  } catch {
+    failImport(t('room.importFailed'))
+  }
 }
 
 function openCreate() {
@@ -405,34 +525,45 @@ function acOptionLabel(opt: RoomConfigOption) {
   return extra ? `${opt.label}（${extra}）` : opt.label
 }
 
-function saveForm() {
+async function saveForm() {
   if (!form.roomCode.trim() || !form.name.trim()) return
-  const building = buildings.value.find((b) => b.id === form.buildingId)
-  const payload = {
-    ...form,
-    buildingName: building?.name || '',
+  if (!form.buildingId) {
+    ElMessage.warning(t('room.buildingRequired'))
+    return
   }
-  if (editing.value) {
-    const actor = userStore.user?.account || ''
-    Object.assign(editing.value, {
-      ...payload,
-      updatedBy: actor,
-      updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
-    })
-  } else {
-    const actor = userStore.user?.account || 'admin'
-    const now = new Date().toISOString().slice(0, 16).replace('T', ' ')
-    list.value.unshift({
-      id: `r${Date.now()}`,
-      ...payload,
-      createdBy: actor,
-      createdAt: now,
-      updatedBy: actor,
-      updatedAt: now,
-      contractRecords: [],
-    })
+  const payload: RoomWritePayload = {
+    roomCode: form.roomCode.trim(),
+    name: form.name.trim(),
+    roomType: form.roomType,
+    buildingId: form.buildingId,
+    status: form.status as RoomStatus,
+    serialNo: form.serialNo,
+    monthlyRent: form.monthlyRent,
+    dailyRent: form.dailyRent,
+    hourlyRent: form.hourlyRent,
+    sizeSqft: form.sizeSqft,
+    description: form.description,
+    remark: form.remark,
+    windowConfig: form.windowConfig,
+    acConfig: form.acConfig,
+    subleaseMark: form.subleaseMark,
   }
-  formVisible.value = false
+  try {
+    if (editing.value) {
+      await updateRoomApi(editing.value.id, payload)
+    } else {
+      if (!isAdmin.value) {
+        ElMessage.warning(t('room.importAdminOnly'))
+        return
+      }
+      await createRoomApi(payload)
+    }
+    formVisible.value = false
+    await loadList()
+    resetPage()
+  } catch {
+    /* interceptor */
+  }
 }
 </script>
 
@@ -523,12 +654,12 @@ function saveForm() {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('room.dataIo')">
+          <el-button class="room-io-btn" :aria-label="t('room.dataIo')" :loading="importing">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="import">
+              <el-dropdown-item v-if="isAdmin" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('room.import') }}</span>
               </el-dropdown-item>
@@ -739,7 +870,13 @@ function saveForm() {
               />
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.actions')" width="150" fixed="right">
+          <el-table-column
+            :label="t('common.actions')"
+            :width="actionColWidth.two"
+            fixed="right"
+            class-name="col-actions"
+            label-class-name="col-actions"
+          >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button type="button" class="action-pill action-pill--view" @click="openDetail(row as RoomRecord)">
@@ -904,6 +1041,19 @@ function saveForm() {
       v-model="buildingDrawerVisible"
       :building="relatedBuilding"
       desktop-direction="ltr"
+      @open-rooms="openRoomsSide"
+    />
+    <RelatedRoomsDrawer
+      v-model="relatedRoomsDrawer"
+      :building="relatedRoomsBuilding"
+      desktop-direction="ltr"
+      @open-room="onOpenRoomFromList"
+    />
+    <RoomDetailDrawer
+      v-model="relatedRoomDrawer"
+      :room="relatedRoom"
+      desktop-direction="ltr"
+      @open-building="openBuildingDetail"
     />
 
     <el-dialog
@@ -1015,6 +1165,21 @@ function saveForm() {
         <el-button type="primary" @click="saveForm">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
+
+    <ImportProgressDialog
+      v-model="importState.visible"
+      :phase="importState.phase"
+      :file-name="importState.fileName"
+      :total="importState.total"
+      :current="importState.current"
+      :percentage="importPercentage"
+      :status-key="importState.statusKey"
+      :stats="importState.stats"
+      :result-tone="importState.resultTone"
+      :result-message="importState.resultMessage"
+      :result-stat-keys="importState.resultStatKeys"
+      @close="closeImport"
+    />
   </div>
 </template>
 

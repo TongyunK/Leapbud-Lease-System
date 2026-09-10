@@ -17,11 +17,13 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { userStatusTone } from '@/constants/statusBadges'
+import { useActionColWidth } from '@/composables/useActionColWidth'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
+const { actionColWidth } = useActionColWidth()
 
 const keyword = ref('')
 const loading = ref(false)
@@ -179,7 +181,7 @@ async function saveForm() {
 
 async function onDelete(row: UserRecord) {
   try {
-    await ElMessageBox.confirm(t('user.deleteConfirm', { account: row.account }), t('common.confirm'), {
+    await ElMessageBox.confirm(t('user.deleteConfirm', { account: row.account }), t('common.deleteTitle'), {
       type: 'warning',
     })
     await deleteUserApi(row.id)
@@ -289,7 +291,13 @@ async function onDelete(row: UserRecord) {
               />
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.actions')" width="150" fixed="right">
+          <el-table-column
+            :label="t('common.actions')"
+            :width="actionColWidth.two"
+            fixed="right"
+            class-name="col-actions"
+            label-class-name="col-actions"
+          >
             <template #default="{ row }">
               <div class="action-pills">
                 <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">

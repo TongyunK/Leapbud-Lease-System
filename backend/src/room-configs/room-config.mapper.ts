@@ -1,4 +1,5 @@
 import { RoomConfigOption, Prisma } from '@prisma/client';
+import { auditActorLabel, auditUserInclude, type AuditUserRef } from '../common/audit';
 
 function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number | null {
   if (value == null) return null;
@@ -6,7 +7,14 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
   return Number(value.toString());
 }
 
-export function toRoomConfigDto(row: RoomConfigOption) {
+export type RoomConfigWithAudit = RoomConfigOption & {
+  createdByUser?: AuditUserRef | null;
+  updatedByUser?: AuditUserRef | null;
+};
+
+export const roomConfigAuditInclude = auditUserInclude;
+
+export function toRoomConfigDto(row: RoomConfigWithAudit) {
   return {
     id: row.id,
     type: row.type,
@@ -17,9 +25,9 @@ export function toRoomConfigDto(row: RoomConfigOption) {
     model: row.model,
     sortOrder: row.sortOrder,
     active: row.active,
-    createdBy: row.createdBy,
+    createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),
-    updatedBy: row.updatedBy,
+    updatedBy: auditActorLabel(row.updatedByUser),
     updatedAt: formatDateTime(row.updatedAt),
   };
 }

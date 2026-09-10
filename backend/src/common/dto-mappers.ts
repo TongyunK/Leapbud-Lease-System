@@ -1,4 +1,5 @@
 import { Building, Room, Prisma } from '@prisma/client';
+import { auditActorLabel, auditUserInclude, type AuditUserRef } from './audit';
 
 function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number {
   if (value == null) return 0;
@@ -11,7 +12,16 @@ function formatDateTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export type BuildingWithRooms = Building & { rooms?: Pick<Room, 'id'>[] };
+export type BuildingWithRooms = Building & {
+  rooms?: Pick<Room, 'id'>[];
+  createdByUser?: AuditUserRef | null;
+  updatedByUser?: AuditUserRef | null;
+};
+
+export const buildingListInclude = {
+  rooms: { select: { id: true } },
+  ...auditUserInclude,
+} as const;
 
 /** 对齐前端 BuildingRecord */
 export function toBuildingDto(row: BuildingWithRooms) {
@@ -43,14 +53,23 @@ export function toBuildingDto(row: BuildingWithRooms) {
     buildingConfig: row.buildingConfig ?? undefined,
     useWbaNumber: row.useWbaNumber ?? undefined,
     active: row.active,
-    createdBy: row.createdBy,
+    createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),
-    updatedBy: row.updatedBy,
+    updatedBy: auditActorLabel(row.updatedByUser),
     updatedAt: formatDateTime(row.updatedAt),
   };
 }
 
-export type RoomWithBuilding = Room & { building?: Pick<Building, 'name'> | null };
+export type RoomWithBuilding = Room & {
+  building?: Pick<Building, 'name'> | null;
+  createdByUser?: AuditUserRef | null;
+  updatedByUser?: AuditUserRef | null;
+};
+
+export const roomListInclude = {
+  building: { select: { name: true } },
+  ...auditUserInclude,
+} as const;
 
 /** 对齐前端 RoomRecord */
 export function toRoomDto(row: RoomWithBuilding) {
@@ -76,9 +95,9 @@ export function toRoomDto(row: RoomWithBuilding) {
     acConfig: row.acConfig ?? undefined,
     latestContract: row.latestContract ?? undefined,
     contractRecords: row.contractRecords ?? [],
-    createdBy: row.createdBy,
+    createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),
-    updatedBy: row.updatedBy,
+    updatedBy: auditActorLabel(row.updatedByUser),
     updatedAt: formatDateTime(row.updatedAt),
     subleaseMark: row.subleaseMark ?? undefined,
   };

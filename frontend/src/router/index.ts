@@ -50,6 +50,26 @@ const router = createRouter({
           },
         },
         {
+          path: 'customer-mgmt/customers',
+          name: 'customers',
+          component: () => import('@/views/customer-mgmt/CustomerListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.customers',
+            subtitleKey: 'customer.subtitle',
+          },
+        },
+        {
+          path: 'customer-mgmt/occupants',
+          name: 'occupants',
+          component: () => import('@/views/customer-mgmt/OccupantListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.occupants',
+            subtitleKey: 'occupant.subtitle',
+          },
+        },
+        {
           path: 'system/users',
           name: 'users',
           component: () => import('@/views/system/UserListView.vue'),
@@ -61,7 +81,7 @@ const router = createRouter({
           },
         },
         {
-          path: 'system/room-configs',
+          path: 'room-mgmt/room-configs',
           name: 'roomConfigs',
           component: () => import('@/views/system/RoomConfigListView.vue'),
           meta: {
@@ -72,7 +92,7 @@ const router = createRouter({
           },
         },
         {
-          path: 'system/room-types',
+          path: 'room-mgmt/room-types',
           name: 'roomTypes',
           component: () => import('@/views/system/RoomTypeListView.vue'),
           meta: {
@@ -80,6 +100,43 @@ const router = createRouter({
             requiresAdmin: true,
             titleKey: 'menu.roomTypes',
             subtitleKey: 'roomType.subtitle',
+          },
+        },
+        {
+          path: 'customer-mgmt/customer-sources',
+          name: 'customerSources',
+          component: () => import('@/views/system/CustomerSourceListView.vue'),
+          meta: {
+            requiresAuth: true,
+            requiresAdmin: true,
+            titleKey: 'menu.customerSources',
+            subtitleKey: 'customerSource.subtitle',
+          },
+        },
+        // 旧路径兼容跳转
+        { path: 'system/room-configs', redirect: { name: 'roomConfigs' } },
+        { path: 'system/room-types', redirect: { name: 'roomTypes' } },
+        { path: 'system/customer-sources', redirect: { name: 'customerSources' } },
+        {
+          path: 'system/roles',
+          name: 'roles',
+          component: () => import('@/views/system/RoleListView.vue'),
+          meta: {
+            requiresAuth: true,
+            requiresAdmin: true,
+            titleKey: 'menu.roles',
+            subtitleKey: 'role.subtitle',
+          },
+        },
+        {
+          path: 'system/menus',
+          name: 'menus',
+          component: () => import('@/views/system/MenuListView.vue'),
+          meta: {
+            requiresAuth: true,
+            requiresAdmin: true,
+            titleKey: 'menu.menus',
+            subtitleKey: 'sysMenu.subtitle',
           },
         },
       ],

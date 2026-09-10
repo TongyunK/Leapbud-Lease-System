@@ -5,9 +5,17 @@ const STORAGE_KEY = 'lb_frequent_routes'
 const DISMISS_KEY = 'lb_frequent_dismissed'
 const MAX_ITEMS = 6
 
-export type FrequentRouteName = 'buildings' | 'rooms' | 'users' | 'roomConfigs' | 'roomTypes'
-
-
+export type FrequentRouteName =
+  | 'buildings'
+  | 'rooms'
+  | 'customers'
+  | 'occupants'
+  | 'users'
+  | 'roles'
+  | 'menus'
+  | 'roomConfigs'
+  | 'roomTypes'
+  | 'customerSources'
 
 interface FrequentEntry {
   name: FrequentRouteName
@@ -15,7 +23,18 @@ interface FrequentEntry {
   lastVisited: number
 }
 
-const TRACKABLE = new Set<FrequentRouteName>(['buildings', 'rooms', 'users', 'roomConfigs', 'roomTypes'])
+const TRACKABLE = new Set<FrequentRouteName>([
+  'buildings',
+  'rooms',
+  'customers',
+  'occupants',
+  'users',
+  'roles',
+  'menus',
+  'roomConfigs',
+  'roomTypes',
+  'customerSources',
+])
 
 function loadEntries(): FrequentEntry[] {
   try {

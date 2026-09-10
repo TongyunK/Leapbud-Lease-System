@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { BuildingRecord } from '@/types/building'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -20,6 +21,10 @@ const props = withDefaults(
   },
 )
 
+const emit = defineEmits<{
+  openRooms: [building: BuildingRecord]
+}>()
+
 const { t } = useI18n()
 const isMobile = useIsMobile()
 
@@ -28,6 +33,14 @@ const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '520p
 
 function fileLabel(name?: string) {
   return name || t('common.none')
+}
+
+const roomCount = computed(() => props.building?.roomIds?.length ?? 0)
+
+function onRoomsClick() {
+  const b = props.building
+  if (!b?.roomIds?.length) return
+  emit('openRooms', b)
 }
 
 const logoItems = computed(() => {
@@ -83,6 +96,12 @@ const logoItems = computed(() => {
           <div>
             <dt>{{ t('building.fields.workingHours') }}</dt>
             <dd>{{ building.workingHours }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('building.fields.rooms') }}</dt>
+            <dd>
+              <CountListPill :count="roomCount" @click="onRoomsClick" />
+            </dd>
           </div>
           <div>
             <dt>{{ t('building.fields.active') }}</dt>

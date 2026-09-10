@@ -4,7 +4,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { toUserDto } from '../users/user.mapper';
+import { toUserDto, userAuditInclude } from '../users/user.mapper';
 
 @Injectable()
 export class AuthService {
@@ -15,7 +15,10 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const account = dto.account.trim();
-    const user = await this.prisma.user.findUnique({ where: { account } });
+    const user = await this.prisma.user.findUnique({
+      where: { account },
+      include: userAuditInclude,
+    });
     if (!user || user.status !== 'active') {
       throw new UnauthorizedException('Invalid account or password');
     }
@@ -48,7 +51,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash, updatedBy: user.account },
+      data: { passwordHash, updatedById: user.id },
     });
 
     return { success: true };

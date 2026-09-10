@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomTypeDto, UpdateRoomTypeDto } from './dto/room-type.dto';
-import { toRoomTypeDto } from './room-type.mapper';
+import { roomTypeAuditInclude, toRoomTypeDto } from './room-type.mapper';
 
 @Injectable()
 export class RoomTypesService {
@@ -19,13 +19,17 @@ export class RoomTypesService {
 
     const rows = await this.prisma.roomTypeOption.findMany({
       where,
+      include: roomTypeAuditInclude,
       orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
     });
     return rows.map(toRoomTypeDto);
   }
 
   async findOne(id: string) {
-    const row = await this.prisma.roomTypeOption.findUnique({ where: { id } });
+    const row = await this.prisma.roomTypeOption.findUnique({
+      where: { id },
+      include: roomTypeAuditInclude,
+    });
     if (!row) throw new NotFoundException(`Room type ${id} not found`);
     return toRoomTypeDto(row);
   }
@@ -33,6 +37,7 @@ export class RoomTypesService {
   async create(dto: CreateRoomTypeDto, actor = '') {
     const label = dto.label.trim();
     if (!label) throw new BadRequestException('Label is required');
+    const actorId = actor || null;
 
     try {
       const row = await this.prisma.roomTypeOption.create({
@@ -42,9 +47,10 @@ export class RoomTypesService {
           hint: dto.hint?.trim() || '',
           sortOrder: dto.sortOrder ?? 0,
           active: dto.active ?? true,
-          createdBy: actor,
-          updatedBy: actor,
+          createdById: actorId,
+          updatedById: actorId,
         },
+        include: roomTypeAuditInclude,
       });
       return toRoomTypeDto(row);
     } catch (e) {
@@ -68,8 +74,9 @@ export class RoomTypesService {
           hint: dto.hint !== undefined ? dto.hint.trim() : undefined,
           sortOrder: dto.sortOrder,
           active: dto.active,
-          updatedBy: actor || undefined,
+          ...(actor ? { updatedById: actor } : {}),
         },
+        include: roomTypeAuditInclude,
       });
       return toRoomTypeDto(row);
     } catch (e) {

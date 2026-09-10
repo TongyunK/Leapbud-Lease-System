@@ -1,0 +1,32 @@
+---
+description: Prisma/PostgreSQL 表字段必须有中文注释
+globs: backend/prisma/**/*
+alwaysApply: true
+---
+
+# 数据库字段注释（强制）
+
+凡涉及 Prisma schema、migration、建表/改表，**每个 model、每个字段、每个 enum 值都必须有中文注释**；以后新增或修改字段一律遵守，不得省略。
+
+## Prisma（`schema.prisma`）
+
+- model / enum 使用 `///` 文档注释说明业务含义。
+- 每个标量字段、关系字段使用上一行的 `///` 注释（中文；可含枚举取值说明）。
+- 外键字段写清「所属某某 ID」；关系字段写清「所属/下属某某」。
+- 审计字段统一：创建人 / 更新人 / 创建时间 / 更新时间。
+
+## PostgreSQL migration
+
+- 结构变更的 migration 中，同步为表与列写入 `COMMENT ON`：
+
+```sql
+COMMENT ON TABLE "customers" IS '客户（咨询/签约主体）';
+COMMENT ON COLUMN "customers"."customer_code" IS '客户编号（业务唯一）';
+```
+
+- 仅改注释、不改结构时，也可单独提交 `COMMENT ON` migration。
+- 注释文案与 `schema.prisma` 的 `///` 保持一致。
+
+## 检查
+
+提交前自查：新字段是否同时有 Prisma `///` 与库内 `COMMENT ON`（若本次有 migration）。

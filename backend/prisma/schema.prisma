@@ -52,17 +52,67 @@ model User {
   phone        String     @default("")
   /// 邮箱
   email        String     @default("")
-  /// 创建人
-  createdBy    String     @default("") @map("created_by")
-  /// 更新人
-  updatedBy    String     @default("") @map("updated_by")
+  /// 创建人用户 ID
+  createdById  String?    @map("created_by")
+  /// 创建人用户
+  createdByUser User?     @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById  String?    @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?     @relation("UserUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// 创建时间
   createdAt    DateTime   @default(now()) @map("created_at")
   /// 更新时间
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
+  /// 作为创建人：下属用户
+  createdUsers User[] @relation("UserCreatedBy")
+  /// 作为更新人：下属用户
+  updatedUsers User[] @relation("UserUpdatedBy")
+
+  /// 作为创建人：房间配置
+  createdRoomConfigOptions RoomConfigOption[] @relation("RoomConfigOptionCreatedBy")
+  /// 作为更新人：房间配置
+  updatedRoomConfigOptions RoomConfigOption[] @relation("RoomConfigOptionUpdatedBy")
+  /// 作为创建人：房间类型
+  createdRoomTypeOptions   RoomTypeOption[]   @relation("RoomTypeOptionCreatedBy")
+  /// 作为更新人：房间类型
+  updatedRoomTypeOptions   RoomTypeOption[]   @relation("RoomTypeOptionUpdatedBy")
+  /// 作为创建人：客户来源
+  createdCustomerSourceOptions CustomerSourceOption[] @relation("CustomerSourceOptionCreatedBy")
+  /// 作为更新人：客户来源
+  updatedCustomerSourceOptions CustomerSourceOption[] @relation("CustomerSourceOptionUpdatedBy")
+  /// 作为创建人：大厦
+  createdBuildings         Building[]         @relation("BuildingCreatedBy")
+  /// 作为更新人：大厦
+  updatedBuildings         Building[]         @relation("BuildingUpdatedBy")
+  /// 作为创建人：房间
+  createdRooms             Room[]             @relation("RoomCreatedBy")
+  /// 作为更新人：房间
+  updatedRooms             Room[]             @relation("RoomUpdatedBy")
+  /// 作为创建人：客户
+  createdCustomers         Customer[]         @relation("CustomerCreatedBy")
+  /// 作为更新人：客户
+  updatedCustomers         Customer[]         @relation("CustomerUpdatedBy")
+  /// 作为客户经理：客户
+  managedCustomers         Customer[]         @relation("CustomerAccountManager")
+  /// 作为创建人：使用者
+  createdOccupants         Occupant[]         @relation("OccupantCreatedBy")
+  /// 作为更新人：使用者
+  updatedOccupants         Occupant[]         @relation("OccupantUpdatedBy")
+  /// 作为创建人：角色
+  createdRoles             Role[]             @relation("RoleCreatedBy")
+  /// 作为更新人：角色
+  updatedRoles             Role[]             @relation("RoleUpdatedBy")
+  /// 作为创建人：菜单
+  createdMenus             Menu[]             @relation("MenuCreatedBy")
+  /// 作为更新人：菜单
+  updatedMenus             Menu[]             @relation("MenuUpdatedBy")
+
   @@index([status])
   @@index([role])
+  @@index([createdById])
+  @@index([updatedById])
   @@map("users")
 }
 
@@ -86,10 +136,14 @@ model RoomConfigOption {
   sortOrder Int            @default(0) @map("sort_order")
   /// 是否启用（停用后表单不下拉展示）
   active    Boolean        @default(true)
-  /// 创建人
-  createdBy String         @default("") @map("created_by")
-  /// 更新人
-  updatedBy String         @default("") @map("updated_by")
+  /// 创建人用户 ID
+  createdById String?      @map("created_by")
+  /// 创建人用户
+  createdByUser User?      @relation("RoomConfigOptionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?      @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?      @relation("RoomConfigOptionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// 创建时间
   createdAt DateTime       @default(now()) @map("created_at")
   /// 更新时间
@@ -97,10 +151,12 @@ model RoomConfigOption {
 
   @@index([type, active])
   @@index([type, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
   @@map("room_config_options")
 }
 
-/// 房间类型字典（辦公室 / 會議室等，可后台维护）
+/// 房间类型字典（办公室 / 會議室等，可后台维护）
 model RoomTypeOption {
   /// 主键
   id        String   @id @default(cuid())
@@ -114,17 +170,52 @@ model RoomTypeOption {
   sortOrder Int      @default(0) @map("sort_order")
   /// 是否启用
   active    Boolean  @default(true)
-  /// 创建人
-  createdBy String   @default("") @map("created_by")
-  /// 更新人
-  updatedBy String   @default("") @map("updated_by")
+  /// 创建人用户 ID
+  createdById String? @map("created_by")
+  /// 创建人用户
+  createdByUser User? @relation("RoomTypeOptionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String? @map("updated_by")
+  /// 更新人用户
+  updatedByUser User? @relation("RoomTypeOptionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// 创建时间
   createdAt DateTime @default(now()) @map("created_at")
   /// 更新时间
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([active, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
   @@map("room_type_options")
+}
+
+/// 客户来源字典（Agent / Call in 等，可后台维护）
+model CustomerSourceOption {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 来源名称（业务唯一，写入客户 source）
+  label       String   @unique
+  /// 排序权重，越小越靠前
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 是否启用
+  active      Boolean  @default(true)
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("CustomerSourceOptionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("CustomerSourceOptionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([active, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("customer_source_options")
 }
 
 /// 大厦信息
@@ -181,18 +272,26 @@ model Building {
   useWbaNumber      String?  @map("use_wba_number")
   /// 是否启用（停用后不出现在房间快捷胶囊等）
   active            Boolean  @default(true)
-  /// 创建人
-  createdBy         String   @default("") @map("created_by")
-  /// 更新人
-  updatedBy         String   @default("") @map("updated_by")
+  /// 创建人用户 ID
+  createdById       String?  @map("created_by")
+  /// 创建人用户
+  createdByUser     User?    @relation("BuildingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById       String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser     User?    @relation("BuildingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// 创建时间
   createdAt         DateTime @default(now()) @map("created_at")
   /// 更新时间
   updatedAt         DateTime @updatedAt @map("updated_at")
   /// 下属房间
   rooms             Room[]
+  /// 关联客户
+  customers         Customer[]
 
   @@index([active])
+  @@index([createdById])
+  @@index([updatedById])
   @@map("buildings")
 }
 
@@ -240,10 +339,14 @@ model Room {
   latestContract  String?    @map("latest_contract")
   /// 历史合约记录列表
   contractRecords String[]   @default([]) @map("contract_records")
-  /// 创建人
-  createdBy       String     @default("") @map("created_by")
-  /// 更新人
-  updatedBy       String     @default("") @map("updated_by")
+  /// 创建人用户 ID
+  createdById     String?    @map("created_by")
+  /// 创建人用户
+  createdByUser   User?      @relation("RoomCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById     String?    @map("updated_by")
+  /// 更新人用户
+  updatedByUser   User?      @relation("RoomUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// 分租标记
   subleaseMark    String?    @map("sublease_mark")
   /// 创建时间
@@ -253,5 +356,245 @@ model Room {
 
   @@index([buildingId])
   @@index([status])
+  @@index([createdById])
+  @@index([updatedById])
   @@map("rooms")
 }
+
+/// 客户（咨询/签约主体；一个客户可对应多名使用者）
+model Customer {
+  /// 主键
+  id               String     @id @default(cuid())
+  /// 客户编号（业务唯一，如 CSM260485）
+  customerCode     String     @unique @map("customer_code")
+  /// 客户名称
+  name             String
+  /// 状态：新客戶 / 已查詢 / 簽約中 / 租賃中 / 退租中 / 已退租 等
+  status           String     @default("")
+  /// 客户经理用户 ID
+  accountManagerId String?    @map("account_manager")
+  /// 客户经理用户
+  accountManagerUser User?    @relation("CustomerAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  /// 公司名称（中文）
+  companyNameZh    String     @default("") @map("company_name_zh")
+  /// 公司名称（英文）
+  companyNameEn    String     @default("") @map("company_name_en")
+  /// 商业登记号码
+  businessRegNo    String     @default("") @map("business_reg_no")
+  /// 业务性质
+  businessNature   String     @default("") @map("business_nature")
+  /// 商业登记副本路径
+  businessRegCopy  String     @default("") @map("business_reg_copy")
+  /// 备注
+  remark           String     @default("")
+  /// 客户来源
+  source           String     @default("")
+  /// 在租房间（文本，如 SP60；后续可挂 Room）
+  rentedRooms      String     @default("") @map("rented_rooms")
+  /// 所属大厦 ID
+  buildingId       String?    @map("building_id")
+  /// 所属大厦
+  building         Building?  @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  /// 主要使用者（联络人）ID
+  primaryOccupantId String?   @map("primary_occupant_id")
+  /// 主要使用者（联络人）
+  primaryOccupant  Occupant?  @relation("CustomerPrimaryOccupant", fields: [primaryOccupantId], references: [id], onDelete: SetNull)
+  /// 创建人用户 ID
+  createdById      String?    @map("created_by")
+  /// 创建人用户
+  createdByUser    User?      @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById      String?    @map("updated_by")
+  /// 更新人用户
+  updatedByUser    User?      @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt        DateTime   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  /// 下属使用者（实际租赁名义人）
+  occupants        Occupant[] @relation("OccupantBelongsToCustomer")
+
+  @@index([status])
+  @@index([name])
+  @@index([accountManagerId])
+  @@index([buildingId])
+  @@index([primaryOccupantId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("customers")
+}
+
+/// 使用者（客户下的联系人 / 实际租赁名义人；非系统登录账号）
+model Occupant {
+  /// 主键
+  id                  String    @id @default(cuid())
+  /// 姓名
+  name                String
+  /// 所属客户 ID（导入时若客户编号缺失可为空）
+  customerId          String?   @map("customer_id")
+  /// 所属客户
+  customer            Customer? @relation("OccupantBelongsToCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  /// 作为主要联络人：所属客户（反向）
+  primaryForCustomers Customer[] @relation("CustomerPrimaryOccupant")
+  /// 客户编号（冗余，便于导入与展示）
+  customerCode        String    @default("") @map("customer_code")
+  /// 关联客户名称（Excel「關聯客戶」）
+  relatedCustomerName String    @default("") @map("related_customer_name")
+  /// WhatsApp（含区号）
+  whatsapp            String    @default("")
+  /// 手提电话
+  mobilePhone         String    @default("") @map("mobile_phone")
+  /// 联络电话
+  contactPhone        String    @default("") @map("contact_phone")
+  /// 电邮
+  email               String    @default("")
+  /// 传真
+  fax                 String    @default("")
+  /// 通讯地址
+  address             String    @default("")
+  /// 身份证号码
+  idCardNo            String    @default("") @map("id_card_no")
+  /// 身份证图片路径
+  idCardImage         String    @default("") @map("id_card_image")
+  /// 住址证明副本路径
+  addressProofCopy    String    @default("") @map("address_proof_copy")
+  /// 备注
+  remark              String    @default("")
+  /// 创建人用户 ID
+  createdById         String?   @map("created_by")
+  /// 创建人用户
+  createdByUser       User?     @relation("OccupantCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById         String?   @map("updated_by")
+  /// 更新人用户
+  updatedByUser       User?     @relation("OccupantUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt           DateTime  @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([customerCode])
+  @@index([name])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("occupants")
+}
+
+/// 菜单类型
+enum MenuType {
+  /// 目录（一级分组）
+  directory
+  /// 菜单页（可路由）
+  menu
+}
+
+/// 系统角色（可配置；与 User.role 枚举并存，后续可关联）
+model Role {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 角色编码（唯一，如 admin / user）
+  code        String   @unique
+  /// 角色名称
+  name        String
+  /// 角色说明
+  description String   @default("")
+  /// 排序（越小越靠前）
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 是否启用
+  active      Boolean  @default(true)
+  /// 是否系统内置（不可删除）
+  isSystem    Boolean  @default(false) @map("is_system")
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("RoleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  /// 下属角色菜单权限
+  roleMenus   RoleMenu[]
+
+  @@index([active])
+  @@index([sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("roles")
+}
+
+/// 系统菜单（侧栏目录 / 页面）
+model Menu {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 上级菜单 ID（目录下挂菜单；顶级为空）
+  parentId    String?  @map("parent_id")
+  /// 上级菜单
+  parent      Menu?    @relation("MenuTree", fields: [parentId], references: [id], onDelete: Cascade)
+  /// 下属子菜单
+  children    Menu[]   @relation("MenuTree")
+  /// 菜单类型：directory=目录，menu=菜单页
+  type        MenuType @default(menu)
+  /// 显示名称（默认繁中）
+  name        String
+  /// i18n 键（如 menu.users；空则用 name）
+  nameKey     String   @default("") @map("name_key")
+  /// 前端路由 name（如 users）
+  routeName   String   @default("") @map("route_name")
+  /// 路由 path（相对或绝对）
+  path        String   @default("")
+  /// 图标标识（前端映射用）
+  icon        String   @default("")
+  /// 排序（越小越靠前）
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 是否启用
+  active      Boolean  @default(true)
+  /// 权限标识（预留，如 system:users）
+  permission  String   @default("")
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("MenuCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("MenuUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  /// 下属角色菜单权限
+  roleMenus   RoleMenu[]
+
+  @@index([parentId])
+  @@index([type])
+  @@index([routeName])
+  @@index([active])
+  @@index([sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("menus")
+}
+
+/// 角色-菜单权限（多对多）
+model RoleMenu {
+  /// 所属角色 ID
+  roleId String @map("role_id")
+  /// 所属角色
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  /// 所属菜单 ID
+  menuId String @map("menu_id")
+  /// 所属菜单
+  menu   Menu   @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  /// 创建时间
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([roleId, menuId])
+  @@index([menuId])
+  @@map("role_menus")
+}
+

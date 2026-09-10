@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, RoomConfigType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomConfigDto, UpdateRoomConfigDto } from './dto/room-config.dto';
-import { buildSizeLabel, toRoomConfigDto } from './room-config.mapper';
+import { buildSizeLabel, roomConfigAuditInclude, toRoomConfigDto } from './room-config.mapper';
 
 @Injectable()
 export class RoomConfigsService {
@@ -17,13 +17,17 @@ export class RoomConfigsService {
 
     const rows = await this.prisma.roomConfigOption.findMany({
       where,
+      include: roomConfigAuditInclude,
       orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { label: 'asc' }],
     });
     return rows.map(toRoomConfigDto);
   }
 
   async findOne(id: string) {
-    const row = await this.prisma.roomConfigOption.findUnique({ where: { id } });
+    const row = await this.prisma.roomConfigOption.findUnique({
+      where: { id },
+      include: roomConfigAuditInclude,
+    });
     if (!row) throw new NotFoundException(`Config ${id} not found`);
     return toRoomConfigDto(row);
   }
@@ -31,6 +35,7 @@ export class RoomConfigsService {
   async create(dto: CreateRoomConfigDto, actor = '') {
     const label = this.resolveLabel(dto.type, dto.label, dto.minSqft, dto.maxSqft);
     if (!label) throw new BadRequestException('Label is required');
+    const actorId = actor || null;
 
     const row = await this.prisma.roomConfigOption.create({
       data: {
@@ -42,9 +47,10 @@ export class RoomConfigsService {
         model: dto.model?.trim() || '',
         sortOrder: dto.sortOrder ?? 0,
         active: dto.active ?? true,
-        createdBy: actor,
-        updatedBy: actor,
+        createdById: actorId,
+        updatedById: actorId,
       },
+      include: roomConfigAuditInclude,
     });
     return toRoomConfigDto(row);
   }
@@ -75,8 +81,9 @@ export class RoomConfigsService {
         model: dto.model !== undefined ? dto.model.trim() : undefined,
         sortOrder: dto.sortOrder,
         active: dto.active,
-        updatedBy: actor || undefined,
+        ...(actor ? { updatedById: actor } : {}),
       },
+      include: roomConfigAuditInclude,
     });
     return toRoomConfigDto(row);
   }

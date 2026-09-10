@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '@/utils/format'
 
 defineProps<{
   createdBy?: string | null
@@ -21,7 +22,7 @@ const { t } = useI18n()
       </div>
       <div>
         <dt>{{ t('common.createdAt') }}</dt>
-        <dd>{{ createdAt || '—' }}</dd>
+        <dd>{{ formatDateTime(createdAt) }}</dd>
       </div>
       <div>
         <dt>{{ t('common.updatedBy') }}</dt>
@@ -29,7 +30,7 @@ const { t } = useI18n()
       </div>
       <div>
         <dt>{{ t('common.updatedAt') }}</dt>
-        <dd>{{ updatedAt || '—' }}</dd>
+        <dd>{{ formatDateTime(updatedAt) }}</dd>
       </div>
     </dl>
   </section>

@@ -16,7 +16,7 @@ import { CreateRoomTypeDto, UpdateRoomTypeDto } from './dto/room-type.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { CurrentUser, actorAccount } from '../auth/current-user.decorator';
+import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 @ApiTags('room-types')
@@ -42,7 +42,7 @@ export class RoomTypesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.admin)
   create(@Body() dto: CreateRoomTypeDto, @CurrentUser() user?: JwtPayload) {
-    return this.roomTypesService.create(dto, actorAccount(user));
+    return this.roomTypesService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
@@ -54,7 +54,7 @@ export class RoomTypesController {
     @Body() dto: UpdateRoomTypeDto,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.roomTypesService.update(id, dto, actorAccount(user));
+    return this.roomTypesService.update(id, dto, actorUserId(user));
   }
 
   @Delete(':id')

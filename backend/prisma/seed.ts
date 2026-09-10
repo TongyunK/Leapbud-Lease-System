@@ -182,7 +182,6 @@ const rooms: Array<{
   hourlyRent: number;
   sizeSqft: number;
   image1?: string;
-  createdBy: string;
   createdAt: Date;
 }> = [
   {
@@ -198,7 +197,6 @@ const rooms: Array<{
     hourlyRent: 280,
     sizeSqft: 420,
     image1: '/leapbud_logo.png',
-    createdBy: 'admin',
     createdAt: new Date('2026-01-15T10:00:00+08:00'),
   },
   {
@@ -214,7 +212,6 @@ const rooms: Array<{
     hourlyRent: 150,
     sizeSqft: 180,
     image1: '/leapbud_logo.png',
-    createdBy: 'admin',
     createdAt: new Date('2026-02-15T10:00:00+08:00'),
   },
   {
@@ -230,7 +227,6 @@ const rooms: Array<{
     hourlyRent: 45,
     sizeSqft: 45,
     image1: '/leapbud_logo.png',
-    createdBy: '黃小姐',
     createdAt: new Date('2026-03-15T10:00:00+08:00'),
   },
   {
@@ -246,7 +242,6 @@ const rooms: Array<{
     hourlyRent: 220,
     sizeSqft: 260,
     image1: '/leapbud_logo.png',
-    createdBy: '黃小姐',
     createdAt: new Date('2026-04-15T10:00:00+08:00'),
   },
   {
@@ -262,7 +257,6 @@ const rooms: Array<{
     hourlyRent: 140,
     sizeSqft: 160,
     image1: '/leapbud_logo.png',
-    createdBy: '黃小姐',
     createdAt: new Date('2026-05-15T10:00:00+08:00'),
   },
   {
@@ -278,7 +272,6 @@ const rooms: Array<{
     hourlyRent: 360,
     sizeSqft: 520,
     image1: '/leapbud_logo.png',
-    createdBy: '黃小姐',
     createdAt: new Date('2026-06-15T10:00:00+08:00'),
   },
   {
@@ -294,30 +287,13 @@ const rooms: Array<{
     hourlyRent: 120,
     sizeSqft: 140,
     image1: '/leapbud_logo.png',
-    createdBy: '黃小姐',
     createdAt: new Date('2026-07-15T10:00:00+08:00'),
   },
 ];
 
 async function main() {
-  for (const b of buildings) {
-    await prisma.building.upsert({
-      where: { id: b.id },
-      create: b,
-      update: b,
-    });
-  }
-
-  for (const r of rooms) {
-    await prisma.room.upsert({
-      where: { id: r.id },
-      create: r,
-      update: r,
-    });
-  }
-
   const adminHash = await bcrypt.hash('admin123', 10);
-  await prisma.user.upsert({
+  const admin = await prisma.user.upsert({
     where: { account: 'admin' },
     create: {
       account: 'admin',
@@ -345,6 +321,8 @@ async function main() {
       role: 'user',
       status: 'active',
       phone: '91234567',
+      createdById: admin.id,
+      updatedById: admin.id,
     },
     update: {
       passwordHash: userHash,
@@ -356,6 +334,22 @@ async function main() {
 
   // 迁移旧演示账号 staff → user（若仍存在）
   await prisma.user.deleteMany({ where: { account: 'staff' } });
+
+  for (const b of buildings) {
+    await prisma.building.upsert({
+      where: { id: b.id },
+      create: { ...b, createdById: admin.id, updatedById: admin.id },
+      update: b,
+    });
+  }
+
+  for (const r of rooms) {
+    await prisma.room.upsert({
+      where: { id: r.id },
+      create: { ...r, createdById: admin.id, updatedById: admin.id },
+      update: r,
+    });
+  }
 
   const configCount = await prisma.roomConfigOption.count();
   if (configCount === 0) {
@@ -394,11 +388,280 @@ async function main() {
     });
   }
 
+  const customerSourceCount = await prisma.customerSourceOption.count();
+  if (customerSourceCount === 0) {
+    await prisma.customerSourceOption.createMany({
+      data: [
+        { label: '其他租客介紹', sortOrder: 1 },
+        { label: '同一客戶多賬號', sortOrder: 2 },
+        { label: 'Whatsapp', sortOrder: 3 },
+        { label: 'Outlook', sortOrder: 4 },
+        { label: 'Call in', sortOrder: 5 },
+        { label: 'Agent', sortOrder: 6 },
+      ],
+    });
+  }
+
+  await seedRolesAndMenus(admin.id);
+
   const configs = await prisma.roomConfigOption.count();
   const roomTypes = await prisma.roomTypeOption.count();
+  const customerSources = await prisma.customerSourceOption.count();
+  const roles = await prisma.role.count();
+  const menus = await prisma.menu.count();
   console.log(
-    `Seeded ${buildings.length} buildings, ${rooms.length} rooms, 2 users, ${configs} room configs, ${roomTypes} room types`,
+    `Seeded ${buildings.length} buildings, ${rooms.length} rooms, 2 users, ${configs} room configs, ${roomTypes} room types, ${customerSources} customer sources, ${roles} roles, ${menus} menus`,
   );
+}
+
+/** 角色 / 菜单 / 角色菜单权限（与当前侧栏结构对齐） */
+async function seedRolesAndMenus(actorId: string) {
+  const roleAdmin = await prisma.role.upsert({
+    where: { code: 'admin' },
+    create: {
+      id: 'role_admin',
+      code: 'admin',
+      name: '管理員',
+      description: '系統管理員，擁有全部菜單',
+      sortOrder: 1,
+      active: true,
+      isSystem: true,
+      createdById: actorId,
+      updatedById: actorId,
+    },
+    update: {
+      name: '管理員',
+      description: '系統管理員，擁有全部菜單',
+      active: true,
+      isSystem: true,
+      updatedById: actorId,
+    },
+  });
+
+  const roleUser = await prisma.role.upsert({
+    where: { code: 'user' },
+    create: {
+      id: 'role_user',
+      code: 'user',
+      name: '普通用戶',
+      description: '業務用戶，可見房間與客戶菜單',
+      sortOrder: 2,
+      active: true,
+      isSystem: true,
+      createdById: actorId,
+      updatedById: actorId,
+    },
+    update: {
+      name: '普通用戶',
+      description: '業務用戶，可見房間與客戶菜單',
+      active: true,
+      isSystem: true,
+      updatedById: actorId,
+    },
+  });
+
+  type MenuSeed = {
+    id: string;
+    parentId?: string | null;
+    type: 'directory' | 'menu';
+    name: string;
+    nameKey: string;
+    routeName?: string;
+    path?: string;
+    icon?: string;
+    sortOrder: number;
+  };
+
+  const menuSeeds: MenuSeed[] = [
+    {
+      id: 'menu_room_mgmt',
+      type: 'directory',
+      name: '房間管理',
+      nameKey: 'menu.roomMgmt',
+      icon: 'Grid',
+      sortOrder: 10,
+    },
+    {
+      id: 'menu_rooms',
+      parentId: 'menu_room_mgmt',
+      type: 'menu',
+      name: '房間信息',
+      nameKey: 'menu.rooms',
+      routeName: 'rooms',
+      path: 'room-mgmt/rooms',
+      icon: 'Door',
+      sortOrder: 11,
+    },
+    {
+      id: 'menu_buildings',
+      parentId: 'menu_room_mgmt',
+      type: 'menu',
+      name: '大廈信息',
+      nameKey: 'menu.buildings',
+      routeName: 'buildings',
+      path: 'room-mgmt/buildings',
+      icon: 'OfficeBuilding',
+      sortOrder: 12,
+    },
+    {
+      id: 'menu_customer_mgmt',
+      type: 'directory',
+      name: '客戶管理',
+      nameKey: 'menu.customerMgmt',
+      icon: 'UserFilled',
+      sortOrder: 20,
+    },
+    {
+      id: 'menu_customers',
+      parentId: 'menu_customer_mgmt',
+      type: 'menu',
+      name: '客戶信息',
+      nameKey: 'menu.customers',
+      routeName: 'customers',
+      path: 'customer-mgmt/customers',
+      icon: 'User',
+      sortOrder: 21,
+    },
+    {
+      id: 'menu_occupants',
+      parentId: 'menu_customer_mgmt',
+      type: 'menu',
+      name: '使用者',
+      nameKey: 'menu.occupants',
+      routeName: 'occupants',
+      path: 'customer-mgmt/occupants',
+      icon: 'UserFilled',
+      sortOrder: 22,
+    },
+    {
+      id: 'menu_room_configs',
+      parentId: 'menu_room_mgmt',
+      type: 'menu',
+      name: '房間配置',
+      nameKey: 'menu.roomConfigs',
+      routeName: 'roomConfigs',
+      path: 'room-mgmt/room-configs',
+      icon: 'SetUp',
+      sortOrder: 13,
+    },
+    {
+      id: 'menu_room_types',
+      parentId: 'menu_room_mgmt',
+      type: 'menu',
+      name: '房間類型',
+      nameKey: 'menu.roomTypes',
+      routeName: 'roomTypes',
+      path: 'room-mgmt/room-types',
+      icon: 'CollectionTag',
+      sortOrder: 14,
+    },
+    {
+      id: 'menu_customer_sources',
+      parentId: 'menu_customer_mgmt',
+      type: 'menu',
+      name: '客戶來源',
+      nameKey: 'menu.customerSources',
+      routeName: 'customerSources',
+      path: 'customer-mgmt/customer-sources',
+      icon: 'Promotion',
+      sortOrder: 23,
+    },
+    {
+      id: 'menu_system',
+      type: 'directory',
+      name: '系統管理',
+      nameKey: 'menu.system',
+      icon: 'Setting',
+      sortOrder: 30,
+    },
+    {
+      id: 'menu_users',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '用戶管理',
+      nameKey: 'menu.users',
+      routeName: 'users',
+      path: 'system/users',
+      icon: 'User',
+      sortOrder: 31,
+    },
+    {
+      id: 'menu_roles',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '角色管理',
+      nameKey: 'menu.roles',
+      routeName: 'roles',
+      path: 'system/roles',
+      icon: 'Avatar',
+      sortOrder: 32,
+    },
+    {
+      id: 'menu_menus',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '菜單管理',
+      nameKey: 'menu.menus',
+      routeName: 'menus',
+      path: 'system/menus',
+      icon: 'Menu',
+      sortOrder: 33,
+    },
+  ];
+
+  for (const m of menuSeeds) {
+    await prisma.menu.upsert({
+      where: { id: m.id },
+      create: {
+        id: m.id,
+        parentId: m.parentId ?? null,
+        type: m.type,
+        name: m.name,
+        nameKey: m.nameKey,
+        routeName: m.routeName ?? '',
+        path: m.path ?? '',
+        icon: m.icon ?? '',
+        sortOrder: m.sortOrder,
+        active: true,
+        createdById: actorId,
+        updatedById: actorId,
+      },
+      update: {
+        parentId: m.parentId ?? null,
+        type: m.type,
+        name: m.name,
+        nameKey: m.nameKey,
+        routeName: m.routeName ?? '',
+        path: m.path ?? '',
+        icon: m.icon ?? '',
+        sortOrder: m.sortOrder,
+        active: true,
+        updatedById: actorId,
+      },
+    });
+  }
+
+  const allMenuIds = menuSeeds.map((m) => m.id);
+  const adminOnlyMenus = new Set([
+    'menu_system',
+    'menu_users',
+    'menu_roles',
+    'menu_menus',
+    'menu_room_configs',
+    'menu_room_types',
+    'menu_customer_sources',
+  ]);
+  const userMenuIds = menuSeeds.filter((m) => !adminOnlyMenus.has(m.id)).map((m) => m.id);
+
+  await prisma.roleMenu.deleteMany({ where: { roleId: roleAdmin.id } });
+  await prisma.roleMenu.createMany({
+    data: allMenuIds.map((menuId) => ({ roleId: roleAdmin.id, menuId })),
+  });
+
+  await prisma.roleMenu.deleteMany({ where: { roleId: roleUser.id } });
+  await prisma.roleMenu.createMany({
+    data: userMenuIds.map((menuId) => ({ roleId: roleUser.id, menuId })),
+  });
 }
 
 main()

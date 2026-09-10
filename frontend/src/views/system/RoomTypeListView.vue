@@ -18,9 +18,11 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import { useActionColWidth } from '@/composables/useActionColWidth'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const { actionColWidth } = useActionColWidth()
 
 const loading = ref(false)
 const formVisible = ref(false)
@@ -145,7 +147,7 @@ async function saveForm() {
 
 async function onDelete(row: RoomTypeOption) {
   try {
-    await ElMessageBox.confirm(t('roomType.deleteConfirm', { label: row.label }), t('common.confirm'), {
+    await ElMessageBox.confirm(t('roomType.deleteConfirm', { label: row.label }), t('common.deleteTitle'), {
       type: 'warning',
     })
     await deleteRoomTypeApi(row.id)
@@ -250,7 +252,13 @@ async function toggleActive(row: RoomTypeOption) {
             class-name="col-datetime"
             label-class-name="col-datetime"
           />
-          <el-table-column :label="t('common.actions')" width="150" fixed="right">
+          <el-table-column
+            :label="t('common.actions')"
+            :width="actionColWidth.two"
+            fixed="right"
+            class-name="col-actions"
+            label-class-name="col-actions"
+          >
             <template #default="{ row }">
               <div class="action-pills">
                 <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">

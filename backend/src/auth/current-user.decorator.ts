@@ -9,6 +9,7 @@ export const CurrentUser = createParamDecorator(
   },
 );
 
-export function actorAccount(user?: JwtPayload | null): string {
-  return user?.account?.trim() || '';
+/** 当前登录用户 ID（写入 created_by / updated_by 外键） */
+export function actorUserId(user?: JwtPayload | null): string {
+  return user?.sub?.trim() || '';
 }

@@ -19,9 +19,11 @@ import SizeIcon from '@/components/icons/SizeIcon.vue'
 import WindowIcon from '@/components/icons/WindowIcon.vue'
 import AcIcon from '@/components/icons/AcIcon.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import { useActionColWidth } from '@/composables/useActionColWidth'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const { actionColWidth } = useActionColWidth()
 
 const activeTab = ref<RoomConfigType>('size')
 const loading = ref(false)
@@ -183,7 +185,7 @@ async function saveForm() {
 
 async function onDelete(row: RoomConfigOption) {
   try {
-    await ElMessageBox.confirm(t('roomConfig.deleteConfirm', { label: row.label }), t('common.confirm'), {
+    await ElMessageBox.confirm(t('roomConfig.deleteConfirm', { label: row.label }), t('common.deleteTitle'), {
       type: 'warning',
     })
     await deleteRoomConfigApi(row.id)
@@ -329,7 +331,13 @@ async function toggleActive(row: RoomConfigOption) {
             class-name="col-datetime"
             label-class-name="col-datetime"
           />
-          <el-table-column :label="t('common.actions')" width="150" fixed="right">
+          <el-table-column
+            :label="t('common.actions')"
+            :width="actionColWidth.two"
+            fixed="right"
+            class-name="col-actions"
+            label-class-name="col-actions"
+          >
             <template #default="{ row }">
               <div class="action-pills">
                 <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">

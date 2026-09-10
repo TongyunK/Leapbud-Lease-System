@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
     "prisma:import-rooms": "node -r ts-node/register/transpile-only prisma/import-rooms-from-xlsx.ts",
+    "prisma:import-customers": "node -r ts-node/register/transpile-only prisma/import-customers-from-xlsx.ts",
     "prisma:studio": "prisma studio"
   },
   "prisma": {

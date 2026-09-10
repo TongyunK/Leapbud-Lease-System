@@ -68,9 +68,16 @@ async function main() {
 
   const buildings = await prisma.building.findMany({ select: { id: true, name: true } });
   const buildingByName = new Map(buildings.map((b) => [b.name, b.id]));
+  const users = await prisma.user.findMany({ select: { id: true, account: true, displayName: true } });
+  const userByLabel = new Map<string, string>();
+  for (const u of users) {
+    if (u.account.trim()) userByLabel.set(u.account.trim(), u.id);
+    if (u.displayName.trim()) userByLabel.set(u.displayName.trim(), u.id);
+  }
 
   const missingBuildings = new Set<string>();
   const unknownStatus = new Set<string>();
+  const unmatchedActors = new Set<string>();
 
   // 按房间编号去重：保留状态优先级更高的；同级保留后者
   const byCode = new Map<string, ExcelRow>();
@@ -106,7 +113,8 @@ async function main() {
     windowConfig: string | null;
     acConfig: string | null;
     latestContract: string | null;
-    createdBy: string;
+    createdById: string | null;
+    updatedById: string | null;
     createdAt: Date;
     subleaseMark: string | null;
   }> = [];
@@ -127,6 +135,10 @@ async function main() {
     }
 
     const roomCode = str(row['房間編號']);
+    const actorLabel = str(row['創建人']);
+    const actorId = actorLabel ? userByLabel.get(actorLabel) ?? null : null;
+    if (actorLabel && !actorId) unmatchedActors.add(actorLabel);
+
     payload.push({
       roomCode,
       name: str(row['房間名稱']) || roomCode,
@@ -146,7 +158,8 @@ async function main() {
       windowConfig: str(row['窗']) || null,
       acConfig: str(row['空調']) || null,
       latestContract: str(row['最新合約']) || null,
-      createdBy: str(row['創建人']) || 'import',
+      createdById: actorId,
+      updatedById: actorId,
       createdAt: parseCreatedAt(row['創建時間']),
       subleaseMark: str(row['分租符']) || null,
     });
@@ -157,6 +170,9 @@ async function main() {
   }
   if (unknownStatus.size) {
     console.warn('Skipped unknown status:', [...unknownStatus]);
+  }
+  if (unmatchedActors.size) {
+    console.warn('Unmatched created_by labels (left null):', [...unmatchedActors]);
   }
 
   console.log('Unique rooms to import:', payload.length);

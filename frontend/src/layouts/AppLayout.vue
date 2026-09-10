@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  OfficeBuilding,
-  Grid,
   DArrowLeft,
   DArrowRight,
   Menu as MenuIcon,
@@ -12,31 +10,26 @@ import {
   ArrowDown,
   Lock,
   SwitchButton,
-  Setting,
-  User,
-  SetUp,
-  CollectionTag,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import DoorIcon from '@/components/icons/DoorIcon.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import SidebarMenuNodes from '@/components/SidebarMenuNodes.vue'
 import { useUserStore } from '@/stores/user'
+import { useNavStore } from '@/stores/nav'
 import { changePasswordApi } from '@/api/auth'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
 import { useFrequentRoutes, type FrequentRouteName } from '@/composables/useFrequentRoutes'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const navStore = useNavStore()
 const isMobile = useIsMobile()
 const isCompact = useIsCompact()
 const { shortcuts: rawShortcuts, removeShortcut } = useFrequentRoutes()
 const shortcuts = computed(() =>
-  rawShortcuts.value.filter(
-    (name) =>
-      (name !== 'users' && name !== 'roomConfigs' && name !== 'roomTypes') || userStore.isAdmin,
-  ),
+  rawShortcuts.value.filter((name) => !navStore.loaded || navStore.hasRoute(name)),
 )
 
 const collapsed = ref(false)
@@ -57,13 +50,12 @@ const avatarLetter = computed(() => displayName.value.slice(0, 1))
 const activeMenu = computed(() => (typeof route.name === 'string' ? route.name : ''))
 const sidebarCollapsed = computed(() => !isMobile.value && collapsed.value)
 const showLabels = computed(() => isMobile.value || !collapsed.value)
+const menuRevision = computed(() => navStore.revision)
 
-/** 进入房间管理 / 系统管理相关页时默认展开一级菜单 */
+/** 根据当前路由展开对应目录 */
 const openMenus = computed(() => {
-  const opened: string[] = []
-  if (route.path.startsWith('/room-mgmt')) opened.push('room-mgmt')
-  if (route.path.startsWith('/system')) opened.push('system')
-  return opened
+  if (typeof route.name !== 'string') return []
+  return navStore.openIdsForRoute(route.name)
 })
 
 watch(
@@ -77,7 +69,6 @@ watch(isMobile, (mobile) => {
   if (!mobile) mobileOpen.value = false
 })
 
-/** 小屏不再自动收起，仅保持展开初始状态；折叠按钮行为与大屏一致 */
 watch(
   isCompact,
   (compact) => {
@@ -86,20 +77,27 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => userStore.isLoggedIn,
+  (ok) => {
+    if (ok) void navStore.loadNav()
+    else navStore.clear()
+  },
+)
+
+onMounted(() => {
+  if (userStore.isLoggedIn) void navStore.loadNav()
+})
+
 function onSelect(index: string) {
-  if (index === 'buildings' || index === 'rooms') {
-    router.push({ name: index })
-    mobileOpen.value = false
-    return
-  }
-  if ((index === 'users' || index === 'roomConfigs' || index === 'roomTypes') && userStore.isAdmin) {
-    router.push({ name: index })
-    mobileOpen.value = false
-  }
+  if (!index) return
+  router.push({ name: index })
+  mobileOpen.value = false
 }
 
 function onLogout() {
   userStore.logout()
+  navStore.clear()
   router.replace({ name: 'login' })
 }
 
@@ -148,11 +146,20 @@ function toggleNav() {
 }
 
 function shortcutLabel(name: FrequentRouteName) {
-  if (name === 'buildings') return t('menu.buildings')
-  if (name === 'rooms') return t('menu.rooms')
-  if (name === 'users') return t('menu.users')
-  if (name === 'roomConfigs') return t('menu.roomConfigs')
-  if (name === 'roomTypes') return t('menu.roomTypes')
+  const map: Record<string, string> = {
+    buildings: 'menu.buildings',
+    rooms: 'menu.rooms',
+    customers: 'menu.customers',
+    occupants: 'menu.occupants',
+    users: 'menu.users',
+    roles: 'menu.roles',
+    menus: 'menu.menus',
+    roomConfigs: 'menu.roomConfigs',
+    roomTypes: 'menu.roomTypes',
+    customerSources: 'menu.customerSources',
+  }
+  const i18nKey = map[name]
+  if (i18nKey && te(i18nKey)) return t(i18nKey)
   return name
 }
 
@@ -198,7 +205,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
       <div class="sidebar-nav">
         <el-menu
-          :key="`${isMobile}-${sidebarCollapsed}`"
+          :key="`${isMobile}-${sidebarCollapsed}-${menuRevision}-${activeMenu}`"
           :default-active="activeMenu"
           :default-openeds="openMenus"
           :collapse="sidebarCollapsed"
@@ -207,38 +214,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
           class="sidebar-menu"
           @select="onSelect"
         >
-          <el-sub-menu index="room-mgmt">
-            <template #title>
-              <el-icon class="nav-icon" :size="20"><Grid /></el-icon>
-              <span class="nav-label">{{ t('menu.roomMgmt') }}</span>
-            </template>
-            <el-menu-item index="rooms">
-              <el-icon class="nav-icon" :size="20"><DoorIcon /></el-icon>
-              <span class="nav-label">{{ t('menu.rooms') }}</span>
-            </el-menu-item>
-            <el-menu-item index="buildings">
-              <el-icon class="nav-icon" :size="20"><OfficeBuilding /></el-icon>
-              <span class="nav-label">{{ t('menu.buildings') }}</span>
-            </el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu v-if="userStore.isAdmin" index="system">
-            <template #title>
-              <el-icon class="nav-icon" :size="20"><Setting /></el-icon>
-              <span class="nav-label">{{ t('menu.system') }}</span>
-            </template>
-            <el-menu-item index="users">
-              <el-icon class="nav-icon" :size="20"><User /></el-icon>
-              <span class="nav-label">{{ t('menu.users') }}</span>
-            </el-menu-item>
-            <el-menu-item index="roomConfigs">
-              <el-icon class="nav-icon" :size="20"><SetUp /></el-icon>
-              <span class="nav-label">{{ t('menu.roomConfigs') }}</span>
-            </el-menu-item>
-            <el-menu-item index="roomTypes">
-              <el-icon class="nav-icon" :size="20"><CollectionTag /></el-icon>
-              <span class="nav-label">{{ t('menu.roomTypes') }}</span>
-            </el-menu-item>
-          </el-sub-menu>
+          <SidebarMenuNodes :nodes="navStore.tree" />
         </el-menu>
       </div>
     </aside>
@@ -530,6 +506,35 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   overflow: auto;
   padding: 8px 6px 14px;
   scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+  background-clip: padding-box;
+}
+
+.sidebar-nav::-webkit-scrollbar-button,
+.sidebar-nav::-webkit-scrollbar-corner {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .app-layout.collapsed .sidebar-nav {

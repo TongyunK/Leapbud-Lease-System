@@ -9,7 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { toUserDto } from './user.mapper';
+import { toUserDto, userAuditInclude } from './user.mapper';
 
 @Injectable()
 export class UsersService {
@@ -30,13 +30,17 @@ export class UsersService {
 
     const rows = await this.prisma.user.findMany({
       where,
+      include: userAuditInclude,
       orderBy: [{ role: 'asc' }, { account: 'asc' }],
     });
     return rows.map(toUserDto);
   }
 
   async findOne(id: string) {
-    const row = await this.prisma.user.findUnique({ where: { id } });
+    const row = await this.prisma.user.findUnique({
+      where: { id },
+      include: userAuditInclude,
+    });
     if (!row) throw new NotFoundException(`User ${id} not found`);
     return toUserDto(row);
   }
@@ -47,6 +51,7 @@ export class UsersService {
     if (exists) throw new ConflictException('Account already exists');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
+    const actorId = actor || null;
     const row = await this.prisma.user.create({
       data: {
         account,
@@ -56,9 +61,10 @@ export class UsersService {
         status: dto.status ?? UserStatus.active,
         phone: dto.phone?.trim() || '',
         email: dto.email?.trim() || '',
-        createdBy: actor,
-        updatedBy: actor,
+        createdById: actorId,
+        updatedById: actorId,
       },
+      include: userAuditInclude,
     });
     return toUserDto(row);
   }
@@ -67,16 +73,20 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`User ${id} not found`);
 
-    const data: Prisma.UserUpdateInput = {};
+    const data: Prisma.UserUncheckedUpdateInput = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName.trim();
     if (dto.role !== undefined) data.role = dto.role;
     if (dto.status !== undefined) data.status = dto.status;
     if (dto.phone !== undefined) data.phone = dto.phone.trim();
     if (dto.email !== undefined) data.email = dto.email.trim();
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
-    if (actor) data.updatedBy = actor;
+    if (actor) data.updatedById = actor;
 
-    const row = await this.prisma.user.update({ where: { id }, data });
+    const row = await this.prisma.user.update({
+      where: { id },
+      data,
+      include: userAuditInclude,
+    });
     return toUserDto(row);
   }
 

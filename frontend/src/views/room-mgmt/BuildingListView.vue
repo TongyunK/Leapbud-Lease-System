@@ -1,34 +1,66 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { Plus, Search, Upload, Download } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import * as XLSX from 'xlsx'
-import { fetchBuildings, updateBuildingApi } from '@/api/buildings'
+import { fetchBuildings, updateBuildingApi, createBuildingApi, importBuildingsApi } from '@/api/buildings'
+import type { BuildingWritePayload } from '@/api/buildings'
 import type { BuildingRecord } from '@/types/building'
+import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
+import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
+import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import WorkingHoursField from '@/components/WorkingHoursField.vue'
-import { buildingIoTemplateExampleRow, buildingToIoRow } from '@/utils/buildingExport'
+import {
+  buildingIoTemplateExampleRow,
+  buildingToIoRow,
+  rowToBuildingIoPayload,
+} from '@/utils/buildingExport'
 import { useUserStore } from '@/stores/user'
+import { useImportProgress } from '@/composables/useImportProgress'
+import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { useActionColWidth } from '@/composables/useActionColWidth'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Plus, Search, Upload, Download } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 const { t } = useI18n()
 const userStore = useUserStore()
+const isAdmin = computed(() => userStore.isAdmin)
+const { actionColWidth } = useActionColWidth()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
 const keyword = ref('')
 const loading = ref(false)
 const drawerVisible = ref(false)
+const relatedRoomsDrawer = ref(false)
+const relatedRoomDrawer = ref(false)
 const formVisible = ref(false)
 const current = ref<BuildingRecord | null>(null)
+const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
+const relatedRoom = ref<RoomRecord | null>(null)
 const editing = ref<BuildingRecord | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
+const {
+  state: importState,
+  percentage: importPercentage,
+  importing,
+  begin: beginImport,
+  setTotal: setImportTotal,
+  setPreparing: setImportPreparing,
+  setProcessing: setImportProcessing,
+  bump: bumpImport,
+  finish: finishImport,
+  fail: failImport,
+  close: closeImport,
+} = useImportProgress()
 
 const list = ref<BuildingRecord[]>([])
 
@@ -118,6 +150,24 @@ function openDetail(row: BuildingRecord) {
   drawerVisible.value = true
 }
 
+function openRoomsSide(row: BuildingRecord) {
+  if (!row.roomIds?.length) return
+  relatedRoomsBuilding.value = row
+  relatedRoomsDrawer.value = true
+}
+
+function onOpenRoomFromList(room: RoomRecord) {
+  relatedRoom.value = room
+  relatedRoomDrawer.value = true
+}
+
+function onOpenBuildingFromRoom(buildingId: string) {
+  const b =
+    list.value.find((x) => x.id === buildingId) ||
+    (relatedRoomsBuilding.value?.id === buildingId ? relatedRoomsBuilding.value : null)
+  if (b) openDetail(b)
+}
+
 function onBuildingRowClick(row: BuildingRecord, _column: unknown, event: Event) {
   const el = event.target as HTMLElement | null
   if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
@@ -154,11 +204,67 @@ function onDataIoCommand(cmd: string | number) {
 }
 
 function onImportFile(ev: Event) {
+  void runImportFile(ev)
+}
+
+async function runImportFile(ev: Event) {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  ElMessage.info(t('building.importPending', { name: file.name }))
+  if (!isAdmin.value) {
+    ElMessage.warning(t('building.importAdminOnly'))
+    return
+  }
+
+  beginImport({
+    fileName: file.name,
+    statKeys: ['created', 'updated', 'skipped', 'failed'],
+  })
+  try {
+    setImportPreparing()
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const sheet = wb.Sheets[wb.SheetNames[0]]
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    if (!rawRows.length) {
+      finishImport({ tone: 'warning', message: t('building.importEmpty') })
+      return
+    }
+
+    const payloads: BuildingWritePayload[] = []
+    for (const row of rawRows) {
+      const parsed = rowToBuildingIoPayload(row, t)
+      if (!parsed) {
+        bumpImport('skipped')
+        continue
+      }
+      payloads.push(parsed)
+    }
+
+    setImportTotal(rawRows.length)
+    const batches = chunkArray(payloads, IMPORT_BATCH_SIZE)
+    let processed = importState.stats.skipped
+    for (const batch of batches) {
+      processed += batch.length
+      setImportProcessing(Math.min(processed, rawRows.length))
+      try {
+        const { data } = await importBuildingsApi(batch)
+        if (data.created) bumpImport('created', data.created)
+        if (data.updated) bumpImport('updated', data.updated)
+        if (data.skipped) bumpImport('skipped', data.skipped)
+        if (data.failed) bumpImport('failed', data.failed)
+      } catch {
+        bumpImport('failed', batch.length)
+      }
+    }
+
+    await loadList()
+    resetPage()
+    finishImport()
+  } catch {
+    failImport(t('building.importFailed'))
+  }
 }
 
 function openCreate() {
@@ -222,23 +328,23 @@ async function saveForm() {
     try {
       await updateBuildingApi(editing.value.id, { ...form })
       await loadList()
+      formVisible.value = false
     } catch {
-      return
+      /* interceptor */
     }
-  } else {
-    const actor = userStore.user?.account || ''
-    const now = new Date().toISOString().slice(0, 16).replace('T', ' ')
-    list.value.unshift({
-      id: `b${Date.now()}`,
-      ...form,
-      roomIds: [],
-      createdBy: actor,
-      createdAt: now,
-      updatedBy: actor,
-      updatedAt: now,
-    })
+    return
   }
-  formVisible.value = false
+  if (!isAdmin.value) {
+    ElMessage.warning(t('building.importAdminOnly'))
+    return
+  }
+  try {
+    await createBuildingApi({ ...form })
+    await loadList()
+    formVisible.value = false
+  } catch {
+    /* interceptor */
+  }
 }
 </script>
 
@@ -263,12 +369,12 @@ async function saveForm() {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('building.dataIo')">
+          <el-button class="room-io-btn" :aria-label="t('building.dataIo')" :loading="importing">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="import">
+              <el-dropdown-item v-if="isAdmin" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('building.import') }}</span>
               </el-dropdown-item>
@@ -341,7 +447,7 @@ async function saveForm() {
           <el-table-column prop="managerPhone" :label="t('building.fields.managerPhone')" min-width="130" />
           <el-table-column prop="email" :label="t('building.fields.email')" min-width="200" />
           <el-table-column prop="workingHours" :label="t('building.fields.workingHours')" min-width="176" />
-          <el-table-column min-width="88" align="center">
+          <el-table-column min-width="108" align="center">
             <template #header>
               <TableColumnHeader
                 :label="t('building.fields.rooms')"
@@ -351,12 +457,10 @@ async function saveForm() {
               />
             </template>
             <template #default="{ row }">
-              <span
-                class="lb-room-count"
-                :class="{ 'is-empty': !(row as BuildingRecord).roomIds.length }"
-              >
-                {{ (row as BuildingRecord).roomIds.length }}
-              </span>
+              <CountListPill
+                :count="(row as BuildingRecord).roomIds.length"
+                @click="openRoomsSide(row as BuildingRecord)"
+              />
             </template>
           </el-table-column>
           <el-table-column width="88" align="center">
@@ -398,7 +502,13 @@ async function saveForm() {
               />
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.actions')" width="150" fixed="right">
+          <el-table-column
+            :label="t('common.actions')"
+            :width="actionColWidth.two"
+            fixed="right"
+            class-name="col-actions"
+            label-class-name="col-actions"
+          >
             <template #default="{ row }">
               <div class="action-pills">
                 <button type="button" class="action-pill action-pill--view" @click.stop="openDetail(row as BuildingRecord)">
@@ -424,9 +534,10 @@ async function saveForm() {
             <h3 class="data-card__title">{{ row.name }}</h3>
             <p class="data-card__meta">{{ row.address }}</p>
           </div>
-          <el-tag effect="plain" class="lb-room-count-tag" :class="{ 'is-empty': !row.roomIds.length }">
-            {{ row.roomIds.length }} {{ t('building.fields.rooms') }}
-          </el-tag>
+          <CountListPill
+            :count="row.roomIds.length"
+            @click="openRoomsSide(row)"
+          />
         </div>
         <dl class="data-card__grid">
           <div>
@@ -483,7 +594,23 @@ async function saveForm() {
       </div>
     </div>
 
-    <BuildingDetailDrawer v-model="drawerVisible" :building="current" />
+    <BuildingDetailDrawer
+      v-model="drawerVisible"
+      :building="current"
+      @open-rooms="openRoomsSide"
+    />
+    <RelatedRoomsDrawer
+      v-model="relatedRoomsDrawer"
+      :building="relatedRoomsBuilding"
+      desktop-direction="ltr"
+      @open-room="onOpenRoomFromList"
+    />
+    <RoomDetailDrawer
+      v-model="relatedRoomDrawer"
+      :room="relatedRoom"
+      desktop-direction="ltr"
+      @open-building="onOpenBuildingFromRoom"
+    />
 
     <el-dialog
       v-model="formVisible"
@@ -558,6 +685,21 @@ async function saveForm() {
         <el-button type="primary" @click="saveForm">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
+
+    <ImportProgressDialog
+      v-model="importState.visible"
+      :phase="importState.phase"
+      :file-name="importState.fileName"
+      :total="importState.total"
+      :current="importState.current"
+      :percentage="importPercentage"
+      :status-key="importState.statusKey"
+      :stats="importState.stats"
+      :result-tone="importState.resultTone"
+      :result-message="importState.resultMessage"
+      :result-stat-keys="importState.resultStatKeys"
+      @close="closeImport"
+    />
   </div>
 </template>
 
