@@ -45,3 +45,15 @@ export function customerStatusTone(status: string | null | undefined): StatusTon
   const key = (status || '').trim()
   return CUSTOMER_STATUS_TONES[key] || 'neutral'
 }
+
+/** 客户需求状态色：蓝 / 绿 / 红 */
+const CUSTOMER_REQUIREMENT_STATUS_TONES: Record<string, StatusTone> = {
+  跟進中: 'contracting',
+  已簽約: 'idle',
+  已取消: 'terminating',
+}
+
+export function customerRequirementStatusTone(status: string | null | undefined): StatusTone {
+  const key = (status || '').trim()
+  return CUSTOMER_REQUIREMENT_STATUS_TONES[key] || 'neutral'
+}

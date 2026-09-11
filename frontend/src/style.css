@@ -714,9 +714,11 @@ button {
   text-overflow: ellipsis;
 }
 
-/* ??????????????? width=160? */
+/* 时间戳列：完整显示 YYYY-MM-DD HH:mm:ss；宽度用 TABLE_DATETIME_COL_WIDTH */
 .el-table .col-datetime .cell {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
 
 .fk-link {
@@ -1363,6 +1365,14 @@ button {
   padding: 0 12px !important;
   font-size: 0.82rem;
   font-weight: 600;
+}
+
+/* 下拉选项过长时省略，悬停用 title 显示全文 */
+.el-select-dropdown__item .select-option-ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lb-pager__btn {
@@ -2130,7 +2140,7 @@ button {
   }
 }
 
-/* ?? ???? / ?? ?? */
+/* 表头排序 / 筛选 */
 .lb-col-head {
   display: inline-flex;
   align-items: center;
@@ -2146,11 +2156,21 @@ button {
   width: 100%;
 }
 
+.table-card .el-table th.el-table__cell:has(.lb-col-head.is-active),
+.related-list__table th.el-table__cell:has(.lb-col-head.is-active) {
+  background: rgba(15, 74, 50, 0.08) !important;
+}
+
+.table-card .el-table th.el-table__cell:has(.lb-col-head.is-filtered),
+.related-list__table th.el-table__cell:has(.lb-col-head.is-filtered) {
+  background: rgba(15, 74, 50, 0.12) !important;
+}
+
 .lb-col-head__hit {
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 2px;
+  gap: 4px;
   width: 100%;
   margin: 0;
   padding: 0;
@@ -2180,9 +2200,10 @@ button {
   outline: none;
 }
 
-.lb-col-head__hit.is-on,
-.lb-col-head.is-active .lb-col-head__hit {
-  background: transparent;
+.lb-col-head__hit.is-on .lb-col-head__label,
+.lb-col-head.is-active .lb-col-head__label {
+  color: var(--lb-brand);
+  font-weight: 700;
 }
 
 .lb-col-head__label {
@@ -2190,30 +2211,102 @@ button {
   overflow: visible;
   text-overflow: clip;
   white-space: nowrap;
+  transition: color 0.15s ease;
 }
 
 .lb-col-head__trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   padding: 0;
-  border: none;
-  border-radius: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
   color: #7a8a82;
   flex: 0 0 auto;
-  transition: color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   pointer-events: none;
 }
 
-.lb-col-head__hit:hover .lb-col-head__trigger,
-.lb-col-head__hit.is-on .lb-col-head__trigger,
-.lb-col-head.is-active .lb-col-head__trigger {
-  background: transparent;
+.lb-col-head__hit:hover .lb-col-head__trigger {
   color: var(--lb-brand);
+  background: rgba(15, 74, 50, 0.08);
+  border-color: rgba(15, 74, 50, 0.16);
+}
+
+.lb-col-head__trigger.is-on {
+  color: #fff;
+  background: var(--lb-brand);
+  border-color: var(--lb-brand);
+  box-shadow: 0 1px 4px rgba(15, 74, 50, 0.28);
+}
+
+.lb-col-head__trigger.is-filtered {
+  background: #0f4a32;
+}
+
+.lb-col-head__badge {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #c0392b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.lb-col-head__sort-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e6a23c;
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.lb-clear-filters-btn {
+  --el-button-bg-color: #eef5f1;
+  --el-button-border-color: #b7ccc4;
+  --el-button-text-color: #0f4a32;
+  --el-button-hover-bg-color: #e0ebe5;
+  --el-button-hover-border-color: #0f4a32;
+  --el-button-hover-text-color: #0f4a32;
+  --el-button-active-bg-color: #d4e4dc;
+  --el-button-active-border-color: #0f4a32;
+  font-weight: 600;
+}
+
+.lb-clear-filters-btn__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--lb-brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .lb-col-head-popper.el-popper {
@@ -2221,8 +2314,13 @@ button {
   border-radius: 12px !important;
   box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
   padding: 0 !important;
-  overflow: hidden;
+  overflow: visible;
   background: #fff !important;
+}
+
+.lb-col-head-popper .el-picker__popper,
+.lb-col-head-popper .el-date-range-picker {
+  z-index: 10;
 }
 
 .lb-col-panel {
@@ -2320,6 +2418,19 @@ button {
   border-radius: 8px;
   padding: 4px;
   background: #fafbfa;
+}
+
+.lb-col-date-range {
+  width: 100% !important;
+}
+
+.lb-col-date-range.el-date-editor {
+  --el-date-editor-width: 100%;
+}
+
+.lb-col-date-range .el-range-separator {
+  padding: 0 4px;
+  flex-shrink: 0;
 }
 
 .lb-col-option {

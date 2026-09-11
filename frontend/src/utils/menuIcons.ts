@@ -10,6 +10,7 @@ import {
   CollectionTag,
   Promotion,
   Avatar,
+  Document,
 } from '@element-plus/icons-vue'
 import DoorIcon from '@/components/icons/DoorIcon.vue'
 
@@ -27,6 +28,7 @@ const ICON_MAP: Record<string, Component> = {
   SetUp,
   CollectionTag,
   Promotion,
+  Document,
 }
 
 export function resolveMenuIcon(icon?: string | null): Component {

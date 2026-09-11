@@ -1,49 +1,103 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowDown, ArrowUp, Close, Filter, Sort } from '@element-plus/icons-vue'
-import type { ColumnOption, SortOrder } from '@/composables/useTableSortFilter'
+import { ArrowDown, ArrowUp, Calendar, Close, Filter, Sort } from '@element-plus/icons-vue'
+import type { ColumnOption, DateRangeValue, SortOrder } from '@/composables/useTableSortFilter'
 
 const props = withDefaults(
   defineProps<{
     label: string
     sortable?: boolean
     filterable?: boolean
+    /** 日期范围筛选（YYYY-MM-DD） */
+    dateRange?: boolean
     options?: ColumnOption[]
     sortOrder?: SortOrder
     modelValue?: string[]
+    dateRangeValue?: DateRangeValue
   }>(),
   {
     sortable: false,
     filterable: false,
+    dateRange: false,
     options: () => [],
     sortOrder: null,
     modelValue: () => [],
+    dateRangeValue: null,
   },
 )
 
 const emit = defineEmits<{
   'update:sortOrder': [SortOrder]
   'update:modelValue': [string[]]
+  'update:dateRangeValue': [DateRangeValue]
 }>()
 
 const { t } = useI18n()
 const visible = ref(false)
+/** 本地草稿：选完起止日再回写，避免选一半时父级重渲染关掉弹层 */
+const draftRange = ref<DateRangeValue>(props.dateRangeValue)
 
 const selected = computed({
   get: () => props.modelValue,
   set: (v: string[]) => emit('update:modelValue', v),
 })
 
-const interactive = computed(() => props.sortable || props.filterable)
-
-const hasActive = computed(
-  () => Boolean(props.sortOrder) || (props.filterable && selected.value.length > 0),
+watch(
+  () => props.dateRangeValue,
+  (v) => {
+    draftRange.value = v
+  },
 )
+
+watch(visible, (open) => {
+  if (open) draftRange.value = props.dateRangeValue
+})
+
+function onDraftRangeUpdate(v: DateRangeValue | '' | null) {
+  if (!v || !Array.isArray(v)) {
+    draftRange.value = null
+    emit('update:dateRangeValue', null)
+    return
+  }
+  if (v[0] && v[1]) {
+    draftRange.value = [v[0], v[1]]
+    emit('update:dateRangeValue', [v[0], v[1]])
+  }
+}
+
+const interactive = computed(() => props.sortable || props.filterable || props.dateRange)
+
+const hasDateRange = computed(
+  () => Boolean(props.dateRangeValue?.[0] && props.dateRangeValue?.[1]),
+)
+
+const hasFilter = computed(
+  () => (props.filterable && selected.value.length > 0) || (props.dateRange && hasDateRange.value),
+)
+
+const hasSort = computed(() => Boolean(props.sortOrder))
+
+const hasActive = computed(() => hasFilter.value || hasSort.value)
+
+const filterBadge = computed(() => {
+  if (props.filterable && selected.value.length > 0) return selected.value.length
+  if (props.dateRange && hasDateRange.value) return 1
+  return 0
+})
+
+const activeHint = computed(() => {
+  if (hasFilter.value && hasSort.value) return t('tableColumn.filteredAndSortedHint')
+  if (hasFilter.value) return t('tableColumn.filteredHint')
+  if (hasSort.value) return t('tableColumn.sortedHint')
+  return t('tableColumn.menu')
+})
 
 const allSelected = computed(
   () => props.options.length > 0 && selected.value.length === props.options.length,
 )
+
+const popoverWidth = computed(() => (props.dateRange ? 300 : 248))
 
 function setSort(order: 'asc' | 'desc') {
   emit('update:sortOrder', props.sortOrder === order ? null : order)
@@ -61,6 +115,11 @@ function clearFilter() {
   selected.value = []
 }
 
+function clearDateRange() {
+  draftRange.value = null
+  emit('update:dateRangeValue', null)
+}
+
 function toggleOption(value: string) {
   const next = new Set(selected.value)
   if (next.has(value)) next.delete(value)
@@ -70,12 +129,20 @@ function toggleOption(value: string) {
 </script>
 
 <template>
-  <div class="lb-col-head" :class="{ 'is-active': hasActive, 'is-interactive': interactive }">
+  <div
+    class="lb-col-head"
+    :class="{
+      'is-active': hasActive,
+      'is-filtered': hasFilter,
+      'is-sorted': hasSort,
+      'is-interactive': interactive,
+    }"
+  >
     <el-popover
       v-if="interactive"
       v-model:visible="visible"
       placement="bottom-start"
-      :width="248"
+      :width="popoverWidth"
       trigger="click"
       popper-class="lb-col-head-popper"
       :show-arrow="false"
@@ -85,15 +152,28 @@ function toggleOption(value: string) {
         <button
           type="button"
           class="lb-col-head__hit"
-          :class="{ 'is-on': hasActive }"
-          :aria-label="t('tableColumn.menu')"
+          :class="{ 'is-on': hasActive, 'is-filtered': hasFilter, 'is-sorted': hasSort }"
+          :title="activeHint"
+          :aria-label="activeHint"
         >
           <span class="lb-col-head__label">{{ label }}</span>
-          <span class="lb-col-head__trigger" :class="{ 'is-on': hasActive }" aria-hidden="true">
-            <el-icon :size="13">
-              <Sort v-if="sortable && !filterable" />
+          <span
+            class="lb-col-head__trigger"
+            :class="{ 'is-on': hasActive, 'is-filtered': hasFilter, 'is-sorted': hasSort }"
+            aria-hidden="true"
+          >
+            <el-icon :size="12">
+              <ArrowUp v-if="sortOrder === 'asc' && !hasFilter" />
+              <ArrowDown v-else-if="sortOrder === 'desc' && !hasFilter" />
+              <Calendar v-else-if="dateRange && (!filterable || hasDateRange)" />
+              <Filter v-else-if="filterable" />
+              <Sort v-else-if="sortable" />
               <Filter v-else />
             </el-icon>
+            <span v-if="filterBadge > 0" class="lb-col-head__badge">
+              {{ filterBadge > 9 ? '9+' : filterBadge }}
+            </span>
+            <span v-else-if="hasSort && hasFilter" class="lb-col-head__sort-dot" />
           </span>
         </button>
       </template>
@@ -146,6 +226,29 @@ function toggleOption(value: string) {
               <span class="lb-col-option__text" :title="opt.label">{{ opt.label }}</span>
             </label>
           </div>
+        </div>
+
+        <div v-if="dateRange" class="lb-col-panel__filter" @mousedown.stop>
+          <div class="lb-col-panel__filter-head">
+            <el-icon :size="14"><Calendar /></el-icon>
+            <span>{{ t('tableColumn.dateRange') }}</span>
+          </div>
+          <div class="lb-col-panel__filter-actions">
+            <button type="button" class="lb-col-link" :disabled="!hasDateRange" @click="clearDateRange">
+              {{ t('tableColumn.clearFilter') }}
+            </button>
+          </div>
+          <el-date-picker
+            :model-value="draftRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            unlink-panels
+            :teleported="false"
+            :start-placeholder="t('tableColumn.dateStart')"
+            :end-placeholder="t('tableColumn.dateEnd')"
+            class="lb-col-date-range"
+            @update:model-value="onDraftRangeUpdate"
+          />
         </div>
       </div>
     </el-popover>

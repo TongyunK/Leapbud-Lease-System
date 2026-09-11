@@ -70,6 +70,16 @@ const router = createRouter({
           },
         },
         {
+          path: 'customer-mgmt/requirements',
+          name: 'customerRequirements',
+          component: () => import('@/views/customer-mgmt/CustomerRequirementListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.customerRequirements',
+            subtitleKey: 'customerRequirement.subtitle',
+          },
+        },
+        {
           path: 'system/users',
           name: 'users',
           component: () => import('@/views/system/UserListView.vue'),

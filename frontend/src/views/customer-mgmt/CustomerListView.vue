@@ -20,6 +20,7 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
@@ -33,6 +34,7 @@ import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import { customerStatusTone } from '@/constants/statusBadges'
 import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
@@ -51,12 +53,14 @@ import type { UserRecord } from '@/types/user'
 import type { RoomRecord } from '@/types/room'
 import type { CustomerSourceOption } from '@/types/customer-source'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
 
 const { t } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
+const { colW, textColW, statusColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
 const loading = ref(false)
@@ -103,7 +107,12 @@ const {
   filters,
   setFilter,
   setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
   sortOrderOf,
+  activeConditionCount,
+  clearAll,
   apply: applySortFilter,
   uniqueOptions,
   sortKey,
@@ -162,7 +171,7 @@ const filtered = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
 
-watch([keyword, filters, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch([keyword, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 
@@ -573,8 +582,9 @@ function onDataIoCommand(cmd: string | number) {
     downloadImportTemplate()
     return
   }
-  if (cmd === 'export') {
-    exportCustomersXlsx()
+  const scope = exportScopeFromCommand(cmd)
+  if (scope) {
+    exportCustomersXlsx(scope)
   }
 }
 
@@ -587,8 +597,12 @@ function downloadImportTemplate() {
   ElMessage.success(t('customer.templateDone'))
 }
 
-function exportCustomersXlsx() {
-  const rows = filtered.value
+function exportCustomersXlsx(scope: 'page' | 'filtered' | 'all') {
+  const rows = resolveExportRows(scope, {
+    page: paged.value,
+    filtered: filtered.value,
+    all: list.value,
+  })
   if (!rows.length) {
     ElMessage.warning(t('customer.exportEmpty'))
     return
@@ -597,7 +611,8 @@ function exportCustomersXlsx() {
   const ws = XLSX.utils.json_to_sheet(sheetRows)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Customers')
-  XLSX.writeFile(wb, `customers-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  const day = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `customers-${exportFileSuffix(scope)}-${day}.xlsx`)
   ElMessage.success(t('customer.exportDone', { n: rows.length }))
 }
 
@@ -693,6 +708,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('customer.searchPlaceholder')"
         />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
         <el-button
           v-if="isAdmin"
           type="primary"
@@ -721,9 +737,17 @@ async function onImportFile(ev: Event) {
                 <el-icon><Download /></el-icon>
                 <span>{{ t('customer.downloadTemplate') }}</span>
               </el-dropdown-item>
-              <el-dropdown-item command="export" divided>
+              <el-dropdown-item command="export-page" divided>
                 <el-icon><Download /></el-icon>
-                <span>{{ t('customer.export') }}</span>
+                <span>{{ t('common.exportPage') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-filtered">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportFiltered') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-all">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportAll') }}</span>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -741,6 +765,7 @@ async function onImportFile(ev: Event) {
     <div class="table-card" v-loading="loading || importing">
       <div class="table-scroll">
         <el-table
+          :key="tableLayoutKey"
           class="customer-table--clickable"
           :data="paged"
           height="100%"
@@ -760,7 +785,11 @@ async function onImportFile(ev: Event) {
             align="center"
             header-align="center"
           />
-          <el-table-column prop="customerCode" min-width="114" fixed="left">
+          <el-table-column
+            prop="customerCode"
+            :min-width="colW(t('customer.fields.customerCode'), { interactive: true, contentMin: 114 })"
+            fixed="left"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('customer.fields.customerCode')"
@@ -770,7 +799,10 @@ async function onImportFile(ev: Event) {
               />
             </template>
           </el-table-column>
-          <el-table-column prop="name" min-width="156">
+          <el-table-column
+            prop="name"
+            :min-width="textColW(t('customer.fields.name'), { interactive: true, kind: 'name' })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('customer.fields.name')"
@@ -780,7 +812,14 @@ async function onImportFile(ev: Event) {
               />
             </template>
           </el-table-column>
-          <el-table-column min-width="124">
+          <el-table-column
+            :min-width="
+              statusColW(
+                t('customer.fields.status'),
+                statusFilterOptions.map((o) => o.label),
+              )
+            "
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('customer.fields.status')"
@@ -797,7 +836,10 @@ async function onImportFile(ev: Event) {
               <StatusBadge :tone="customerStatusTone(row.status)" :label="statusLabel(row.status)" />
             </template>
           </el-table-column>
-          <el-table-column prop="accountManager" min-width="128">
+          <el-table-column
+            prop="accountManager"
+            :min-width="colW(t('customer.fields.accountManager'), { interactive: true, contentMin: 128 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('customer.fields.accountManager')"
@@ -814,17 +856,17 @@ async function onImportFile(ev: Event) {
           <el-table-column
             prop="primaryContact"
             :label="t('customer.fields.primaryContact')"
-            min-width="140"
+            :min-width="colW(t('customer.fields.primaryContact'), { contentMin: 140 })"
             show-overflow-tooltip
           />
           <el-table-column
             prop="mobilePhone"
             :label="t('customer.fields.mobilePhone')"
-            min-width="120"
+            :min-width="colW(t('customer.fields.mobilePhone'), { contentMin: 120 })"
           />
           <el-table-column
             :label="t('customer.fields.buildingName')"
-            min-width="148"
+            :min-width="textColW(t('customer.fields.buildingName'), { kind: 'name' })"
             show-overflow-tooltip
           >
             <template #default="{ row }">
@@ -839,7 +881,10 @@ async function onImportFile(ev: Event) {
               <span v-else>{{ row.buildingName || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column min-width="100" align="center">
+          <el-table-column
+            :min-width="colW(t('customer.fields.occupantCount'), { interactive: true, contentMin: 100 })"
+            align="center"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('customer.fields.occupantCount')"
@@ -856,7 +901,7 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
-            width="172"
+            :width="datetimeColWidth"
             class-name="col-datetime"
             label-class-name="col-datetime"
           >
@@ -864,8 +909,11 @@ async function onImportFile(ev: Event) {
               <TableColumnHeader
                 :label="t('common.createdAt')"
                 sortable
+                date-range
                 :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>

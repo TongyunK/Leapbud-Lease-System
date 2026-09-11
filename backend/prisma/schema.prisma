@@ -108,6 +108,12 @@ model User {
   createdMenus             Menu[]             @relation("MenuCreatedBy")
   /// 作为更新人：菜单
   updatedMenus             Menu[]             @relation("MenuUpdatedBy")
+  /// 作为创建人：客户需求
+  createdCustomerRequirements CustomerRequirement[] @relation("CustomerRequirementCreatedBy")
+  /// 作为更新人：客户需求
+  updatedCustomerRequirements CustomerRequirement[] @relation("CustomerRequirementUpdatedBy")
+  /// 作为销售经理：客户需求
+  salesManagedRequirements    CustomerRequirement[] @relation("CustomerRequirementSalesManager")
 
   @@index([status])
   @@index([role])
@@ -148,6 +154,13 @@ model RoomConfigOption {
   createdAt DateTime       @default(now()) @map("created_at")
   /// 更新时间
   updatedAt DateTime       @updatedAt @map("updated_at")
+
+  /// 作为房间大小：客户需求
+  sizeRequirements   CustomerRequirement[] @relation("CustomerRequirementSizeConfig")
+  /// 作为空调：客户需求
+  acRequirements     CustomerRequirement[] @relation("CustomerRequirementAcConfig")
+  /// 作为窗：客户需求
+  windowRequirements CustomerRequirement[] @relation("CustomerRequirementWindowConfig")
 
   @@index([type, active])
   @@index([type, sortOrder])
@@ -413,6 +426,8 @@ model Customer {
   updatedAt        DateTime   @updatedAt @map("updated_at")
   /// 下属使用者（实际租赁名义人）
   occupants        Occupant[] @relation("OccupantBelongsToCustomer")
+  /// 下属客户需求
+  requirements     CustomerRequirement[] @relation("CustomerRequirementBelongsToCustomer")
 
   @@index([status])
   @@index([name])
@@ -422,6 +437,71 @@ model Customer {
   @@index([createdById])
   @@index([updatedById])
   @@map("customers")
+}
+
+/// 客户需求（咨询阶段的租房意向）
+model CustomerRequirement {
+  /// 主键
+  id               String    @id @default(cuid())
+  /// 需求编号（业务唯一，如 REQ2609100001）
+  requirementCode  String    @unique @map("requirement_code")
+  /// 所属客户 ID
+  customerId       String    @map("customer_id")
+  /// 所属客户
+  customer         Customer  @relation("CustomerRequirementBelongsToCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  /// 销售经理用户 ID
+  salesManagerId   String?   @map("sales_manager")
+  /// 销售经理用户
+  salesManagerUser User?     @relation("CustomerRequirementSalesManager", fields: [salesManagerId], references: [id], onDelete: SetNull)
+  /// 创建日期（业务日期）
+  requirementDate  DateTime? @map("requirement_date") @db.Date
+  /// 状态：跟進中 / 已簽約 / 已取消
+  status           String    @default("跟進中")
+  /// 租赁时长（文本，如 12个月）
+  leaseDuration    String    @default("") @map("lease_duration")
+  /// 预算
+  budget           Decimal?  @db.Decimal(14, 2)
+  /// 需求内容
+  content          String    @default("")
+  /// 备注
+  remark           String    @default("")
+  /// 附件路径
+  attachment       String    @default("")
+  /// 房间大小配置 ID（房间配置 size）
+  sizeConfigId     String?   @map("size_config_id")
+  /// 房间大小配置
+  sizeConfig       RoomConfigOption? @relation("CustomerRequirementSizeConfig", fields: [sizeConfigId], references: [id], onDelete: SetNull)
+  /// 空调配置 ID（房间配置 ac）
+  acConfigId       String?   @map("ac_config_id")
+  /// 空调配置
+  acConfig         RoomConfigOption? @relation("CustomerRequirementAcConfig", fields: [acConfigId], references: [id], onDelete: SetNull)
+  /// 窗配置 ID（房间配置 window）
+  windowConfigId   String?   @map("window_config_id")
+  /// 窗配置
+  windowConfig     RoomConfigOption? @relation("CustomerRequirementWindowConfig", fields: [windowConfigId], references: [id], onDelete: SetNull)
+  /// 创建人用户 ID
+  createdById      String?   @map("created_by")
+  /// 创建人用户
+  createdByUser    User?     @relation("CustomerRequirementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById      String?   @map("updated_by")
+  /// 更新人用户
+  updatedByUser    User?     @relation("CustomerRequirementUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt        DateTime  @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([salesManagerId])
+  @@index([status])
+  @@index([requirementDate])
+  @@index([sizeConfigId])
+  @@index([acConfigId])
+  @@index([windowConfigId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("customer_requirements")
 }
 
 /// 使用者（客户下的联系人 / 实际租赁名义人；非系统登录账号）

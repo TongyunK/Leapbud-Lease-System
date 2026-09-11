@@ -16,13 +16,16 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const { actionColWidth } = useActionColWidth()
+const { colW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const loading = ref(false)
 const formVisible = ref(false)
@@ -33,7 +36,12 @@ const {
   filters,
   setFilter,
   setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
   sortOrderOf,
+  activeConditionCount,
+  clearAll,
   apply: applySortFilter,
   sortKey,
   sortOrder,
@@ -44,6 +52,8 @@ const columnGetters = {
   tone: (o: RoomTypeOption) => o.tone,
   sortOrder: (o: RoomTypeOption) => o.sortOrder,
   active: (o: RoomTypeOption) => String(o.active),
+  createdAt: (o: RoomTypeOption) => o.createdAt,
+  updatedAt: (o: RoomTypeOption) => o.updatedAt,
 }
 
 const toneFilterOptions = computed(() =>
@@ -65,7 +75,7 @@ const sorted = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(sorted)
 
-watch([filters, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch([filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '480px'))
 
@@ -173,6 +183,7 @@ async function toggleActive(row: RoomTypeOption) {
     <div class="admin-page-head">
       <h2>{{ t('menu.roomTypes') }}</h2>
       <div class="head-actions">
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('roomType.create') }}
         </el-button>
@@ -181,9 +192,11 @@ async function toggleActive(row: RoomTypeOption) {
 
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
-        <el-table :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
+        <el-table :key="tableLayoutKey" :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
-          <el-table-column min-width="140">
+          <el-table-column
+            :min-width="colW(t('roomType.fields.label'), { interactive: true, contentMin: 140 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('roomType.fields.label')"
@@ -196,7 +209,9 @@ async function toggleActive(row: RoomTypeOption) {
               <RoomTypeBadge :value="row.label" :tone="row.tone" />
             </template>
           </el-table-column>
-          <el-table-column min-width="152">
+          <el-table-column
+            :min-width="colW(t('roomType.fields.tone'), { interactive: true, contentMin: 152 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('roomType.fields.tone')"
@@ -211,8 +226,15 @@ async function toggleActive(row: RoomTypeOption) {
             </template>
             <template #default="{ row }">{{ t(`roomType.tones.${row.tone}`, row.tone) }}</template>
           </el-table-column>
-          <el-table-column prop="hint" :label="t('roomType.fields.hint')" min-width="160" />
-          <el-table-column prop="sortOrder" width="120">
+          <el-table-column
+            prop="hint"
+            :label="t('roomType.fields.hint')"
+            :min-width="colW(t('roomType.fields.hint'), { contentMin: 160 })"
+          />
+          <el-table-column
+            prop="sortOrder"
+            :min-width="colW(t('roomType.fields.sortOrder'), { interactive: true, contentMin: 120 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('roomType.fields.sortOrder')"
@@ -222,7 +244,9 @@ async function toggleActive(row: RoomTypeOption) {
               />
             </template>
           </el-table-column>
-          <el-table-column width="128">
+          <el-table-column
+            :min-width="colW(t('roomType.fields.active'), { interactive: true, contentMin: 128 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('roomType.fields.active')"
@@ -236,22 +260,54 @@ async function toggleActive(row: RoomTypeOption) {
               <el-switch :model-value="row.active" @change="() => toggleActive(row)" />
             </template>
           </el-table-column>
-          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column
+            prop="createdBy"
+            :label="t('common.createdBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
           <el-table-column
             prop="createdAt"
-            :label="t('common.createdAt')"
-            width="160"
+            :width="datetimeColWidth"
             class-name="col-datetime"
             label-class-name="col-datetime"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="updatedBy"
+            :label="t('common.updatedBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
           />
-          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
           <el-table-column
             prop="updatedAt"
-            :label="t('common.updatedAt')"
-            width="160"
+            :width="datetimeColWidth"
             class-name="col-datetime"
             label-class-name="col-datetime"
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('updatedAt')"
+                :date-range-value="dateRangeOf('updatedAt')"
+                @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:date-range-value="(v) => setDateRange('updatedAt', v)"
+              />
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t('common.actions')"
             :width="actionColWidth.two"

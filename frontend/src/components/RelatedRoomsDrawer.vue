@@ -11,6 +11,7 @@ import TablePagination from '@/components/TablePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { roomStatusTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -32,10 +33,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const { colW, textColW, statusColW, tableLayoutKey } = useTableColWidth()
 const rooms = ref<RoomRecord[]>([])
 const loading = ref(false)
 const keyword = ref('')
 
+const roomStatusLabels = computed(() =>
+  (['idle', 'signing', 'leased', 'terminating'] as const).map((s) => t(`room.status.${s}`)),
+)
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '860px'))
 
@@ -119,6 +124,7 @@ function onRowClick(row: RoomRecord) {
         <p v-if="!loading && !filtered.length" class="related-list__empty">—</p>
         <el-table
           v-else
+          :key="tableLayoutKey"
           class="related-list__table related-list__table--clickable"
           :data="paged"
           height="100%"
@@ -140,22 +146,25 @@ function onRowClick(row: RoomRecord) {
           <el-table-column
             prop="roomCode"
             :label="t('room.fields.roomCode')"
-            min-width="110"
+            :min-width="colW(t('room.fields.roomCode'), { contentMin: 110 })"
             show-overflow-tooltip
           />
           <el-table-column
             prop="name"
             :label="t('room.fields.name')"
-            min-width="130"
+            :min-width="colW(t('room.fields.name'), { contentMin: 130 })"
             show-overflow-tooltip
           />
           <el-table-column
             prop="roomType"
             :label="t('room.fields.roomType')"
-            min-width="100"
+            :min-width="colW(t('room.fields.roomType'), { contentMin: 100 })"
             show-overflow-tooltip
           />
-          <el-table-column :label="t('room.fields.status')" min-width="100">
+          <el-table-column
+            :label="t('room.fields.status')"
+            :min-width="statusColW(t('room.fields.status'), roomStatusLabels, { interactive: false })"
+          >
             <template #default="{ row }">
               <StatusBadge
                 :tone="roomStatusTone(row.status)"
@@ -165,14 +174,14 @@ function onRowClick(row: RoomRecord) {
           </el-table-column>
           <el-table-column
             :label="t('room.fields.monthlyRent')"
-            min-width="100"
+            :min-width="colW(t('room.fields.monthlyRent'), { contentMin: 100 })"
             align="right"
           >
             <template #default="{ row }">{{ formatMoney(row.monthlyRent) }}</template>
           </el-table-column>
           <el-table-column
             :label="t('room.fields.sizeSqft')"
-            min-width="90"
+            :min-width="colW(t('room.fields.sizeSqft'), { contentMin: 90 })"
             align="right"
           >
             <template #default="{ row }">{{ formatNumber2(row.sizeSqft) }}</template>

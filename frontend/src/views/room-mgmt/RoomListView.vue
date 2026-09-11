@@ -18,6 +18,7 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
@@ -36,7 +37,9 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
 import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Search, CaretLeft, CaretRight, Upload, Download } from '@element-plus/icons-vue'
@@ -47,6 +50,7 @@ const { t } = useI18n()
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
+const { colW, textColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
@@ -80,7 +84,12 @@ const {
   filters,
   setFilter,
   setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
   sortOrderOf,
+  activeConditionCount,
+  clearAll,
   apply: applySortFilter,
   uniqueOptions,
   sortKey,
@@ -225,7 +234,7 @@ const filtered = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
 
-watch([keyword, filters, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch([keyword, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 async function loadList() {
   loading.value = true
@@ -366,8 +375,9 @@ function onDataIoCommand(cmd: string | number) {
     downloadImportTemplate()
     return
   }
-  if (cmd === 'export') {
-    exportRoomsXlsx()
+  const scope = exportScopeFromCommand(cmd)
+  if (scope) {
+    exportRoomsXlsx(scope)
   }
 }
 
@@ -380,8 +390,12 @@ function downloadImportTemplate() {
   ElMessage.success(t('room.templateDone'))
 }
 
-function exportRoomsXlsx() {
-  const rows = filtered.value
+function exportRoomsXlsx(scope: 'page' | 'filtered' | 'all') {
+  const rows = resolveExportRows(scope, {
+    page: paged.value,
+    filtered: filtered.value,
+    all: list.value,
+  })
   if (!rows.length) {
     ElMessage.warning(t('room.exportEmpty'))
     return
@@ -390,7 +404,8 @@ function exportRoomsXlsx() {
   const ws = XLSX.utils.json_to_sheet(sheetRows)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Rooms')
-  XLSX.writeFile(wb, `rooms-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  const day = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `rooms-${exportFileSuffix(scope)}-${day}.xlsx`)
   ElMessage.success(t('room.exportDone', { n: rows.length }))
 }
 
@@ -645,6 +660,7 @@ async function saveForm() {
           :prefix-icon="Search"
           :placeholder="t('room.searchPlaceholder')"
         />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('room.create') }}
         </el-button>
@@ -667,9 +683,17 @@ async function saveForm() {
                 <el-icon><Download /></el-icon>
                 <span>{{ t('room.downloadTemplate') }}</span>
               </el-dropdown-item>
-              <el-dropdown-item command="export" divided>
+              <el-dropdown-item command="export-page" divided>
                 <el-icon><Download /></el-icon>
-                <span>{{ t('room.export') }}</span>
+                <span>{{ t('common.exportPage') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-filtered">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportFiltered') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-all">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportAll') }}</span>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -687,6 +711,7 @@ async function saveForm() {
     <div v-if="!useCards" class="table-card" v-loading="loading">
       <div class="table-scroll">
         <el-table
+          :key="tableLayoutKey"
           :data="paged"
           height="100%"
           stripe
@@ -696,7 +721,10 @@ async function saveForm() {
           @row-click="onRoomRowClick"
         >
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
-          <el-table-column prop="roomCode" min-width="136">
+          <el-table-column
+            prop="roomCode"
+            :min-width="colW(t('room.fields.roomCode'), { interactive: true, contentMin: 136 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.roomCode')"
@@ -706,7 +734,10 @@ async function saveForm() {
               />
             </template>
           </el-table-column>
-          <el-table-column prop="name" min-width="140">
+          <el-table-column
+            prop="name"
+            :min-width="colW(t('room.fields.name'), { interactive: true, contentMin: 140 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.name')"
@@ -716,7 +747,9 @@ async function saveForm() {
               />
             </template>
           </el-table-column>
-          <el-table-column min-width="132">
+          <el-table-column
+            :min-width="colW(t('room.fields.roomType'), { interactive: true, contentMin: 132 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.roomType')"
@@ -730,7 +763,10 @@ async function saveForm() {
               <RoomTypeBadge :value="row.roomType" :tone="toneForLabel(row.roomType)" />
             </template>
           </el-table-column>
-          <el-table-column prop="buildingName" min-width="168">
+          <el-table-column
+            prop="buildingName"
+            :min-width="colW(t('room.fields.building'), { interactive: true, contentMin: 168 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.building')"
@@ -753,7 +789,14 @@ async function saveForm() {
               </button>
             </template>
           </el-table-column>
-          <el-table-column min-width="108">
+          <el-table-column
+            :min-width="
+              statusColW(
+                t('room.fields.status'),
+                statusFilterOptions.map((o) => o.label),
+              )
+            "
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.status')"
@@ -770,7 +813,10 @@ async function saveForm() {
               <StatusBadge :tone="roomStatusTone(row.status)" :label="t(`room.status.${row.status}`)" />
             </template>
           </el-table-column>
-          <el-table-column min-width="112" align="right">
+          <el-table-column
+            :min-width="colW(t('room.fields.monthlyRent'), { interactive: true, contentMin: 112 })"
+            align="right"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.monthlyRent')"
@@ -781,7 +827,10 @@ async function saveForm() {
             </template>
             <template #default="{ row }">{{ money(row.monthlyRent) }}</template>
           </el-table-column>
-          <el-table-column min-width="108" align="right">
+          <el-table-column
+            :min-width="colW(t('room.fields.dailyRent'), { interactive: true, contentMin: 108 })"
+            align="right"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.dailyRent')"
@@ -792,7 +841,10 @@ async function saveForm() {
             </template>
             <template #default="{ row }">{{ money(row.dailyRent) }}</template>
           </el-table-column>
-          <el-table-column min-width="108" align="right">
+          <el-table-column
+            :min-width="colW(t('room.fields.hourlyRent'), { interactive: true, contentMin: 108 })"
+            align="right"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.hourlyRent')"
@@ -803,7 +855,10 @@ async function saveForm() {
             </template>
             <template #default="{ row }">{{ money(row.hourlyRent) }}</template>
           </el-table-column>
-          <el-table-column min-width="118" align="right">
+          <el-table-column
+            :min-width="colW(t('room.fields.sizeSqft'), { interactive: true, contentMin: 118 })"
+            align="right"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.sizeSqft')"
@@ -818,7 +873,10 @@ async function saveForm() {
             </template>
             <template #default="{ row }">{{ number2(row.sizeSqft) }}</template>
           </el-table-column>
-          <el-table-column min-width="92" show-overflow-tooltip>
+          <el-table-column
+            :min-width="colW(t('room.fields.windowConfig'), { interactive: true, contentMin: 92 })"
+            show-overflow-tooltip
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.windowConfig')"
@@ -833,7 +891,10 @@ async function saveForm() {
             </template>
             <template #default="{ row }">{{ row.windowConfig || '—' }}</template>
           </el-table-column>
-          <el-table-column min-width="136" show-overflow-tooltip>
+          <el-table-column
+            :min-width="colW(t('room.fields.acConfig'), { interactive: true, contentMin: 136 })"
+            show-overflow-tooltip
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.acConfig')"
@@ -848,25 +909,41 @@ async function saveForm() {
             </template>
             <template #default="{ row }">{{ row.acConfig || '—' }}</template>
           </el-table-column>
-          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
-          <el-table-column prop="createdAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+          <el-table-column
+            prop="createdBy"
+            :label="t('common.createdBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdAt')"
                 sortable
+                date-range
                 :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
-          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
-          <el-table-column prop="updatedAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+          <el-table-column
+            prop="updatedBy"
+            :label="t('common.updatedBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="updatedAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
                 sortable
+                date-range
                 :sort-order="sortOrderOf('updatedAt')"
+                :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
           </el-table-column>

@@ -1,0 +1,55 @@
+---
+description: 前端表格列宽须随中/英文案自适应，禁止写死仅适合中文的宽度
+alwaysApply: true
+---
+
+# 表格列宽（中/英自适应）
+
+凡新增或改动 `el-table` 列表列，**必须**用 `useTableColWidth()`，禁止只按中文观感写死 `width` / `min-width`。
+
+## 用法
+
+```ts
+import { useTableColWidth } from '@/composables/useTableColWidth'
+
+const { colW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+```
+
+```vue
+<el-table :key="tableLayoutKey" ...>
+  <!-- 带 TableColumnHeader（排序/筛选/日期） -->
+  <el-table-column
+    :min-width="colW(t('xxx.fields.name'), { interactive: true, contentMin: 120 })"
+  />
+
+  <!-- StatusBadge 状态列：按全部状态文案测宽，保证 Following up 等英文完整显示 -->
+  <el-table-column
+    :min-width="statusColW(t('xxx.fields.status'), statusFilterOptions.map((o) => o.label))"
+  />
+
+  <!-- 创建人 / 更新人：完整显示账号 -->
+  <el-table-column :label="t('common.createdBy')" :min-width="auditUserColWidth" />
+
+  <!-- 时间戳列 -->
+  <el-table-column
+    :width="datetimeColWidth"
+    class-name="col-datetime"
+    label-class-name="col-datetime"
+  />
+</el-table>
+```
+
+## 约定
+
+- `colW(label, { interactive, contentMin })`：`label` 传**当前语言已翻译**文案；有表头控件时 `interactive: true`；`contentMin` 为内容区下限。
+- **StatusBadge 状态列**必须用 `statusColW(表头, 全部状态文案)`，勿只写死 `contentMin`；无交互表头时传 `{ interactive: false }`。
+- 创建人 / 更新人列统一 `auditUserColWidth`。
+- `el-table` 必须 `:key="tableLayoutKey"`。
+- 时间戳列用 `datetimeColWidth`；操作列用 `useActionColWidth()`；序号列 `#` 可固定 `52`。
+
+## 反例
+
+```vue
+<!-- ❌ 状态列只按中文宽度，英文徽章会被截成 Following u -->
+<el-table-column :min-width="colW(t('xxx.fields.status'), { interactive: true, contentMin: 100 })" />
+```

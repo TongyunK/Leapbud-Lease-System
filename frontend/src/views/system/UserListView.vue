@@ -15,15 +15,18 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { userStatusTone } from '@/constants/statusBadges'
 import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 const { actionColWidth } = useActionColWidth()
+const { colW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
 const loading = ref(false)
@@ -38,7 +41,12 @@ const {
   filters,
   setFilter,
   setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
   sortOrderOf,
+  activeConditionCount,
+  clearAll,
   apply: applySortFilter,
   sortKey,
   sortOrder,
@@ -78,7 +86,7 @@ const filtered = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
 
-watch([keyword, filters, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch([keyword, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '520px'))
 
@@ -205,6 +213,7 @@ async function onDelete(row: UserRecord) {
           :prefix-icon="Search"
           :placeholder="t('user.searchPlaceholder')"
         />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('user.create') }}
         </el-button>
@@ -213,9 +222,12 @@ async function onDelete(row: UserRecord) {
 
     <div v-if="!useCards" class="table-card" v-loading="loading">
       <div class="table-scroll">
-        <el-table :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
+        <el-table :key="tableLayoutKey" :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
-          <el-table-column prop="account" min-width="128">
+          <el-table-column
+            prop="account"
+            :min-width="colW(t('user.fields.account'), { interactive: true, contentMin: 128 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('user.fields.account')"
@@ -225,7 +237,10 @@ async function onDelete(row: UserRecord) {
               />
             </template>
           </el-table-column>
-          <el-table-column prop="displayName" min-width="152">
+          <el-table-column
+            prop="displayName"
+            :min-width="colW(t('user.fields.displayName'), { interactive: true, contentMin: 152 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('user.fields.displayName')"
@@ -235,7 +250,9 @@ async function onDelete(row: UserRecord) {
               />
             </template>
           </el-table-column>
-          <el-table-column min-width="128">
+          <el-table-column
+            :min-width="colW(t('user.fields.role'), { interactive: true, contentMin: 128 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('user.fields.role')"
@@ -250,7 +267,14 @@ async function onDelete(row: UserRecord) {
             </template>
             <template #default="{ row }">{{ t(`user.role.${row.role}`) }}</template>
           </el-table-column>
-          <el-table-column min-width="124">
+          <el-table-column
+            :min-width="
+              statusColW(
+                t('user.fields.status'),
+                statusFilterOptions.map((o) => o.label),
+              )
+            "
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('user.fields.status')"
@@ -267,27 +291,51 @@ async function onDelete(row: UserRecord) {
               <StatusBadge :tone="userStatusTone(row.status)" :label="t(`user.status.${row.status}`)" />
             </template>
           </el-table-column>
-          <el-table-column prop="phone" :label="t('user.fields.phone')" min-width="120" />
-          <el-table-column prop="email" :label="t('user.fields.email')" min-width="180" />
-          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
-          <el-table-column prop="createdAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+          <el-table-column
+            prop="phone"
+            :label="t('user.fields.phone')"
+            :min-width="colW(t('user.fields.phone'), { contentMin: 120 })"
+          />
+          <el-table-column
+            prop="email"
+            :label="t('user.fields.email')"
+            :min-width="colW(t('user.fields.email'), { contentMin: 180 })"
+          />
+          <el-table-column
+            prop="createdBy"
+            :label="t('common.createdBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdAt')"
                 sortable
+                date-range
                 :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
-          <el-table-column prop="updatedBy" :label="t('common.updatedBy')" min-width="100" show-overflow-tooltip />
-          <el-table-column prop="updatedAt" width="160" class-name="col-datetime" label-class-name="col-datetime">
+          <el-table-column
+            prop="updatedBy"
+            :label="t('common.updatedBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="updatedAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
                 sortable
+                date-range
                 :sort-order="sortOrderOf('updatedAt')"
+                :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
           </el-table-column>

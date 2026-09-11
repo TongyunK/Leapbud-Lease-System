@@ -6,8 +6,12 @@ import type { CustomerRecord, OccupantRecord } from '@/types/customer'
 import { fetchOccupants } from '@/api/occupants'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
+import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import { formatDateTime } from '@/utils/format'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -29,9 +33,27 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const { colW, textColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 const occupants = ref<OccupantRecord[]>([])
 const loading = ref(false)
 const keyword = ref('')
+
+const {
+  setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
+  sortOrderOf,
+  activeConditionCount,
+  clearAll,
+  apply: applySortFilter,
+  sortKey,
+  sortOrder,
+} = useTableSortFilter<OccupantRecord>()
+
+const columnGetters = {
+  createdAt: (o: OccupantRecord) => o.createdAt,
+}
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '900px'))
@@ -49,19 +71,21 @@ const title = computed(() => {
 
 const filtered = computed(() => {
   const q = keyword.value.trim().toLowerCase()
-  if (!q) return occupants.value
-  return occupants.value.filter((o) =>
-    [o.name, o.mobilePhone, o.whatsapp, o.email, o.idCardNo, o.contactPhone]
-      .join(' ')
-      .toLowerCase()
-      .includes(q),
-  )
+  const base = !q
+    ? occupants.value
+    : occupants.value.filter((o) =>
+        [o.name, o.mobilePhone, o.whatsapp, o.email, o.idCardNo, o.contactPhone]
+          .join(' ')
+          .toLowerCase()
+          .includes(q),
+      )
+  return applySortFilter(base, columnGetters)
 })
 
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
 
-watch(keyword, () => resetPage())
+watch([keyword, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 function dash(v?: string | null) {
   return v?.trim() ? v : '—'
@@ -84,6 +108,7 @@ watch(
   ([open, id]) => {
     if (open && id) {
       keyword.value = ''
+      clearAll()
       resetPage()
       void loadOccupants(id)
     }
@@ -116,12 +141,14 @@ function onRowClick(row: OccupantRecord) {
           :prefix-icon="Search"
           :placeholder="t('occupant.searchPlaceholder')"
         />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
       </div>
 
       <div class="related-list__body">
         <p v-if="!loading && !filtered.length" class="related-list__empty">—</p>
         <el-table
           v-else
+          :key="tableLayoutKey"
           class="related-list__table related-list__table--clickable"
           :data="paged"
           height="100%"
@@ -143,13 +170,13 @@ function onRowClick(row: OccupantRecord) {
           <el-table-column
             prop="name"
             :label="t('occupant.fields.name')"
-            min-width="120"
+            :min-width="colW(t('occupant.fields.name'), { contentMin: 120 })"
             show-overflow-tooltip
           />
           <el-table-column
             prop="mobilePhone"
             :label="t('occupant.fields.mobilePhone')"
-            min-width="120"
+            :min-width="colW(t('occupant.fields.mobilePhone'), { contentMin: 120 })"
             show-overflow-tooltip
           >
             <template #default="{ row }">{{ dash(row.mobilePhone) }}</template>
@@ -157,7 +184,7 @@ function onRowClick(row: OccupantRecord) {
           <el-table-column
             prop="whatsapp"
             :label="t('occupant.fields.whatsapp')"
-            min-width="120"
+            :min-width="colW(t('occupant.fields.whatsapp'), { contentMin: 120 })"
             show-overflow-tooltip
           >
             <template #default="{ row }">{{ dash(row.whatsapp) }}</template>
@@ -165,7 +192,7 @@ function onRowClick(row: OccupantRecord) {
           <el-table-column
             prop="email"
             :label="t('occupant.fields.email')"
-            min-width="160"
+            :min-width="colW(t('occupant.fields.email'), { contentMin: 160 })"
             show-overflow-tooltip
           >
             <template #default="{ row }">{{ dash(row.email) }}</template>
@@ -173,17 +200,27 @@ function onRowClick(row: OccupantRecord) {
           <el-table-column
             prop="idCardNo"
             :label="t('occupant.fields.idCardNo')"
-            min-width="130"
+            :min-width="colW(t('occupant.fields.idCardNo'), { contentMin: 130 })"
             show-overflow-tooltip
           >
             <template #default="{ row }">{{ dash(row.idCardNo) }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('common.createdAt')"
-            width="160"
+            :width="datetimeColWidth"
             class-name="col-datetime"
             label-class-name="col-datetime"
           >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
+              />
+            </template>
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
         </el-table>
@@ -212,9 +249,14 @@ function onRowClick(row: OccupantRecord) {
 
 .related-list__toolbar {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .related-list__search {
+  flex: 1 1 220px;
   max-width: 360px;
 }
 

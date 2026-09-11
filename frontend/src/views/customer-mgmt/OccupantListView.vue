@@ -23,6 +23,7 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
@@ -36,12 +37,14 @@ import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
 import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   occupantIoTemplateExampleRow,
   occupantToIoRow,
   rowToOccupantIoPayload,
 } from '@/utils/occupantExport'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -49,6 +52,7 @@ const userStore = useUserStore()
 const isMobile = useIsMobile()
 const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
+const { colW, textColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
 /** Silent filter from ?customerId= (no header dropdown) */
@@ -78,7 +82,12 @@ const {
   filters,
   setFilter,
   setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
   sortOrderOf,
+  activeConditionCount,
+  clearAll,
   apply: applySortFilter,
   uniqueOptions,
   sortKey,
@@ -137,7 +146,7 @@ const filtered = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
 
-watch([keyword, customerIdFilter, filters, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch([keyword, customerIdFilter, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 
@@ -368,8 +377,9 @@ function onDataIoCommand(cmd: string | number) {
     downloadImportTemplate()
     return
   }
-  if (cmd === 'export') {
-    exportOccupantsXlsx()
+  const scope = exportScopeFromCommand(cmd)
+  if (scope) {
+    exportOccupantsXlsx(scope)
   }
 }
 
@@ -382,8 +392,12 @@ function downloadImportTemplate() {
   ElMessage.success(t('occupant.templateDone'))
 }
 
-function exportOccupantsXlsx() {
-  const rows = filtered.value
+function exportOccupantsXlsx(scope: 'page' | 'filtered' | 'all') {
+  const rows = resolveExportRows(scope, {
+    page: paged.value,
+    filtered: filtered.value,
+    all: list.value,
+  })
   if (!rows.length) {
     ElMessage.warning(t('occupant.exportEmpty'))
     return
@@ -392,7 +406,8 @@ function exportOccupantsXlsx() {
   const ws = XLSX.utils.json_to_sheet(sheetRows)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Occupants')
-  XLSX.writeFile(wb, `occupants-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  const day = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `occupants-${exportFileSuffix(scope)}-${day}.xlsx`)
   ElMessage.success(t('occupant.exportDone', { n: rows.length }))
 }
 
@@ -487,6 +502,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('occupant.searchPlaceholder')"
         />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
         <el-button
           v-if="isAdmin"
           type="primary"
@@ -515,9 +531,17 @@ async function onImportFile(ev: Event) {
                 <el-icon><Download /></el-icon>
                 <span>{{ t('occupant.downloadTemplate') }}</span>
               </el-dropdown-item>
-              <el-dropdown-item command="export" divided>
+              <el-dropdown-item command="export-page" divided>
                 <el-icon><Download /></el-icon>
-                <span>{{ t('occupant.export') }}</span>
+                <span>{{ t('common.exportPage') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-filtered">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportFiltered') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-all">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportAll') }}</span>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -535,6 +559,7 @@ async function onImportFile(ev: Event) {
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
         <el-table
+          :key="tableLayoutKey"
           class="occupant-table--clickable"
           :data="paged"
           height="100%"
@@ -554,7 +579,11 @@ async function onImportFile(ev: Event) {
             align="center"
             header-align="center"
           />
-          <el-table-column prop="name" min-width="140" fixed="left">
+          <el-table-column
+            prop="name"
+            :min-width="colW(t('occupant.fields.name'), { interactive: true, contentMin: 140 })"
+            fixed="left"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('occupant.fields.name')"
@@ -564,7 +593,10 @@ async function onImportFile(ev: Event) {
               />
             </template>
           </el-table-column>
-          <el-table-column min-width="200" show-overflow-tooltip>
+          <el-table-column
+            :min-width="colW(t('occupant.fields.customer'), { interactive: true, contentMin: 200 })"
+            show-overflow-tooltip
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('occupant.fields.customer')"
@@ -590,7 +622,10 @@ async function onImportFile(ev: Event) {
               <span v-else>{{ displayCustomer(row) }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="mobilePhone" min-width="120">
+          <el-table-column
+            prop="mobilePhone"
+            :min-width="colW(t('occupant.fields.mobilePhone'), { interactive: true, contentMin: 120 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('occupant.fields.mobilePhone')"
@@ -603,21 +638,21 @@ async function onImportFile(ev: Event) {
           <el-table-column
             prop="whatsapp"
             :label="t('occupant.fields.whatsapp')"
-            min-width="120"
+            :min-width="colW(t('occupant.fields.whatsapp'), { contentMin: 120 })"
           />
           <el-table-column
             prop="email"
             :label="t('occupant.fields.email')"
-            min-width="180"
+            :min-width="colW(t('occupant.fields.email'), { contentMin: 180 })"
             show-overflow-tooltip
           />
           <el-table-column
             prop="idCardNo"
             :label="t('occupant.fields.idCardNo')"
-            min-width="160"
+            :min-width="colW(t('occupant.fields.idCardNo'), { contentMin: 160 })"
           />
           <el-table-column
-            width="178"
+            :width="datetimeColWidth"
             class-name="col-datetime"
             label-class-name="col-datetime"
           >
@@ -625,8 +660,11 @@ async function onImportFile(ev: Event) {
               <TableColumnHeader
                 :label="t('common.createdAt')"
                 sortable
+                date-range
                 :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
@@ -734,6 +772,7 @@ async function onImportFile(ev: Event) {
               v-model="form.customerId"
               clearable
               filterable
+              fit-input-width
               style="width: 100%"
               :placeholder="t('occupant.fields.customer')"
             >
@@ -742,7 +781,10 @@ async function onImportFile(ev: Event) {
                 :key="opt.value"
                 :label="opt.label"
                 :value="opt.value"
-              />
+                :title="opt.label"
+              >
+                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+              </el-option>
             </el-select>
           </el-form-item>
           <el-form-item :label="t('occupant.fields.relatedCustomerName')" class="span-2">

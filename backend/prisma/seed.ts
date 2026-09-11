@@ -298,14 +298,14 @@ async function main() {
     create: {
       account: 'admin',
       passwordHash: adminHash,
-      displayName: 'Demo Admin',
+      displayName: 'superAdmin',
       role: 'admin',
       status: 'active',
       email: 'admin@leapbud.local',
     },
     update: {
       passwordHash: adminHash,
-      displayName: 'Demo Admin',
+      displayName: 'superAdmin',
       role: 'admin',
       status: 'active',
     },
@@ -534,6 +534,17 @@ async function seedRolesAndMenus(actorId: string) {
       sortOrder: 22,
     },
     {
+      id: 'menu_customer_requirements',
+      parentId: 'menu_customer_mgmt',
+      type: 'menu',
+      name: '客戶需求',
+      nameKey: 'menu.customerRequirements',
+      routeName: 'customerRequirements',
+      path: 'customer-mgmt/requirements',
+      icon: 'Document',
+      sortOrder: 23,
+    },
+    {
       id: 'menu_room_configs',
       parentId: 'menu_room_mgmt',
       type: 'menu',
@@ -564,7 +575,7 @@ async function seedRolesAndMenus(actorId: string) {
       routeName: 'customerSources',
       path: 'customer-mgmt/customer-sources',
       icon: 'Promotion',
-      sortOrder: 23,
+      sortOrder: 24,
     },
     {
       id: 'menu_system',

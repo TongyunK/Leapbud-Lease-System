@@ -15,11 +15,14 @@ import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
+const { colW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const roleActionWidth = computed(() => {
   void locale.value
   return measureActionColWidth([t('common.edit'), t('common.delete')])
@@ -34,7 +37,12 @@ const {
   filters,
   setFilter,
   setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
   sortOrderOf,
+  activeConditionCount,
+  clearAll,
   apply: applySortFilter,
   sortKey,
   sortOrder,
@@ -46,6 +54,7 @@ const columnGetters = {
   sortOrder: (o: RoleRecord) => o.sortOrder,
   active: (o: RoleRecord) => String(o.active),
   menuCount: (o: RoleRecord) => o.menuCount,
+  createdAt: (o: RoleRecord) => o.createdAt,
 }
 
 const activeFilterOptions = computed(() => [
@@ -64,7 +73,7 @@ const sorted = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(sorted)
 
-watch([filters, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch([filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '520px'))
 
@@ -176,6 +185,7 @@ async function toggleActive(row: RoleRecord) {
     <div class="admin-page-head">
       <h2>{{ t('menu.roles') }}</h2>
       <div class="head-actions">
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('role.create') }}
         </el-button>
@@ -184,7 +194,7 @@ async function toggleActive(row: RoleRecord) {
 
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
-        <el-table :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
+        <el-table :key="tableLayoutKey" :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -194,7 +204,9 @@ async function toggleActive(row: RoleRecord) {
             align="center"
             header-align="center"
           />
-          <el-table-column min-width="120">
+          <el-table-column
+            :min-width="colW(t('role.fields.code'), { interactive: true, contentMin: 120 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.code')"
@@ -205,7 +217,9 @@ async function toggleActive(row: RoleRecord) {
             </template>
             <template #default="{ row }">{{ row.code }}</template>
           </el-table-column>
-          <el-table-column min-width="140">
+          <el-table-column
+            :min-width="colW(t('role.fields.name'), { interactive: true, contentMin: 140 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.name')"
@@ -219,10 +233,13 @@ async function toggleActive(row: RoleRecord) {
           <el-table-column
             prop="description"
             :label="t('role.fields.description')"
-            min-width="180"
+            :min-width="colW(t('role.fields.description'), { contentMin: 180 })"
             show-overflow-tooltip
           />
-          <el-table-column prop="sortOrder" width="100">
+          <el-table-column
+            prop="sortOrder"
+            :min-width="colW(t('role.fields.sortOrder'), { interactive: true, contentMin: 100 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.sortOrder')"
@@ -232,7 +249,10 @@ async function toggleActive(row: RoleRecord) {
               />
             </template>
           </el-table-column>
-          <el-table-column width="100" align="center">
+          <el-table-column
+            :min-width="colW(t('role.fields.menuCount'), { interactive: true, contentMin: 100 })"
+            align="center"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.menuCount')"
@@ -243,7 +263,9 @@ async function toggleActive(row: RoleRecord) {
             </template>
             <template #default="{ row }">{{ row.menuCount }}</template>
           </el-table-column>
-          <el-table-column width="110">
+          <el-table-column
+            :min-width="colW(t('role.fields.active'), { interactive: true, contentMin: 110 })"
+          >
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.active')"
@@ -257,14 +279,30 @@ async function toggleActive(row: RoleRecord) {
               <el-switch :model-value="row.active" @change="() => toggleActive(row)" />
             </template>
           </el-table-column>
-          <el-table-column prop="createdBy" :label="t('common.createdBy')" min-width="100" show-overflow-tooltip />
+          <el-table-column
+            prop="createdBy"
+            :label="t('common.createdBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
           <el-table-column
             prop="createdAt"
-            :label="t('common.createdAt')"
-            width="160"
+            :width="datetimeColWidth"
             class-name="col-datetime"
             label-class-name="col-datetime"
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
+              />
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t('common.actions')"
             :width="roleActionWidth"

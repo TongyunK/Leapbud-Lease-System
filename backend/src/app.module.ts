@@ -13,6 +13,7 @@ import { CustomersModule } from './customers/customers.module';
 import { OccupantsModule } from './occupants/occupants.module';
 import { RolesModule } from './roles/roles.module';
 import { MenusModule } from './menus/menus.module';
+import { CustomerRequirementsModule } from './customer-requirements/customer-requirements.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { MenusModule } from './menus/menus.module';
     CustomerSourcesModule,
     CustomersModule,
     OccupantsModule,
+    CustomerRequirementsModule,
     RolesModule,
     MenusModule,
   ],

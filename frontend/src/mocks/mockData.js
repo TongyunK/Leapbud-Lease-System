@@ -35,7 +35,7 @@ export function createMockUser ({ account, displayName, role = 'admin' } = {}) {
   return {
     id: 'u-demo',
     account: account || 'admin',
-    displayName: displayName || 'Demo Admin',
+    displayName: displayName || 'superAdmin',
     role,
   }
 }
