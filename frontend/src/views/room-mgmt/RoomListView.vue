@@ -6,15 +6,15 @@ import {
   updateRoomApi,
   importRoomsApi,
 } from '@/api/rooms'
-import type { RoomWritePayload } from '@/api/rooms'
-import { fetchRoomConfigs, matchSizeOption } from '@/api/room-configs'
+import type { RoomListQuery, RoomWritePayload } from '@/api/rooms'
+import { fetchRoomConfigs } from '@/api/room-configs'
 import { fetchRoomTypes } from '@/api/room-types'
 import type { BuildingRecord } from '@/types/building'
 import type { RoomRecord, RoomStatus } from '@/types/room'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { RoomTypeOption } from '@/types/room-type'
 import { useIsMobile } from '@/composables/useMediaQuery'
-import { useClientPagination } from '@/composables/useClientPagination'
+import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
@@ -37,7 +37,7 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
-import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -55,7 +55,6 @@ const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
 const keyword = ref('')
-const loading = ref(false)
 const drawerVisible = ref(false)
 const formVisible = ref(false)
 const current = ref<RoomRecord | null>(null)
@@ -67,7 +66,6 @@ const relatedBuilding = ref<BuildingRecord | null>(null)
 const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
 const relatedRoom = ref<RoomRecord | null>(null)
 
-const list = ref<RoomRecord[]>([])
 const buildings = ref<BuildingRecord[]>([])
 const sizeOptions = ref<RoomConfigOption[]>([])
 const windowOptions = ref<RoomConfigOption[]>([])
@@ -90,41 +88,15 @@ const {
   sortOrderOf,
   activeConditionCount,
   clearAll,
-  apply: applySortFilter,
-  uniqueOptions,
   sortKey,
   sortOrder,
 } = useTableSortFilter<RoomRecord>()
 
-const columnGetters = {
-  roomCode: (r: RoomRecord) => r.roomCode,
-  name: (r: RoomRecord) => r.name,
-  roomType: (r: RoomRecord) => r.roomType,
-  buildingId: (r: RoomRecord) => r.buildingId,
-  status: (r: RoomRecord) => r.status,
-  monthlyRent: (r: RoomRecord) => r.monthlyRent,
-  dailyRent: (r: RoomRecord) => r.dailyRent,
-  hourlyRent: (r: RoomRecord) => r.hourlyRent,
-  sizeSqft: (r: RoomRecord) => r.sizeSqft,
-  /** 按房间配置尺寸区间自动匹配，供表头筛选 */
-  sizeRange: (r: RoomRecord) => matchSizeOption(sizeOptions.value, r.sizeSqft)?.id || '',
-  windowConfig: (r: RoomRecord) => r.windowConfig || '',
-  acConfig: (r: RoomRecord) => r.acConfig || '',
-  createdBy: (r: RoomRecord) => r.createdBy,
-  createdAt: (r: RoomRecord) => r.createdAt,
-  updatedBy: (r: RoomRecord) => r.updatedBy,
-  updatedAt: (r: RoomRecord) => r.updatedAt,
-}
-
 const roomTypeFilterOptions = computed(() =>
-  uniqueOptions(list.value, (r) => r.roomType),
+  roomTypeOptions.value.map((o) => ({ value: o.label, label: o.label })),
 )
 const buildingFilterOptions = computed(() =>
-  uniqueOptions(
-    list.value,
-    (r) => r.buildingId,
-    (id) => list.value.find((r) => r.buildingId === id)?.buildingName || id,
-  ),
+  buildings.value.map((b) => ({ value: b.id, label: b.name })),
 )
 const statusFilterOptions = computed(() =>
   statusOptions.map((s) => ({ value: s, label: t(`room.status.${s}`) })),
@@ -136,22 +108,70 @@ const sizeRangeFilterOptions = computed(() =>
     .map((o) => ({ value: o.id, label: o.label })),
 )
 const windowConfigFilterOptions = computed(() =>
-  uniqueOptions(list.value, (r) => r.windowConfig),
+  windowOptions.value
+    .filter((o) => o.active)
+    .map((o) => ({ value: o.label, label: o.label })),
 )
-const acConfigFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.acConfig))
+const acConfigFilterOptions = computed(() =>
+  acOptions.value.filter((o) => o.active).map((o) => ({ value: o.label, label: o.label })),
+)
 
-const buildingChips = computed(() => {
-  const counts = new Map<string, number>()
-  for (const r of list.value) {
-    counts.set(r.buildingId, (counts.get(r.buildingId) || 0) + 1)
-  }
-  return buildings.value
-    .filter((b) => b.active)
-    .map((b) => ({ id: b.id, name: b.name, count: counts.get(b.id) || 0 }))
-    .filter((b) => b.count > 0)
+const {
+  loading,
+  exporting,
+  list,
+  total,
+  page,
+  pageSize,
+  pageSizes,
+  rowIndex,
+  resetPage,
+  loadList,
+  fetchExportRows,
+  onClearFilters,
+} = useServerPagedList<RoomRecord, RoomListQuery>({
+  keyword,
+  sortFilter: {
+    filters,
+    dateRanges,
+    dateRangeOf,
+    sortKey,
+    sortOrder,
+    clearAll,
+  },
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => {
+    const created = range('createdAt')
+    const updated = range('updatedAt')
+    return {
+      keyword: kw,
+      buildingIds: f.buildingId?.length ? [...f.buildingId] : undefined,
+      statuses: f.status?.length ? [...f.status] : undefined,
+      roomTypes: f.roomType?.length ? [...f.roomType] : undefined,
+      sizeRangeIds: f.sizeRange?.length ? [...f.sizeRange] : undefined,
+      windowConfigs: f.windowConfig?.length ? [...f.windowConfig] : undefined,
+      acConfigs: f.acConfig?.length ? [...f.acConfig] : undefined,
+      sortBy,
+      sortDir,
+      createdAtFrom: created.from,
+      createdAtTo: created.to,
+      updatedAtFrom: updated.from,
+      updatedAtTo: updated.to,
+      page: p,
+      pageSize: ps,
+    }
+  },
+  fetchPage: fetchRooms,
 })
 
-const allBuildingCount = computed(() => list.value.length)
+const buildingChips = computed(() =>
+  buildings.value
+    .filter((b) => b.active && (b.roomIds?.length || 0) > 0)
+    .map((b) => ({ id: b.id, name: b.name, count: b.roomIds.length })),
+)
+
+const allBuildingCount = computed(() =>
+  buildings.value.reduce((sum, b) => sum + (b.roomIds?.length || 0), 0),
+)
 
 const activeBuildingChip = computed(() => {
   const selected = filters.buildingId || []
@@ -219,46 +239,23 @@ function toneForLabel(label: string) {
   return roomTypeToneByLabel.value.get(label)
 }
 
-const filtered = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  const base = list.value.filter((r) => {
-    if (!q) return true
-    return [r.roomCode, r.name, r.roomType, r.buildingName, r.serialNo, r.description]
-      .join(' ')
-      .toLowerCase()
-      .includes(q)
-  })
-  return applySortFilter(base, columnGetters)
-})
-
-const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
-  useClientPagination(filtered)
-
-watch([keyword, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
-
-async function loadList() {
-  loading.value = true
-  try {
-    const [roomsRes, buildingsRes, configsRes, typesRes] = await Promise.all([
-      fetchRooms(),
-      fetchBuildings(),
-      fetchRoomConfigs({ activeOnly: true }),
-      fetchRoomTypes({ activeOnly: true }),
-    ])
-    list.value = roomsRes.data
-    buildings.value = buildingsRes.data
-    const configs = configsRes.data
-    sizeOptions.value = configs.filter((c) => c.type === 'size')
-    windowOptions.value = configs.filter((c) => c.type === 'window')
-    acOptions.value = configs.filter((c) => c.type === 'ac')
-    roomTypeOptions.value = typesRes.data
-  } finally {
-    loading.value = false
-  }
+async function loadOptions() {
+  const [buildingsRes, configsRes, typesRes] = await Promise.all([
+    fetchBuildings(),
+    fetchRoomConfigs({ activeOnly: true }),
+    fetchRoomTypes({ activeOnly: true }),
+  ])
+  buildings.value = buildingsRes.data.items
+  const configs = configsRes.data
+  sizeOptions.value = configs.filter((c) => c.type === 'size')
+  windowOptions.value = configs.filter((c) => c.type === 'window')
+  acOptions.value = configs.filter((c) => c.type === 'ac')
+  roomTypeOptions.value = typesRes.data
 }
 
 onMounted(() => {
-  void loadList().then(() => nextTick(syncBuildingChipsScroll))
+  void loadOptions().then(() => nextTick(syncBuildingChipsScroll))
+  void loadList()
   void nextTick(() => {
     const el = buildingChipsEl.value
     if (el && typeof ResizeObserver !== 'undefined') {
@@ -377,7 +374,7 @@ function onDataIoCommand(cmd: string | number) {
   }
   const scope = exportScopeFromCommand(cmd)
   if (scope) {
-    exportRoomsXlsx(scope)
+    void exportRoomsXlsx(scope)
   }
 }
 
@@ -390,23 +387,32 @@ function downloadImportTemplate() {
   ElMessage.success(t('room.templateDone'))
 }
 
-function exportRoomsXlsx(scope: 'page' | 'filtered' | 'all') {
-  const rows = resolveExportRows(scope, {
-    page: paged.value,
-    filtered: filtered.value,
-    all: list.value,
-  })
-  if (!rows.length) {
-    ElMessage.warning(t('room.exportEmpty'))
-    return
+async function exportRoomsXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: RoomRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      ElMessage.info(t('room.exportLoading'))
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      ElMessage.warning(t('room.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((r) => roomToIoRow(r, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Rooms')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `rooms-${exportFileSuffix(scope)}-${day}.xlsx`)
+    ElMessage.success(t('room.exportDone', { n: rows.length }))
+  } catch {
+    ElMessage.error(t('room.importFailed'))
+  } finally {
+    exporting.value = false
   }
-  const sheetRows = rows.map((r) => roomToIoRow(r, t))
-  const ws = XLSX.utils.json_to_sheet(sheetRows)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Rooms')
-  const day = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `rooms-${exportFileSuffix(scope)}-${day}.xlsx`)
-  ElMessage.success(t('room.exportDone', { n: rows.length }))
 }
 
 function onImportFile(ev: Event) {
@@ -483,6 +489,7 @@ async function runImportFile(ev: Event) {
       }
     }
 
+    await loadOptions()
     await loadList()
     resetPage()
     finishImport()
@@ -574,8 +581,8 @@ async function saveForm() {
       await createRoomApi(payload)
     }
     formVisible.value = false
+    await loadOptions()
     await loadList()
-    resetPage()
   } catch {
     /* interceptor */
   }
@@ -660,7 +667,7 @@ async function saveForm() {
           :prefix-icon="Search"
           :placeholder="t('room.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('room.create') }}
         </el-button>
@@ -670,7 +677,7 @@ async function saveForm() {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('room.dataIo')" :loading="importing">
+          <el-button class="room-io-btn" :aria-label="t('room.dataIo')" :loading="importing || exporting">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
@@ -712,7 +719,7 @@ async function saveForm() {
       <div class="table-scroll">
         <el-table
           :key="tableLayoutKey"
-          :data="paged"
+          :data="list"
           height="100%"
           stripe
           border
@@ -736,7 +743,7 @@ async function saveForm() {
           </el-table-column>
           <el-table-column
             prop="name"
-            :min-width="colW(t('room.fields.name'), { interactive: true, contentMin: 140 })"
+            :min-width="textColW(t('room.fields.name'), { interactive: true, kind: 'name' })"
           >
             <template #header>
               <TableColumnHeader
@@ -765,7 +772,7 @@ async function saveForm() {
           </el-table-column>
           <el-table-column
             prop="buildingName"
-            :min-width="colW(t('room.fields.building'), { interactive: true, contentMin: 168 })"
+            :min-width="textColW(t('room.fields.building'), { interactive: true, kind: 'name' })"
           >
             <template #header>
               <TableColumnHeader
@@ -973,7 +980,7 @@ async function saveForm() {
     </div>
 
     <div v-else class="data-cards">
-      <article v-for="row in paged" :key="row.id" class="data-card">
+      <article v-for="row in list" :key="row.id" class="data-card">
         <div class="data-card__head">
           <div>
             <h3 class="data-card__title">{{ row.name }}</h3>
@@ -1025,8 +1032,8 @@ async function saveForm() {
           </button>
         </div>
       </article>
-      <el-empty v-if="!filtered.length" />
-      <div v-if="filtered.length" class="table-pagination cards-pagination">
+      <el-empty v-if="!list.length" />
+      <div v-if="total" class="table-pagination cards-pagination">
         <TablePagination v-model:page="page" v-model:page-size="pageSize" :total="total" :page-sizes="pageSizes" />
       </div>
     </div>

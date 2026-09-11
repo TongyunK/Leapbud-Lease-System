@@ -22,7 +22,7 @@ export type PrimaryOccupantRef = Pick<
 >;
 
 export type CustomerWithRelations = Customer & {
-  _count?: { occupants: number };
+  _count?: { occupants: number; requirements: number };
   building?: Pick<Building, 'id' | 'name'> | null;
   accountManagerUser?: AuditUserRef | null;
   primaryOccupant?: Partial<PrimaryOccupantRef> & Pick<Occupant, 'id' | 'name'> | null;
@@ -61,7 +61,7 @@ const primaryOccupantListSelect = {
 } as const;
 
 const customerInclude = {
-  _count: { select: { occupants: true } },
+  _count: { select: { occupants: true, requirements: true } },
   building: { select: { id: true, name: true } },
   accountManagerUser: { select: auditUserSelect },
   primaryOccupant: { select: primaryOccupantSelect },
@@ -69,7 +69,7 @@ const customerInclude = {
 } as const;
 
 const customerListInclude = {
-  _count: { select: { occupants: true } },
+  _count: { select: { occupants: true, requirements: true } },
   building: { select: { id: true, name: true } },
   accountManagerUser: { select: auditUserSelect },
   primaryOccupant: { select: primaryOccupantListSelect },
@@ -165,6 +165,7 @@ export function toCustomerDto(row: CustomerWithRelations) {
     primaryContact: primaryOccupant?.name ?? '',
     mobilePhone: primaryOccupant?.mobilePhone ?? '',
     occupantCount: row._count?.occupants ?? 0,
+    requirementCount: row._count?.requirements ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

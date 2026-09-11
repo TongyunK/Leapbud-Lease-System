@@ -23,3 +23,21 @@ export function auditActorLabel(user?: AuditUserRef | null): string {
   const name = user.displayName?.trim();
   return name || user.account;
 }
+
+/**
+ * Prisma User 条件：匹配 auditActorLabel 展示文案（有 displayName 用显示名，否则用账号）。
+ */
+export function userWhereActorLabels(labels: string[]): {
+  OR: Array<
+    | { displayName: { in: string[] } }
+    | { AND: [{ displayName: string }, { account: { in: string[] } }] }
+  >;
+} {
+  const cleaned = [...new Set(labels.map((l) => l.trim()).filter(Boolean))];
+  return {
+    OR: [
+      { displayName: { in: cleaned } },
+      { AND: [{ displayName: '' }, { account: { in: cleaned } }] },
+    ],
+  };
+}

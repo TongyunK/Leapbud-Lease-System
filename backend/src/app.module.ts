@@ -14,6 +14,11 @@ import { OccupantsModule } from './occupants/occupants.module';
 import { RolesModule } from './roles/roles.module';
 import { MenusModule } from './menus/menus.module';
 import { CustomerRequirementsModule } from './customer-requirements/customer-requirements.module';
+import { ContractsModule } from './contracts/contracts.module';
+import { ContractConfigsModule } from './contract-configs/contract-configs.module';
+import { ContractPeriodsModule } from './contract-periods/contract-periods.module';
+import { LeaseTerminationsModule } from './lease-terminations/lease-terminations.module';
+import { ContractOtherFeesModule } from './contract-other-fees/contract-other-fees.module';
 
 @Module({
   imports: [
@@ -30,6 +35,11 @@ import { CustomerRequirementsModule } from './customer-requirements/customer-req
     CustomersModule,
     OccupantsModule,
     CustomerRequirementsModule,
+    ContractsModule,
+    ContractConfigsModule,
+    ContractPeriodsModule,
+    LeaseTerminationsModule,
+    ContractOtherFeesModule,
     RolesModule,
     MenusModule,
   ],

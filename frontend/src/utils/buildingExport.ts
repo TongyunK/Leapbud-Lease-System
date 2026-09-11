@@ -35,11 +35,11 @@ function fieldHeader(key: BuildingIoFieldKey, t: Translate): string {
 }
 
 const HEADER_ALIASES: Record<BuildingIoFieldKey, string[]> = {
-  name: ['大廈名稱', '大厦名称', '大廈', '大厦', '名稱', '名称'],
-  address: ['地址', '地址（中文）', '中文地址'],
-  addressEn: ['地址（英文）', '英文地址', 'Address EN'],
-  manager: ['負責人', '负责人', '經理', '经理'],
-  managerPhone: ['負責人電話', '负责人电话', '電話', '电话'],
+  name: ['大廈名稱', '大厦名称', '大廈', '大厦', '名稱', '名称', 'Building Name', 'Building'],
+  address: ['地址', '地址（中文）', '中文地址', 'Address'],
+  addressEn: ['地址（英文）', '英文地址', 'Address EN', 'Address (EN)'],
+  manager: ['負責人', '负责人', '經理', '经理', 'Manager'],
+  managerPhone: ['負責人電話', '负责人电话', '電話', '电话', 'Phone'],
   email: ['電郵', '郵箱', '邮箱', 'Email'],
   workingHours: ['工作時間', '工作时间', '營業時間', '营业时间'],
   fpsId: ['FPS', 'FPS ID', '轉數快'],

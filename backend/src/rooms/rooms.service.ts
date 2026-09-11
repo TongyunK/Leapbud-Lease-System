@@ -7,6 +7,14 @@ import {
 import { Prisma, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { roomListInclude, toRoomDto } from '../common/dto-mappers';
+import {
+  dateRangeFilter,
+  paginateArgs,
+  parsePage,
+  parsePageSize,
+  parseSortDir,
+  type PaginatedResult,
+} from '../common/pagination';
 import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
 
 function s(v?: string | null) {
@@ -17,6 +25,13 @@ function n(v?: number | null) {
   if (v === null || v === undefined) return 0;
   const x = Number(v);
   return Number.isFinite(x) ? x : 0;
+}
+
+function parseRoomStatuses(raw?: string[]): RoomStatus[] {
+  if (!raw?.length) return [];
+  return raw
+    .map((v) => s(v))
+    .filter((v): v is RoomStatus => Object.values(RoomStatus).includes(v as RoomStatus));
 }
 
 @Injectable()
@@ -48,30 +63,158 @@ export class RoomsService {
     return null;
   }
 
-  async findAll(params: { keyword?: string; buildingId?: string; status?: string }) {
-    const q = params.keyword?.trim();
+  async findAll(params: {
+    keyword?: string;
+    buildingId?: string;
+    buildingIds?: string[];
+    status?: string;
+    statuses?: string[];
+    roomTypes?: string[];
+    sizeRangeIds?: string[];
+    windowConfigs?: string[];
+    acConfigs?: string[];
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<PaginatedResult<ReturnType<typeof toRoomDto>>> {
+    const page = parsePage(params.page);
+    const pageSize = parsePageSize(params.pageSize);
+    const where = await this.buildListWhere(params);
+    const { skip, take } = paginateArgs(page, pageSize);
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.room.count({ where }),
+      this.prisma.room.findMany({
+        where,
+        include: roomListInclude,
+        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        ...(skip !== undefined ? { skip, take } : {}),
+      }),
+    ]);
+
+    return {
+      items: rows.map(toRoomDto),
+      total,
+      page: pageSize == null ? 1 : page,
+      pageSize: pageSize == null ? total : pageSize,
+    };
+  }
+
+  private async buildListWhere(params: {
+    keyword?: string;
+    buildingId?: string;
+    buildingIds?: string[];
+    status?: string;
+    statuses?: string[];
+    roomTypes?: string[];
+    sizeRangeIds?: string[];
+    windowConfigs?: string[];
+    acConfigs?: string[];
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+  }): Promise<Prisma.RoomWhereInput> {
     const where: Prisma.RoomWhereInput = {};
+    const and: Prisma.RoomWhereInput[] = [];
 
-    if (params.buildingId) where.buildingId = params.buildingId;
-    if (params.status && Object.values(RoomStatus).includes(params.status as RoomStatus)) {
-      where.status = params.status as RoomStatus;
-    }
-    if (q) {
-      where.OR = [
-        { roomCode: { contains: q, mode: 'insensitive' } },
-        { name: { contains: q, mode: 'insensitive' } },
-        { roomType: { contains: q, mode: 'insensitive' } },
-        { serialNo: { contains: q, mode: 'insensitive' } },
-        { building: { name: { contains: q, mode: 'insensitive' } } },
-      ];
+    const buildingIds = [
+      ...new Set(
+        [...(params.buildingIds || []), params.buildingId || '']
+          .map((v) => s(v))
+          .filter(Boolean),
+      ),
+    ];
+    if (buildingIds.length === 1) where.buildingId = buildingIds[0];
+    else if (buildingIds.length > 1) where.buildingId = { in: buildingIds };
+
+    const statuses = [
+      ...parseRoomStatuses(params.statuses),
+      ...parseRoomStatuses(params.status ? [params.status] : undefined),
+    ];
+    const uniqStatuses = [...new Set(statuses)];
+    if (uniqStatuses.length === 1) where.status = uniqStatuses[0];
+    else if (uniqStatuses.length > 1) where.status = { in: uniqStatuses };
+
+    const roomTypes = (params.roomTypes || []).map((v) => s(v)).filter(Boolean);
+    if (roomTypes.length) where.roomType = { in: roomTypes };
+
+    const windowConfigs = (params.windowConfigs || []).map((v) => s(v)).filter(Boolean);
+    if (windowConfigs.length) where.windowConfig = { in: windowConfigs };
+
+    const acConfigs = (params.acConfigs || []).map((v) => s(v)).filter(Boolean);
+    if (acConfigs.length) where.acConfig = { in: acConfigs };
+
+    const sizeRangeIds = (params.sizeRangeIds || []).map((v) => s(v)).filter(Boolean);
+    if (sizeRangeIds.length) {
+      const ranges = await this.prisma.roomConfigOption.findMany({
+        where: { id: { in: sizeRangeIds }, type: 'size' },
+        select: { minSqft: true, maxSqft: true },
+      });
+      if (ranges.length) {
+        and.push({
+          OR: ranges.map((r) => {
+            const sizeSqft: Prisma.DecimalFilter = {};
+            if (r.minSqft != null) sizeSqft.gte = r.minSqft;
+            if (r.maxSqft != null) sizeSqft.lt = r.maxSqft;
+            return { sizeSqft };
+          }),
+        });
+      } else {
+        and.push({ id: '__no_match__' });
+      }
     }
 
-    const rows = await this.prisma.room.findMany({
-      where,
-      include: roomListInclude,
-      orderBy: { roomCode: 'asc' },
-    });
-    return rows.map(toRoomDto);
+    const keyword = params.keyword?.trim();
+    if (keyword) {
+      and.push({
+        OR: [
+          { roomCode: { contains: keyword, mode: 'insensitive' } },
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { roomType: { contains: keyword, mode: 'insensitive' } },
+          { serialNo: { contains: keyword, mode: 'insensitive' } },
+          { description: { contains: keyword, mode: 'insensitive' } },
+          { building: { name: { contains: keyword, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+    if (createdAt) where.createdAt = createdAt;
+    const updatedAt = dateRangeFilter(params.updatedAtFrom, params.updatedAtTo, true);
+    if (updatedAt) where.updatedAt = updatedAt;
+
+    if (and.length) where.AND = and;
+    return where;
+  }
+
+  private buildListOrderBy(
+    sortBy?: string,
+    sortDir?: 'asc' | 'desc',
+  ): Prisma.RoomOrderByWithRelationInput[] {
+    const dir = parseSortDir(sortDir) ?? 'asc';
+    const key = s(sortBy);
+    if (key === 'roomCode') return [{ roomCode: dir }];
+    if (key === 'name') return [{ name: dir }, { roomCode: 'asc' }];
+    if (key === 'roomType') return [{ roomType: dir }, { roomCode: 'asc' }];
+    if (key === 'buildingId' || key === 'buildingName') {
+      return [{ building: { name: dir } }, { roomCode: 'asc' }];
+    }
+    if (key === 'status') return [{ status: dir }, { roomCode: 'asc' }];
+    if (key === 'monthlyRent') return [{ monthlyRent: dir }];
+    if (key === 'dailyRent') return [{ dailyRent: dir }];
+    if (key === 'hourlyRent') return [{ hourlyRent: dir }];
+    if (key === 'sizeSqft' || key === 'sizeRange') return [{ sizeSqft: dir }];
+    if (key === 'windowConfig') return [{ windowConfig: dir }, { roomCode: 'asc' }];
+    if (key === 'acConfig') return [{ acConfig: dir }, { roomCode: 'asc' }];
+    if (key === 'createdAt') return [{ createdAt: dir }];
+    if (key === 'updatedAt') return [{ updatedAt: dir }];
+    return [{ roomCode: 'asc' }];
   }
 
   async findOne(id: string) {
@@ -180,7 +323,7 @@ export class RoomsService {
     }
   }
 
-  /** 按房间编号 upsert；按大厦名称/ID 关联 */
+  /** 按房间编号 upsert；按本批 roomCode / 大厦 ID·名称 范围加载已有行 */
   async importBatch(dto: ImportRoomsDto, actor = '') {
     const items = dto.items || [];
     let created = 0;
@@ -198,9 +341,24 @@ export class RoomsService {
       : [];
     const byCode = new Map(existingRows.map((r) => [r.roomCode, r]));
 
-    const buildings = await this.prisma.building.findMany({
-      select: { id: true, name: true },
-    });
+    const buildingIds = [...new Set(items.map((it) => s(it.buildingId)).filter(Boolean))];
+    const buildingNames = [
+      ...new Set(items.map((it) => s(it.buildingName)).filter(Boolean)),
+    ];
+    const buildings =
+      buildingIds.length || buildingNames.length
+        ? await this.prisma.building.findMany({
+            where: {
+              OR: [
+                ...(buildingIds.length ? [{ id: { in: buildingIds } }] : []),
+                ...buildingNames.map((name) => ({
+                  name: { equals: name, mode: 'insensitive' as const },
+                })),
+              ],
+            },
+            select: { id: true, name: true },
+          })
+        : [];
     const byBuildingId = new Map(buildings.map((b) => [b.id, b]));
     const byBuildingName = new Map(
       buildings.map((b) => [b.name.trim().toLowerCase(), b]),
@@ -216,7 +374,7 @@ export class RoomsService {
 
       const buildingId = s(item.buildingId);
       const buildingName = s(item.buildingName);
-      let building =
+      const building =
         (buildingId ? byBuildingId.get(buildingId) : undefined) ||
         (buildingName ? byBuildingName.get(buildingName.toLowerCase()) : undefined);
 

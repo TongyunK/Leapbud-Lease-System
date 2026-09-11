@@ -24,6 +24,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openOccupants: [customer: CustomerRecord]
+  openRequirements: [customer: CustomerRecord]
   openBuilding: [buildingId: string]
 }>()
 
@@ -47,6 +48,12 @@ function onOccupantCountClick() {
   const c = props.customer
   if (!c?.occupantCount) return
   emit('openOccupants', c)
+}
+
+function onRequirementCountClick() {
+  const c = props.customer
+  if (!c?.requirementCount) return
+  emit('openRequirements', c)
 }
 </script>
 
@@ -107,6 +114,15 @@ function onOccupantCountClick() {
               <CountListPill
                 :count="customer.occupantCount ?? 0"
                 @click="onOccupantCountClick"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.requirementCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.requirementCount ?? 0"
+                @click="onRequirementCountClick"
               />
             </dd>
           </div>

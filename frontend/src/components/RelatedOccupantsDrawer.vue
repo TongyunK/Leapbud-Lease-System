@@ -95,7 +95,7 @@ async function loadOccupants(customerId: string) {
   loading.value = true
   try {
     const { data } = await fetchOccupants({ customerId })
-    occupants.value = data
+    occupants.value = data.items
   } catch {
     occupants.value = []
   } finally {
@@ -170,7 +170,7 @@ function onRowClick(row: OccupantRecord) {
           <el-table-column
             prop="name"
             :label="t('occupant.fields.name')"
-            :min-width="colW(t('occupant.fields.name'), { contentMin: 120 })"
+            :min-width="textColW(t('occupant.fields.name'), { kind: 'name' })"
             show-overflow-tooltip
           />
           <el-table-column

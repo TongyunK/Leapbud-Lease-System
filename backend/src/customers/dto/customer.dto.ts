@@ -70,10 +70,10 @@ export class NestedOccupantDto {
 }
 
 export class CreateCustomerDto {
-  @ApiProperty({ example: 'CSM260485' })
+  @ApiPropertyOptional({ example: 'CSM260485', description: '客户编号；留空则自动生成' })
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  customerCode!: string;
+  customerCode?: string;
 
   @ApiProperty({ example: 'NG HO CHING' })
   @IsString()

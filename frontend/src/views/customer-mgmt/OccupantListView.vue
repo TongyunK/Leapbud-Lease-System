@@ -12,14 +12,14 @@ import {
   importOccupantsApi,
   updateOccupantApi,
 } from '@/api/occupants'
-import type { OccupantWritePayload } from '@/api/occupants'
+import type { OccupantWritePayload, OccupantListQuery } from '@/api/occupants'
 import { fetchCustomer, fetchCustomers } from '@/api/customers'
 import { fetchBuildings } from '@/api/buildings'
 import type { CustomerRecord, OccupantRecord } from '@/types/customer'
 import type { BuildingRecord } from '@/types/building'
 import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
-import { useClientPagination } from '@/composables/useClientPagination'
+import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
@@ -44,7 +44,7 @@ import {
   rowToOccupantIoPayload,
 } from '@/utils/occupantExport'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
-import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -57,7 +57,6 @@ const { colW, textColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 const keyword = ref('')
 /** Silent filter from ?customerId= (no header dropdown) */
 const customerIdFilter = ref('')
-const loading = ref(false)
 const formVisible = ref(false)
 const drawerVisible = ref(false)
 const relatedCustomerDrawer = ref(false)
@@ -72,38 +71,50 @@ const relatedOccupantsCustomer = ref<CustomerRecord | null>(null)
 const relatedBuilding = ref<BuildingRecord | null>(null)
 const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
 const relatedRoom = ref<RoomRecord | null>(null)
-const list = ref<OccupantRecord[]>([])
 const customers = ref<CustomerRecord[]>([])
 const buildings = ref<BuildingRecord[]>([])
 const occupantDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
 const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 
+const sortFilter = useTableSortFilter<OccupantRecord>()
 const {
   filters,
   setFilter,
   setSort,
   setDateRange,
   dateRangeOf,
-  dateRanges,
   sortOrderOf,
   activeConditionCount,
-  clearAll,
-  apply: applySortFilter,
-  uniqueOptions,
-  sortKey,
-  sortOrder,
-} = useTableSortFilter<OccupantRecord>()
+} = sortFilter
 
-const columnGetters = {
-  name: (o: OccupantRecord) => o.name,
-  customerName: (o: OccupantRecord) => o.customerName || o.relatedCustomerName,
-  customerCode: (o: OccupantRecord) => o.customerCode,
-  mobilePhone: (o: OccupantRecord) => o.mobilePhone,
-  whatsapp: (o: OccupantRecord) => o.whatsapp,
-  email: (o: OccupantRecord) => o.email,
-  createdAt: (o: OccupantRecord) => o.createdAt,
-  updatedAt: (o: OccupantRecord) => o.updatedAt,
-}
+const {
+  loading,
+  exporting,
+  list,
+  total,
+  page,
+  pageSize,
+  pageSizes,
+  rowIndex,
+  loadList,
+  fetchExportRows,
+  onClearFilters,
+} = useServerPagedList<OccupantRecord, OccupantListQuery>({
+  keyword,
+  sortFilter,
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => ({
+    keyword: kw,
+    customerId: customerIdFilter.value || undefined,
+    customerNames: f.customerName?.length ? [...f.customerName] : undefined,
+    sortBy,
+    sortDir,
+    createdAtFrom: range('createdAt').from,
+    createdAtTo: range('createdAt').to,
+    page: p,
+    pageSize: ps,
+  }),
+  fetchPage: fetchOccupants,
+})
 
 const customerFilterOptions = computed(() =>
   customers.value.map((c) => ({
@@ -112,41 +123,22 @@ const customerFilterOptions = computed(() =>
   })),
 )
 
-const customerNameFilterOptions = computed(() =>
-  uniqueOptions(list.value, (o) => o.customerName || o.relatedCustomerName || ''),
-)
-
-const filtered = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  let base = list.value
-  if (customerIdFilter.value) {
-    base = base.filter((o) => o.customerId === customerIdFilter.value)
+const customerNameFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const c of customers.value) {
+    const name = c.name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
   }
-  if (q) {
-    base = base.filter((o) =>
-      [
-        o.name,
-        o.customerCode,
-        o.customerName,
-        o.relatedCustomerName,
-        o.mobilePhone,
-        o.whatsapp,
-        o.contactPhone,
-        o.email,
-        o.idCardNo,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
-    )
-  }
-  return applySortFilter(base, columnGetters)
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
 
-const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
-  useClientPagination(filtered)
-
-watch([keyword, customerIdFilter, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
+watch(customerIdFilter, () => {
+  if (page.value !== 1) page.value = 1
+  else void loadList()
+})
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 
@@ -173,18 +165,8 @@ async function loadCustomers() {
     fetchCustomers(),
     fetchBuildings({ activeOnly: false }),
   ])
-  customers.value = data
-  buildings.value = buildingsRes.data
-}
-
-async function loadList() {
-  loading.value = true
-  try {
-    const { data } = await fetchOccupants()
-    list.value = data
-  } finally {
-    loading.value = false
-  }
+  customers.value = data.items
+  buildings.value = buildingsRes.data.items
 }
 
 function syncFilterFromRoute() {
@@ -392,23 +374,32 @@ function downloadImportTemplate() {
   ElMessage.success(t('occupant.templateDone'))
 }
 
-function exportOccupantsXlsx(scope: 'page' | 'filtered' | 'all') {
-  const rows = resolveExportRows(scope, {
-    page: paged.value,
-    filtered: filtered.value,
-    all: list.value,
-  })
-  if (!rows.length) {
-    ElMessage.warning(t('occupant.exportEmpty'))
-    return
+async function exportOccupantsXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: OccupantRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      ElMessage.info(t('occupant.exportLoading'))
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      ElMessage.warning(t('occupant.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((r) => occupantToIoRow(r, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Occupants')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `occupants-${exportFileSuffix(scope)}-${day}.xlsx`)
+    ElMessage.success(t('occupant.exportDone', { n: rows.length }))
+  } catch {
+    ElMessage.error(t('occupant.importFailed'))
+  } finally {
+    exporting.value = false
   }
-  const sheetRows = rows.map((r) => occupantToIoRow(r, t))
-  const ws = XLSX.utils.json_to_sheet(sheetRows)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Occupants')
-  const day = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `occupants-${exportFileSuffix(scope)}-${day}.xlsx`)
-  ElMessage.success(t('occupant.exportDone', { n: rows.length }))
 }
 
 async function onImportFile(ev: Event) {
@@ -502,7 +493,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('occupant.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button
           v-if="isAdmin"
           type="primary"
@@ -518,7 +509,7 @@ async function onImportFile(ev: Event) {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('occupant.dataIo')" :loading="importing">
+          <el-button class="room-io-btn" :aria-label="t('occupant.dataIo')" :loading="importing || exporting">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
@@ -561,7 +552,7 @@ async function onImportFile(ev: Event) {
         <el-table
           :key="tableLayoutKey"
           class="occupant-table--clickable"
-          :data="paged"
+          :data="list"
           height="100%"
           stripe
           border
@@ -581,7 +572,7 @@ async function onImportFile(ev: Event) {
           />
           <el-table-column
             prop="name"
-            :min-width="colW(t('occupant.fields.name'), { interactive: true, contentMin: 140 })"
+            :min-width="textColW(t('occupant.fields.name'), { interactive: true, kind: 'name' })"
             fixed="left"
           >
             <template #header>
@@ -594,7 +585,7 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
-            :min-width="colW(t('occupant.fields.customer'), { interactive: true, contentMin: 200 })"
+            :min-width="textColW(t('occupant.fields.customer'), { interactive: true, kind: 'name' })"
             show-overflow-tooltip
           >
             <template #header>

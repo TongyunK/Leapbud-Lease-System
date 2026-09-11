@@ -22,6 +22,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { parseSortDir, splitCsv } from '../common/pagination';
 
 @ApiTags('customer-requirements')
 @Controller('customer-requirements')
@@ -34,14 +35,60 @@ export class CustomerRequirementsController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'statuses', required: false, description: 'Comma-separated statuses' })
   @ApiQuery({ name: 'customerId', required: false })
-  @ApiOkResponse({ description: 'Customer requirement list' })
+  @ApiQuery({ name: 'customerNames', required: false })
+  @ApiQuery({ name: 'salesManagers', required: false })
+  @ApiQuery({ name: 'sizeConfigLabels', required: false })
+  @ApiQuery({ name: 'acConfigLabels', required: false })
+  @ApiQuery({ name: 'windowConfigLabels', required: false })
+  @ApiQuery({ name: 'sortBy', required: false })
+  @ApiQuery({ name: 'sortDir', required: false })
+  @ApiQuery({ name: 'requirementDateFrom', required: false })
+  @ApiQuery({ name: 'requirementDateTo', required: false })
+  @ApiQuery({ name: 'createdAtFrom', required: false })
+  @ApiQuery({ name: 'createdAtTo', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'pageSize', required: false })
+  @ApiOkResponse({ description: 'Paginated customer requirement list' })
   findAll(
     @Query('keyword') keyword?: string,
     @Query('status') status?: string,
+    @Query('statuses') statuses?: string,
     @Query('customerId') customerId?: string,
+    @Query('customerNames') customerNames?: string,
+    @Query('salesManagers') salesManagers?: string,
+    @Query('sizeConfigLabels') sizeConfigLabels?: string,
+    @Query('acConfigLabels') acConfigLabels?: string,
+    @Query('windowConfigLabels') windowConfigLabels?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
+    @Query('requirementDateFrom') requirementDateFrom?: string,
+    @Query('requirementDateTo') requirementDateTo?: string,
+    @Query('createdAtFrom') createdAtFrom?: string,
+    @Query('createdAtTo') createdAtTo?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
-    return this.customerRequirementsService.findAll({ keyword, status, customerId });
+    return this.customerRequirementsService.findAll({
+      keyword,
+      status,
+      statuses: splitCsv(statuses),
+      customerId,
+      customerNames: splitCsv(customerNames),
+      salesManagers: splitCsv(salesManagers),
+      sizeConfigLabels: splitCsv(sizeConfigLabels),
+      acConfigLabels: splitCsv(acConfigLabels),
+      windowConfigLabels: splitCsv(windowConfigLabels),
+      sortBy,
+      sortDir: parseSortDir(sortDir),
+      requirementDateFrom,
+      requirementDateTo,
+      createdAtFrom,
+      createdAtTo,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get(':id')

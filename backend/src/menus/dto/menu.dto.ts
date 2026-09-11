@@ -1,4 +1,14 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MenuType } from '@prisma/client';
 
@@ -104,4 +114,25 @@ export class UpdateMenuDto {
   @IsOptional()
   @IsString()
   permission?: string;
+}
+
+/** 菜单拖拽排序单项 */
+export class ReorderMenuItemDto {
+  @ApiProperty({ description: '菜单 ID' })
+  @IsString()
+  id!: string;
+
+  @ApiProperty({ description: '同级排序（越小越靠前）' })
+  @Type(() => Number)
+  @IsInt()
+  sortOrder!: number;
+}
+
+/** 批量更新菜单排序 */
+export class ReorderMenusDto {
+  @ApiProperty({ type: [ReorderMenuItemDto], description: '同级菜单排序列表' })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReorderMenuItemDto)
+  items!: ReorderMenuItemDto[];
 }

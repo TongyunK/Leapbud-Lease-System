@@ -34,6 +34,13 @@ enum RoomConfigType {
   ac // 空调
 }
 
+/// 合约配置字典类型
+enum ContractConfigType {
+  periodType // 合约期类型（使用期 / 必须使用期 / 免租期等）
+  leaseType // 租赁方式
+  keyDeposit // 钥匙类按金单价（房门匙 / 智能卡信箱匙）
+}
+
 /// 系统用户
 model User {
   /// 主键
@@ -114,6 +121,24 @@ model User {
   updatedCustomerRequirements CustomerRequirement[] @relation("CustomerRequirementUpdatedBy")
   /// 作为销售经理：客户需求
   salesManagedRequirements    CustomerRequirement[] @relation("CustomerRequirementSalesManager")
+  /// 作为创建人：合约
+  createdContracts            Contract[]            @relation("ContractCreatedBy")
+  /// 作为更新人：合约
+  updatedContracts            Contract[]            @relation("ContractUpdatedBy")
+  /// 作为销售经理：合约
+  salesManagedContracts       Contract[]            @relation("ContractSalesManager")
+  /// 作为创建人：合约配置
+  createdContractConfigOptions ContractConfigOption[] @relation("ContractConfigOptionCreatedBy")
+  /// 作为更新人：合约配置
+  updatedContractConfigOptions ContractConfigOption[] @relation("ContractConfigOptionUpdatedBy")
+  /// 作为创建人：退租记录
+  createdLeaseTerminations     LeaseTermination[]     @relation("LeaseTerminationCreatedBy")
+  /// 作为更新人：退租记录
+  updatedLeaseTerminations     LeaseTermination[]     @relation("LeaseTerminationUpdatedBy")
+  /// 作为创建人：合约其他费用项
+  createdContractOtherFees     ContractOtherFee[]     @relation("ContractOtherFeeCreatedBy")
+  /// 作为更新人：合约其他费用项
+  updatedContractOtherFees     ContractOtherFee[]     @relation("ContractOtherFeeUpdatedBy")
 
   @@index([status])
   @@index([role])
@@ -366,6 +391,10 @@ model Room {
   createdAt       DateTime   @default(now()) @map("created_at")
   /// 更新时间
   updatedAt       DateTime   @updatedAt @map("updated_at")
+  /// 下属合约
+  contracts       Contract[] @relation("ContractBelongsToRoom")
+  /// 下属退租记录
+  leaseTerminations LeaseTermination[] @relation("LeaseTerminationBelongsToRoom")
 
   @@index([buildingId])
   @@index([status])
@@ -428,6 +457,10 @@ model Customer {
   occupants        Occupant[] @relation("OccupantBelongsToCustomer")
   /// 下属客户需求
   requirements     CustomerRequirement[] @relation("CustomerRequirementBelongsToCustomer")
+  /// 下属合约
+  contracts        Contract[]            @relation("ContractBelongsToCustomer")
+  /// 下属退租记录
+  leaseTerminations LeaseTermination[]   @relation("LeaseTerminationBelongsToCustomer")
 
   @@index([status])
   @@index([name])
@@ -491,6 +524,8 @@ model CustomerRequirement {
   createdAt        DateTime  @default(now()) @map("created_at")
   /// 更新时间
   updatedAt        DateTime  @updatedAt @map("updated_at")
+  /// 关联合约
+  contracts        Contract[] @relation("ContractBelongsToRequirement")
 
   @@index([customerId])
   @@index([salesManagerId])
@@ -502,6 +537,267 @@ model CustomerRequirement {
   @@index([createdById])
   @@index([updatedById])
   @@map("customer_requirements")
+}
+
+/// 租赁合约（房间与客户的签约主体）
+model Contract {
+  /// 主键
+  id                  String    @id @default(cuid())
+  /// 合约编号（业务唯一，如 CTR2609110001）
+  contractCode        String    @unique @map("contract_code")
+  /// 所属房间 ID
+  roomId              String    @map("room_id")
+  /// 所属房间
+  room                Room      @relation("ContractBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
+  /// 所属客户 ID
+  customerId          String    @map("customer_id")
+  /// 所属客户
+  customer            Customer  @relation("ContractBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  /// 销售经理用户 ID
+  salesManagerId      String?   @map("sales_manager")
+  /// 销售经理用户
+  salesManagerUser    User?     @relation("ContractSalesManager", fields: [salesManagerId], references: [id], onDelete: SetNull)
+  /// 关联客户需求 ID
+  requirementId       String?   @map("requirement_id")
+  /// 关联客户需求
+  requirement         CustomerRequirement? @relation("ContractBelongsToRequirement", fields: [requirementId], references: [id], onDelete: SetNull)
+  /// 合约开始日期（可由「使用期」汇总；列表筛选用）
+  startDate           DateTime? @map("start_date") @db.Date
+  /// 合约到期日期（可由「使用期」汇总；列表筛选用）
+  endDate             DateTime? @map("end_date") @db.Date
+  /// 实际退租日期
+  actualEndDate       DateTime? @map("actual_end_date") @db.Date
+  /// 租赁方式：整租 / 分租首用戶 / 分租次用戶
+  leaseType           String    @default("") @map("lease_type")
+  /// 状态：草稿 / 簽約中 / 已簽約 / 交吉中 / 租賃中 / 已完成 / 退租中 / 已退租 / 已取消 / 已續約
+  status              String    @default("草稿")
+  /// 房间按金
+  roomDeposit         Decimal?  @map("room_deposit") @db.Decimal(14, 2)
+  /// 租金/月
+  monthlyRent         Decimal?  @map("monthly_rent") @db.Decimal(14, 2)
+  /// 订金
+  bookingDeposit      Decimal?  @map("booking_deposit") @db.Decimal(14, 2)
+  /// 缴费周期：月繳 / 季繳 / 半年繳 / 年繳 等
+  paymentCycle        String    @default("") @map("payment_cycle")
+  /// 电费/度
+  electricityRate     Decimal?  @map("electricity_rate") @db.Decimal(14, 4)
+  /// 杂项按金
+  miscDeposit         Decimal?  @map("misc_deposit") @db.Decimal(14, 2)
+  /// 房门匙数量（押金 = 数量 × 配置单价）
+  doorKeyQty          Int       @default(0) @map("door_key_qty")
+  /// 房门匙按金金额（由数量 × 单价自动计算后落库）
+  doorKeyDeposit      Decimal?  @map("door_key_deposit") @db.Decimal(14, 2)
+  /// 智能卡信箱匙数量（押金 = 数量 × 配置单价）
+  mailboxKeyQty       Int       @default(0) @map("mailbox_key_qty")
+  /// 智能卡信箱匙按金金额（由数量 × 单价自动计算后落库）
+  mailboxKeyDeposit   Decimal?  @map("mailbox_key_deposit") @db.Decimal(14, 2)
+  /// 房间名称文本（冗余展示，可与房间名称同步）
+  roomNameText        String    @default("") @map("room_name_text")
+  /// 分租符号
+  subleaseMark        String    @default("") @map("sublease_mark")
+  /// 客户签约附件路径
+  attachment          String    @default("")
+  /// 备注
+  remark              String    @default("")
+  /// 下属合约期（使用期 / 必须使用期 / 免租期等）
+  periods             ContractPeriod[] @relation("ContractPeriodBelongsToContract")
+  /// 下属退租记录
+  terminations        LeaseTermination[] @relation("LeaseTerminationBelongsToContract")
+  /// 下属合约其他费用项（按金扣除等）
+  otherFees           ContractOtherFee[] @relation("ContractOtherFeeBelongsToContract")
+  /// 创建人用户 ID
+  createdById         String?   @map("created_by")
+  /// 创建人用户
+  createdByUser       User?     @relation("ContractCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById         String?   @map("updated_by")
+  /// 更新人用户
+  updatedByUser       User?     @relation("ContractUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt           DateTime  @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([roomId])
+  @@index([customerId])
+  @@index([salesManagerId])
+  @@index([requirementId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("contracts")
+}
+
+/// 合约配置字典：合约期类型 / 租赁方式 / 钥匙按金单价
+model ContractConfigOption {
+  /// 主键
+  id          String             @id @default(cuid())
+  /// 配置类型：periodType / leaseType / keyDeposit
+  type        ContractConfigType
+  /// 稳定业务码（同 type 下唯一；如 usage / door_key）
+  code        String             @default("")
+  /// 展示名称（写入合约时的文案快照）
+  label       String
+  /// 单价（仅 keyDeposit；其它类型为 null）
+  unitPrice   Decimal?           @map("unit_price") @db.Decimal(14, 2)
+  /// 排序权重，越小越靠前
+  sortOrder   Int                @default(0) @map("sort_order")
+  /// 是否启用（停用后表单不下拉展示）
+  active      Boolean            @default(true)
+  /// 创建人用户 ID
+  createdById String?            @map("created_by")
+  /// 创建人用户
+  createdByUser User?            @relation("ContractConfigOptionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?            @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?            @relation("ContractConfigOptionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime           @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  @@unique([type, code])
+  @@index([type, active, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("contract_config_options")
+}
+
+/// 合约期（一条合约可有多段：使用期 / 必须使用期 / 免租期等）
+model ContractPeriod {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 所属合约 ID
+  contractId  String   @map("contract_id")
+  /// 所属合约
+  contract    Contract @relation("ContractPeriodBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
+  /// 日期类型：使用期 / 必須使用期 / 免租期
+  dateType    String   @map("date_type")
+  /// 日期单位：月 / 日
+  dateUnit    String   @default("月") @map("date_unit")
+  /// 日期数值（与单位组合表示时长，如 12 月）
+  dateValue   Int      @default(0) @map("date_value")
+  /// 开始日期
+  startDate   DateTime @map("start_date") @db.Date
+  /// 结束日期
+  endDate     DateTime @map("end_date") @db.Date
+  /// 排序权重，越小越靠前
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([contractId])
+  @@index([dateType])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("contract_periods")
+}
+
+/// 退租记录（合约退租办理单）
+model LeaseTermination {
+  /// 主键
+  id                    String   @id @default(cuid())
+  /// 退租编号（业务唯一，如 TRM2609110001）
+  terminationCode       String   @unique @map("termination_code")
+  /// 所属合约 ID
+  contractId            String   @map("contract_id")
+  /// 所属合约
+  contract              Contract @relation("LeaseTerminationBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
+  /// 所属客户 ID（通常与合约客户一致，可冗余便于筛选）
+  customerId            String   @map("customer_id")
+  /// 所属客户
+  customer              Customer @relation("LeaseTerminationBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  /// 所属房间 ID（通常与合约房间一致）
+  roomId                String   @map("room_id")
+  /// 所属房间
+  room                  Room     @relation("LeaseTerminationBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
+  /// 退租原因
+  reason                String   @default("")
+  /// 退租日期
+  terminationDate       DateTime? @map("termination_date") @db.Date
+  /// 客户书面通知附件路径
+  noticeAttachment      String   @default("") @map("notice_attachment")
+  /// 房门匙已回收数量
+  doorKeyReturnedQty    Int      @default(0) @map("door_key_returned_qty")
+  /// 智能卡（信箱匙）已回收数量
+  smartCardReturnedQty  Int      @default(0) @map("smart_card_returned_qty")
+  /// 现场情况
+  siteCondition         String   @default("") @map("site_condition")
+  /// 备注
+  remark                String   @default("")
+  /// 关联退按金单编号/引用（退按金模块未落地前以文本保存）
+  relatedDepositRefund  String   @default("") @map("related_deposit_refund")
+  /// 下属按金扣除 / 其他费用项
+  otherFees             ContractOtherFee[] @relation("ContractOtherFeeBelongsToTermination")
+  /// 创建人用户 ID
+  createdById           String?  @map("created_by")
+  /// 创建人用户
+  createdByUser         User?    @relation("LeaseTerminationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById           String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser         User?    @relation("LeaseTerminationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt             DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([contractId])
+  @@index([customerId])
+  @@index([roomId])
+  @@index([terminationDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("lease_terminations")
+}
+
+/// 合约其他费用项（含退租按金扣除事项）
+model ContractOtherFee {
+  /// 主键
+  id              String   @id @default(cuid())
+  /// 所属合约 ID
+  contractId      String   @map("contract_id")
+  /// 所属合约
+  contract        Contract @relation("ContractOtherFeeBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
+  /// 所属退租记录 ID（可选；退租按金扣除时填写）
+  terminationId   String?  @map("termination_id")
+  /// 所属退租记录
+  termination     LeaseTermination? @relation("ContractOtherFeeBelongsToTermination", fields: [terminationId], references: [id], onDelete: SetNull)
+  /// 描述
+  description     String   @default("")
+  /// 数量
+  quantity        Decimal  @default(0) @db.Decimal(14, 2)
+  /// 按金（单价）
+  unitAmount      Decimal  @default(0) @map("unit_amount") @db.Decimal(14, 2)
+  /// 小计（通常 = 数量 × 按金）
+  subtotal        Decimal  @default(0) @db.Decimal(14, 2)
+  /// 备注
+  remark          String   @default("")
+  /// 排序权重，越小越靠前
+  sortOrder       Int      @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById     String?  @map("created_by")
+  /// 创建人用户
+  createdByUser   User?    @relation("ContractOtherFeeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById     String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser   User?    @relation("ContractOtherFeeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt       DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([contractId])
+  @@index([terminationId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("contract_other_fees")
 }
 
 /// 使用者（客户下的联系人 / 实际租赁名义人；非系统登录账号）

@@ -13,6 +13,14 @@ import {
   UpdateCustomerDto,
 } from './dto/customer.dto';
 import { customerInclude, customerListInclude, toCustomerDto } from './customer.mapper';
+import { userWhereActorLabels } from '../common/audit';
+import {
+  dateRangeFilter,
+  paginateArgs,
+  parsePage,
+  parsePageSize,
+  parseSortDir,
+} from '../common/pagination';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -99,33 +107,127 @@ export class CustomersService {
     };
   }
 
-  async findAll(params: { keyword?: string; status?: string }) {
+  async findAll(params: {
+    keyword?: string;
+    status?: string;
+    statuses?: string[];
+    accountManagers?: string[];
+    buildingNames?: string[];
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = parsePage(params.page);
+    const pageSize = parsePageSize(params.pageSize);
+    const where = this.buildListWhere(params);
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.customer.count({ where }),
+      this.prisma.customer.findMany({
+        where,
+        include: customerListInclude,
+        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        ...paginateArgs(page, pageSize),
+      }),
+    ]);
+
+    return {
+      items: rows.map(toCustomerDto),
+      total,
+      page,
+      pageSize: pageSize ?? total,
+    };
+  }
+
+  private buildListWhere(params: {
+    keyword?: string;
+    status?: string;
+    statuses?: string[];
+    accountManagers?: string[];
+    buildingNames?: string[];
+    createdAtFrom?: string;
+    createdAtTo?: string;
+  }): Prisma.CustomerWhereInput {
     const where: Prisma.CustomerWhereInput = {};
-    if (params.status?.trim()) where.status = params.status.trim();
-    const keyword = params.keyword?.trim();
-    if (keyword) {
-      where.OR = [
-        { customerCode: { contains: keyword, mode: 'insensitive' } },
-        { name: { contains: keyword, mode: 'insensitive' } },
-        { companyNameZh: { contains: keyword, mode: 'insensitive' } },
-        { companyNameEn: { contains: keyword, mode: 'insensitive' } },
-        { rentedRooms: { contains: keyword, mode: 'insensitive' } },
-        { building: { name: { contains: keyword, mode: 'insensitive' } } },
-        { accountManagerUser: { account: { contains: keyword, mode: 'insensitive' } } },
-        { accountManagerUser: { displayName: { contains: keyword, mode: 'insensitive' } } },
-        { primaryOccupant: { name: { contains: keyword, mode: 'insensitive' } } },
-        { primaryOccupant: { mobilePhone: { contains: keyword, mode: 'insensitive' } } },
-        { primaryOccupant: { whatsapp: { contains: keyword, mode: 'insensitive' } } },
-        { primaryOccupant: { email: { contains: keyword, mode: 'insensitive' } } },
-      ];
+    const and: Prisma.CustomerWhereInput[] = [];
+
+    const statuses = [
+      ...new Set(
+        [...(params.statuses || []), params.status?.trim() || '']
+          .map((v) => s(v))
+          .filter(Boolean),
+      ),
+    ];
+    if (statuses.length === 1) where.status = statuses[0];
+    else if (statuses.length > 1) where.status = { in: statuses };
+
+    const managers = (params.accountManagers || []).map((v) => s(v)).filter(Boolean);
+    if (managers.length) {
+      and.push({ accountManagerUser: userWhereActorLabels(managers) });
     }
 
-    const rows = await this.prisma.customer.findMany({
-      where,
-      include: customerListInclude,
-      orderBy: [{ updatedAt: 'desc' }, { customerCode: 'asc' }],
-    });
-    return rows.map(toCustomerDto);
+    const buildingNames = (params.buildingNames || []).map((v) => s(v)).filter(Boolean);
+    if (buildingNames.length) {
+      and.push({ building: { name: { in: buildingNames } } });
+    }
+
+    const keyword = params.keyword?.trim();
+    if (keyword) {
+      and.push({
+        OR: [
+          { customerCode: { contains: keyword, mode: 'insensitive' } },
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { companyNameZh: { contains: keyword, mode: 'insensitive' } },
+          { companyNameEn: { contains: keyword, mode: 'insensitive' } },
+          { rentedRooms: { contains: keyword, mode: 'insensitive' } },
+          { status: { contains: keyword, mode: 'insensitive' } },
+          { building: { name: { contains: keyword, mode: 'insensitive' } } },
+          { accountManagerUser: { account: { contains: keyword, mode: 'insensitive' } } },
+          { accountManagerUser: { displayName: { contains: keyword, mode: 'insensitive' } } },
+          { primaryOccupant: { name: { contains: keyword, mode: 'insensitive' } } },
+          { primaryOccupant: { mobilePhone: { contains: keyword, mode: 'insensitive' } } },
+          { primaryOccupant: { whatsapp: { contains: keyword, mode: 'insensitive' } } },
+          { primaryOccupant: { email: { contains: keyword, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+    if (createdAt) where.createdAt = createdAt;
+
+    if (and.length) where.AND = and;
+    return where;
+  }
+
+  private buildListOrderBy(
+    sortBy?: string,
+    sortDir?: 'asc' | 'desc',
+  ): Prisma.CustomerOrderByWithRelationInput[] {
+    const dir = parseSortDir(sortDir) ?? 'asc';
+    const key = s(sortBy);
+    if (key === 'customerCode') return [{ customerCode: dir }];
+    if (key === 'name') return [{ name: dir }];
+    if (key === 'status') return [{ status: dir }, { customerCode: 'asc' }];
+    if (key === 'accountManager') {
+      return [
+        { accountManagerUser: { displayName: dir } },
+        { accountManagerUser: { account: dir } },
+        { customerCode: 'asc' },
+      ];
+    }
+    if (key === 'buildingName') {
+      return [{ building: { name: dir } }, { customerCode: 'asc' }];
+    }
+    if (key === 'occupantCount') return [{ occupants: { _count: dir } }, { customerCode: 'asc' }];
+    if (key === 'requirementCount') {
+      return [{ requirements: { _count: dir } }, { customerCode: 'asc' }];
+    }
+    if (key === 'createdAt') return [{ createdAt: dir }];
+    if (key === 'updatedAt') return [{ updatedAt: dir }];
+    return [{ updatedAt: 'desc' }, { customerCode: 'asc' }];
   }
 
   async findOne(id: string) {
@@ -137,11 +239,33 @@ export class CustomersService {
     return toCustomerDto(row);
   }
 
+  /** 生成下一个客户编号：CSM + YY + 4 位序号 */
+  private async nextCustomerCode(reserved?: { has(key: string): boolean }) {
+    const now = new Date();
+    const y = String(now.getFullYear()).slice(-2);
+    const prefix = `CSM${y}`;
+    const latest = await this.prisma.customer.findFirst({
+      where: { customerCode: { startsWith: prefix } },
+      orderBy: { customerCode: 'desc' },
+      select: { customerCode: true },
+    });
+    let seq = 1;
+    if (latest) {
+      const n = Number(latest.customerCode.slice(prefix.length));
+      if (!Number.isNaN(n)) seq = n + 1;
+    }
+    let code = `${prefix}${String(seq).padStart(4, '0')}`;
+    while (reserved?.has(code.toLowerCase())) {
+      seq += 1;
+      code = `${prefix}${String(seq).padStart(4, '0')}`;
+    }
+    return code;
+  }
+
   async create(dto: CreateCustomerDto, actor = '') {
-    const customerCode = s(dto.customerCode);
     const name = s(dto.name);
-    if (!customerCode) throw new BadRequestException('customerCode is required');
     if (!name) throw new BadRequestException('name is required');
+    const customerCode = s(dto.customerCode) || (await this.nextCustomerCode());
 
     const linkOccupantId = s(dto.linkOccupantId);
     let nestedOcc = this.occupantFromNested(dto.occupant);
@@ -405,7 +529,7 @@ export class CustomersService {
     return { success: true };
   }
 
-  /** 批量导入：按客户编号 upsert；返回计数（不回传每行详情） */
+  /** 批量导入：有编号则按编号 upsert；无编号则自动生成后新建 */
   async importBatch(dto: ImportCustomersDto, actor = '') {
     const items = dto.items || [];
     let created = 0;
@@ -423,22 +547,34 @@ export class CustomersService {
         })
       : [];
     const byCode = new Map(existingRows.map((c) => [c.customerCode, c]));
+    const reserved = new Set(
+      [...byCode.keys()].map((c) => c.toLowerCase()),
+    );
 
     for (const item of items) {
-      const code = s(item.customerCode);
       const name = s(item.name);
-      if (!code || !name) {
+      if (!name) {
         skipped += 1;
         continue;
       }
+      let code = s(item.customerCode);
       try {
-        const hit = byCode.get(code);
-        if (hit) {
-          await this.update(hit.id, item as UpdateCustomerDto, actor);
-          updated += 1;
+        if (code) {
+          const hit = byCode.get(code);
+          if (hit) {
+            await this.update(hit.id, item as UpdateCustomerDto, actor);
+            updated += 1;
+          } else {
+            const row = await this.create({ ...item, customerCode: code, name }, actor);
+            byCode.set(code, { id: row.id, customerCode: code });
+            reserved.add(code.toLowerCase());
+            created += 1;
+          }
         } else {
-          const row = await this.create(item, actor);
+          code = await this.nextCustomerCode(reserved);
+          const row = await this.create({ ...item, customerCode: code, name }, actor);
           byCode.set(code, { id: row.id, customerCode: code });
+          reserved.add(code.toLowerCase());
           created += 1;
         }
       } catch {

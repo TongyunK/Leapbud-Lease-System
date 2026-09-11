@@ -1,6 +1,7 @@
 import request from './request'
 import type { RoomRecord, RoomStatus } from '@/types/room'
 import type { ImportBatchResult } from './customers'
+import type { PaginatedResult } from '@/types/pagination'
 
 export type RoomWritePayload = {
   roomCode: string
@@ -22,16 +23,50 @@ export type RoomWritePayload = {
   subleaseMark?: string
 }
 
-export function fetchRooms(params?: {
+export type RoomListQuery = {
   keyword?: string
   buildingId?: string
+  buildingIds?: string[]
   status?: RoomStatus | ''
-}) {
-  const query: Record<string, string> = {}
+  statuses?: string[]
+  roomTypes?: string[]
+  sizeRangeIds?: string[]
+  windowConfigs?: string[]
+  acConfigs?: string[]
+  sortBy?: string
+  sortDir?: 'asc' | 'desc'
+  createdAtFrom?: string
+  createdAtTo?: string
+  updatedAtFrom?: string
+  updatedAtTo?: string
+  page?: number
+  pageSize?: number
+}
+
+export type RoomListPage = PaginatedResult<RoomRecord>
+
+export function fetchRooms(params?: RoomListQuery) {
+  const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.buildingId) query.buildingId = params.buildingId
+  if (params?.buildingIds?.length) query.buildingIds = params.buildingIds.join(',')
   if (params?.status) query.status = params.status
-  return request.get<RoomRecord[]>('/rooms', { params: query })
+  if (params?.statuses?.length) query.statuses = params.statuses.join(',')
+  if (params?.roomTypes?.length) query.roomTypes = params.roomTypes.join(',')
+  if (params?.sizeRangeIds?.length) query.sizeRangeIds = params.sizeRangeIds.join(',')
+  if (params?.windowConfigs?.length) query.windowConfigs = params.windowConfigs.join(',')
+  if (params?.acConfigs?.length) query.acConfigs = params.acConfigs.join(',')
+  if (params?.sortBy) query.sortBy = params.sortBy
+  if (params?.sortDir) query.sortDir = params.sortDir
+  if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
+  if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.updatedAtFrom) query.updatedAtFrom = params.updatedAtFrom
+  if (params?.updatedAtTo) query.updatedAtTo = params.updatedAtTo
+  if (params?.page != null) query.page = params.page
+  if (params?.pageSize != null) query.pageSize = params.pageSize
+  return request.get<RoomListPage>('/rooms', {
+    params: Object.keys(query).length ? query : undefined,
+  })
 }
 
 export function fetchRoom(id: string) {

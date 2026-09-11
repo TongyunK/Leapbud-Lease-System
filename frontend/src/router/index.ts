@@ -80,6 +80,67 @@ const router = createRouter({
           },
         },
         {
+          path: 'contract-mgmt/contracts',
+          name: 'contracts',
+          component: () => import('@/views/contract-mgmt/ContractListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.contracts',
+            subtitleKey: 'contract.subtitle',
+          },
+        },
+        {
+          path: 'contract-mgmt/contract-configs',
+          name: 'contractConfigs',
+          component: () => import('@/views/contract-mgmt/ContractConfigListView.vue'),
+          meta: {
+            requiresAuth: true,
+            requiresAdmin: true,
+            titleKey: 'menu.contractConfigs',
+            subtitleKey: 'contractConfig.subtitle',
+          },
+        },
+        {
+          path: 'contract-mgmt/contract-periods',
+          name: 'contractPeriods',
+          component: () => import('@/views/contract-mgmt/ContractPeriodListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.contractPeriods',
+            subtitleKey: 'contractPeriod.subtitle',
+          },
+        },
+        {
+          path: 'contract-mgmt/lease-terminations',
+          name: 'leaseTerminations',
+          component: () => import('@/views/contract-mgmt/LeaseTerminationListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.leaseTerminations',
+            subtitleKey: 'leaseTermination.subtitle',
+          },
+        },
+        {
+          path: 'contract-mgmt/contract-other-fees',
+          name: 'contractOtherFees',
+          component: () => import('@/views/contract-mgmt/ContractOtherFeeListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.contractOtherFees',
+            subtitleKey: 'contractOtherFee.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/deposit-deductions',
+          name: 'depositDeductions',
+          component: () => import('@/views/finance-mgmt/DepositDeductionListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.depositDeductions',
+            subtitleKey: 'depositDeduction.subtitle',
+          },
+        },
+        {
           path: 'system/users',
           name: 'users',
           component: () => import('@/views/system/UserListView.vue'),

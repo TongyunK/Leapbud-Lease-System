@@ -1,5 +1,6 @@
 import request from './request'
 import type { CustomerRecord } from '@/types/customer'
+import type { PaginatedResult } from '@/types/pagination'
 
 export type CustomerOccupantPayload = {
   name: string
@@ -16,7 +17,8 @@ export type CustomerOccupantPayload = {
 }
 
 export type CustomerWritePayload = {
-  customerCode: string
+  /** 留空则后端自动生成 */
+  customerCode?: string
   name: string
   status?: string
   accountManagerId?: string | null
@@ -34,11 +36,36 @@ export type CustomerWritePayload = {
   occupant?: CustomerOccupantPayload
 }
 
-export function fetchCustomers(params?: { keyword?: string; status?: string }) {
-  const query: Record<string, string> = {}
+export type CustomerListQuery = {
+  keyword?: string
+  status?: string
+  statuses?: string[]
+  accountManagers?: string[]
+  buildingNames?: string[]
+  sortBy?: string
+  sortDir?: 'asc' | 'desc'
+  createdAtFrom?: string
+  createdAtTo?: string
+  page?: number
+  pageSize?: number
+}
+
+export type CustomerListPage = PaginatedResult<CustomerRecord>
+
+export function fetchCustomers(params?: CustomerListQuery) {
+  const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.status) query.status = params.status
-  return request.get<CustomerRecord[]>('/customers', {
+  if (params?.statuses?.length) query.statuses = params.statuses.join(',')
+  if (params?.accountManagers?.length) query.accountManagers = params.accountManagers.join(',')
+  if (params?.buildingNames?.length) query.buildingNames = params.buildingNames.join(',')
+  if (params?.sortBy) query.sortBy = params.sortBy
+  if (params?.sortDir) query.sortDir = params.sortDir
+  if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
+  if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.page != null) query.page = params.page
+  if (params?.pageSize != null) query.pageSize = params.pageSize
+  return request.get<CustomerListPage>('/customers', {
     params: Object.keys(query).length ? query : undefined,
   })
 }

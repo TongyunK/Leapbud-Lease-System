@@ -12,14 +12,25 @@ alwaysApply: true
 ```ts
 import { useTableColWidth } from '@/composables/useTableColWidth'
 
-const { colW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, textColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 ```
 
 ```vue
 <el-table :key="tableLayoutKey" ...>
   <!-- 带 TableColumnHeader（排序/筛选/日期） -->
   <el-table-column
-    :min-width="colW(t('xxx.fields.name'), { interactive: true, contentMin: 120 })"
+    :min-width="colW(t('xxx.fields.code'), { interactive: true, contentMin: 120 })"
+  />
+
+  <!-- 较长文本：名称 / 长文 / 地址，用统一 contentMin（见 tableLayout 常量） -->
+  <el-table-column
+    :min-width="textColW(t('xxx.fields.name'), { interactive: true, kind: 'name' })"
+  />
+  <el-table-column
+    :min-width="textColW(t('xxx.fields.content'), { kind: 'long' })"
+  />
+  <el-table-column
+    :min-width="textColW(t('xxx.fields.address'), { kind: 'address' })"
   />
 
   <!-- StatusBadge 状态列：按全部状态文案测宽，保证 Following up 等英文完整显示 -->
@@ -42,6 +53,7 @@ const { colW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } 
 ## 约定
 
 - `colW(label, { interactive, contentMin })`：`label` 传**当前语言已翻译**文案；有表头控件时 `interactive: true`；`contentMin` 为内容区下限。
+- **较长文本列**用 `textColW(label, { kind })`：`name`（约 200）/ `long`（约 240）/ `address`（约 280），勿再手写偏窄的 `contentMin`。
 - **StatusBadge 状态列**必须用 `statusColW(表头, 全部状态文案)`，勿只写死 `contentMin`；无交互表头时传 `{ interactive: false }`。
 - 创建人 / 更新人列统一 `auditUserColWidth`。
 - `el-table` 必须 `:key="tableLayoutKey"`。

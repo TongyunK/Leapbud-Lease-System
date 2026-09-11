@@ -12,7 +12,7 @@ import {
 import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { MenusService } from './menus.service';
-import { CreateMenuDto, UpdateMenuDto } from './dto/menu.dto';
+import { CreateMenuDto, ReorderMenusDto, UpdateMenuDto } from './dto/menu.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -59,6 +59,13 @@ export class MenusController {
   @Roles(UserRole.admin)
   create(@Body() dto: CreateMenuDto, @CurrentUser() user?: JwtPayload) {
     return this.menusService.create(dto, actorUserId(user));
+  }
+
+  @Patch('reorder')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch update menu sortOrder (same parent)' })
+  reorder(@Body() dto: ReorderMenusDto, @CurrentUser() user?: JwtPayload) {
+    return this.menusService.reorder(dto, actorUserId(user));
   }
 
   @Patch(':id')

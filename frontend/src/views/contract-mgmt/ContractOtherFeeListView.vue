@@ -1,0 +1,820 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
+import {
+  createContractOtherFeeApi,
+  deleteContractOtherFeeApi,
+  fetchContractOtherFees,
+  importContractOtherFeesApi,
+  updateContractOtherFeeApi,
+} from '@/api/contract-other-fees'
+import type { ContractOtherFeeWritePayload, ContractOtherFeeListQuery } from '@/api/contract-other-fees'
+import { fetchContract, fetchContracts } from '@/api/contracts'
+import { fetchLeaseTerminations } from '@/api/lease-terminations'
+import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
+import type { LeaseTerminationRecord } from '@/types/lease-termination'
+import type { ContractRecord } from '@/types/contract'
+import { useIsMobile } from '@/composables/useMediaQuery'
+import { useServerPagedList } from '@/composables/useServerPagedList'
+import { useTableSortFilter } from '@/composables/useTableSortFilter'
+import TablePagination from '@/components/TablePagination.vue'
+import TableColumnHeader from '@/components/TableColumnHeader.vue'
+import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
+import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
+import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
+import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import ExportIcon from '@/components/icons/ExportIcon.vue'
+import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import { fetchCustomer } from '@/api/customers'
+import { fetchRoom } from '@/api/rooms'
+import type { CustomerRecord } from '@/types/customer'
+import type { RoomRecord } from '@/types/room'
+import { useUserStore } from '@/stores/user'
+import { useImportProgress } from '@/composables/useImportProgress'
+import { formatDateTime, formatMoney } from '@/utils/format'
+import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useTableColWidth } from '@/composables/useTableColWidth'
+import {
+  contractOtherFeeIoTemplateExampleRow,
+  contractOtherFeeToIoRow,
+  rowToContractOtherFeeIoPayload,
+} from '@/utils/contractOtherFeeExport'
+import type { ContractOtherFeeImportPayload } from '@/utils/contractOtherFeeExport'
+import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
+
+const { t } = useI18n()
+const userStore = useUserStore()
+const isMobile = useIsMobile()
+const isAdmin = computed(() => userStore.isAdmin)
+const { actionColWidth } = useActionColWidth()
+const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+
+const keyword = ref('')
+const formVisible = ref(false)
+const editing = ref<ContractOtherFeeRecord | null>(null)
+const contracts = ref<ContractRecord[]>([])
+const terminationsForForm = ref<LeaseTerminationRecord[]>([])
+
+const contractDrawerVisible = ref(false)
+const currentContract = ref<ContractRecord | null>(null)
+const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
+const customerDrawerVisible = ref(false)
+const relatedCustomer = ref<CustomerRecord | null>(null)
+const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const roomDrawerVisible = ref(false)
+const relatedRoom = ref<RoomRecord | null>(null)
+const roomDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+
+const {
+  filters,
+  setSort,
+  setDateRange,
+  dateRangeOf,
+  dateRanges,
+  sortOrderOf,
+  activeConditionCount,
+  clearAll,
+  sortKey,
+  sortOrder,
+} = useTableSortFilter<ContractOtherFeeRecord>()
+
+const {
+  loading,
+  exporting,
+  list,
+  total,
+  page,
+  pageSize,
+  pageSizes,
+  rowIndex,
+  loadList,
+  fetchExportRows,
+  onClearFilters,
+} = useServerPagedList<ContractOtherFeeRecord, ContractOtherFeeListQuery>({
+  keyword,
+  sortFilter: { filters, dateRanges, dateRangeOf, sortKey, sortOrder, clearAll },
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range }) => {
+    const created = range('createdAt')
+    return {
+      keyword: kw,
+      sortBy,
+      sortDir,
+      createdAtFrom: created.from,
+      createdAtTo: created.to,
+      page: p,
+      pageSize: ps,
+    }
+  },
+  fetchPage: fetchContractOtherFees,
+})
+
+const contractFilterOptions = computed(() =>
+  contracts.value.map((c) => ({
+    value: c.id,
+    label: `${c.contractCode} · ${c.customerName} · ${c.roomCode}`,
+  })),
+)
+
+const terminationFilterOptions = computed(() =>
+  terminationsForForm.value.map((tr) => ({
+    value: tr.id,
+    label: tr.terminationCode,
+  })),
+)
+
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
+
+const emptyForm = () => ({
+  contractId: '' as string,
+  terminationId: '' as string,
+  description: '',
+  quantity: 1,
+  unitAmount: 0,
+  remark: '',
+  sortOrder: 0,
+})
+
+const form = reactive(emptyForm())
+
+const computedSubtotal = computed(
+  () => (Number(form.quantity) || 0) * (Number(form.unitAmount) || 0),
+)
+
+async function loadContracts() {
+  const { data } = await fetchContracts()
+  contracts.value = data.items
+}
+
+async function loadTerminationsForContract(contractId: string) {
+  if (!contractId) {
+    terminationsForForm.value = []
+    return
+  }
+  const { data } = await fetchLeaseTerminations({ contractId })
+  terminationsForForm.value = data.items
+}
+
+watch(
+  () => form.contractId,
+  async (contractId) => {
+    if (!formVisible.value) return
+    form.terminationId = ''
+    await loadTerminationsForContract(contractId)
+  },
+)
+
+onMounted(async () => {
+  await Promise.all([loadContracts(), loadList()])
+})
+
+function openCreate() {
+  editing.value = null
+  Object.assign(form, emptyForm())
+  terminationsForForm.value = []
+  formVisible.value = true
+}
+
+async function openEdit(row: ContractOtherFeeRecord) {
+  editing.value = row
+  Object.assign(form, {
+    contractId: row.contractId || '',
+    terminationId: row.terminationId || '',
+    description: row.description || '',
+    quantity: row.quantity ?? 0,
+    unitAmount: row.unitAmount ?? 0,
+    remark: row.remark || '',
+    sortOrder: row.sortOrder ?? 0,
+  })
+  await loadTerminationsForContract(form.contractId)
+  formVisible.value = true
+}
+
+function payloadFromForm(): ContractOtherFeeWritePayload {
+  return {
+    contractId: form.contractId.trim(),
+    terminationId: form.terminationId.trim() || null,
+    description: form.description.trim() || undefined,
+    quantity: Number(form.quantity) || 0,
+    unitAmount: Number(form.unitAmount) || 0,
+    subtotal: computedSubtotal.value,
+    remark: form.remark.trim() || undefined,
+    sortOrder: Math.floor(Number(form.sortOrder) || 0),
+  }
+}
+
+async function saveForm() {
+  if (!form.contractId.trim()) {
+    ElMessage.warning(t('contractOtherFee.contractRequired'))
+    return
+  }
+  try {
+    const payload = payloadFromForm()
+    if (editing.value) {
+      await updateContractOtherFeeApi(editing.value.id, payload)
+      ElMessage.success(t('contractOtherFee.updated'))
+    } else {
+      await createContractOtherFeeApi(payload)
+      ElMessage.success(t('contractOtherFee.created'))
+    }
+    formVisible.value = false
+    await loadList()
+  } catch {
+    /* interceptor */
+  }
+}
+
+async function onDelete(row: ContractOtherFeeRecord) {
+  try {
+    await ElMessageBox.confirm(
+      t('contractOtherFee.deleteConfirm', { desc: row.description || row.id }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+    await deleteContractOtherFeeApi(row.id)
+    ElMessage.success(t('contractOtherFee.deleted'))
+    await loadList()
+  } catch {
+    /* cancel */
+  }
+}
+
+async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'rtl') {
+  if (!contractId) return
+  try {
+    const { data } = await fetchContract(contractId)
+    currentContract.value = data
+    contractDrawerDirection.value = direction
+    contractDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
+  if (!customerId) return
+  try {
+    const { data } = await fetchCustomer(customerId)
+    relatedCustomer.value = data
+    customerDrawerDirection.value = direction
+    customerDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
+  if (!roomId) return
+  try {
+    const { data } = await fetchRoom(roomId)
+    relatedRoom.value = data
+    roomDrawerDirection.value = direction
+    roomDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function moneyOrDash(v: number | null | undefined): string {
+  return v == null ? '—' : formatMoney(v)
+}
+
+const importInputRef = ref<HTMLInputElement | null>(null)
+const {
+  state: importState,
+  percentage: importPercentage,
+  importing,
+  begin: beginImport,
+  setTotal: setImportTotal,
+  setPreparing: setImportPreparing,
+  setProcessing: setImportProcessing,
+  bump: bumpImport,
+  finish: finishImport,
+  fail: failImport,
+  close: closeImport,
+} = useImportProgress()
+
+function onDataIoCommand(cmd: string | number) {
+  if (cmd === 'import') {
+    importInputRef.value?.click()
+    return
+  }
+  if (cmd === 'template') {
+    downloadImportTemplate()
+    return
+  }
+  const scope = exportScopeFromCommand(cmd)
+  if (scope) void exportFeesXlsx(scope)
+}
+
+function downloadImportTemplate() {
+  const example = contractOtherFeeIoTemplateExampleRow(t, 'contractOtherFee')
+  const ws = XLSX.utils.json_to_sheet([example])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'OtherFees')
+  XLSX.writeFile(wb, 'contract-other-fees-import-template.xlsx')
+  ElMessage.success(t('contractOtherFee.templateDone'))
+}
+
+async function exportFeesXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: ContractOtherFeeRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      ElMessage.info(t('contractOtherFee.exportLoading'))
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      ElMessage.warning(t('contractOtherFee.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((r) => contractOtherFeeToIoRow(r, t, 'contractOtherFee'))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'OtherFees')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `contract-other-fees-${exportFileSuffix(scope)}-${day}.xlsx`)
+    ElMessage.success(t('contractOtherFee.exportDone', { n: rows.length }))
+  } catch {
+    ElMessage.error(t('contractOtherFee.importFailed'))
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function onImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!isAdmin.value) {
+    ElMessage.warning(t('contractOtherFee.importAdminOnly'))
+    return
+  }
+
+  beginImport({
+    fileName: file.name,
+    statKeys: ['created', 'skipped', 'unlinked', 'failed'],
+  })
+  try {
+    setImportPreparing()
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const sheet = wb.Sheets[wb.SheetNames[0]]
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    if (!rawRows.length) {
+      finishImport({
+        tone: 'warning',
+        message: t('contractOtherFee.importEmpty'),
+      })
+      return
+    }
+
+    const payloads: ContractOtherFeeImportPayload[] = []
+    for (const row of rawRows) {
+      const parsed = rowToContractOtherFeeIoPayload(row, t, 'contractOtherFee')
+      if (!parsed) {
+        bumpImport('skipped')
+        continue
+      }
+      payloads.push(parsed)
+    }
+
+    setImportTotal(rawRows.length)
+    const batches = chunkArray(payloads, IMPORT_BATCH_SIZE)
+    let processed = importState.stats.skipped
+    for (const batch of batches) {
+      processed += batch.length
+      setImportProcessing(Math.min(processed, rawRows.length))
+      try {
+        const { data } = await importContractOtherFeesApi(batch)
+        if (data.created) bumpImport('created', data.created)
+        if (data.skipped) bumpImport('skipped', data.skipped)
+        if (data.unlinked) bumpImport('unlinked', data.unlinked)
+        if (data.failed) bumpImport('failed', data.failed)
+      } catch {
+        bumpImport('failed', batch.length)
+      }
+    }
+
+    await loadList()
+    finishImport()
+  } catch {
+    failImport(t('contractOtherFee.importFailed'))
+  }
+}
+</script>
+
+<template>
+  <div class="admin-page">
+    <div class="admin-page-head">
+      <h2>{{ t('menu.contractOtherFees') }}</h2>
+      <div class="head-actions">
+        <el-input
+          v-model="keyword"
+          clearable
+          class="head-search"
+          :prefix-icon="Search"
+          :placeholder="t('contractOtherFee.searchPlaceholder')"
+        />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
+        <el-button
+          v-if="isAdmin"
+          type="primary"
+          :icon="Plus"
+          class="lb-btn-primary"
+          @click="openCreate"
+        >
+          {{ t('contractOtherFee.create') }}
+        </el-button>
+        <el-dropdown
+          trigger="hover"
+          placement="bottom-end"
+          popper-class="room-io-popper"
+          @command="onDataIoCommand"
+        >
+          <el-button class="room-io-btn" :aria-label="t('contractOtherFee.dataIo')" :loading="importing || exporting">
+            <el-icon :size="16"><ExportIcon /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="isAdmin" command="import">
+                <el-icon><Upload /></el-icon>
+                <span>{{ t('contractOtherFee.import') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="template">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('contractOtherFee.downloadTemplate') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-page" divided>
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportPage') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-filtered">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportFiltered') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-all">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportAll') }}</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <input
+          ref="importInputRef"
+          type="file"
+          class="room-io-file"
+          accept=".xlsx,.xls,.csv"
+          @change="onImportFile"
+        />
+      </div>
+    </div>
+
+    <div class="table-card" v-loading="loading">
+      <div class="table-scroll">
+        <el-table
+          :key="tableLayoutKey"
+          :data="list"
+          height="100%"
+          stripe
+          border
+          scrollbar-always-on
+          empty-text="—"
+          style="width: 100%"
+        >
+          <el-table-column
+            type="index"
+            :index="rowIndex"
+            label="#"
+            width="52"
+            fixed="left"
+            align="center"
+            header-align="center"
+          />
+          <el-table-column
+            :min-width="colW(t('contractOtherFee.fields.contractCode'), { interactive: true, contentMin: 120 })"
+            fixed="left"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contractOtherFee.fields.contractCode')"
+                sortable
+                :sort-order="sortOrderOf('contractCode')"
+                @update:sort-order="(v) => setSort('contractCode', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <button
+                v-if="row.contractId"
+                type="button"
+                class="fk-link"
+                :title="row.contractCode"
+                @click.stop="openContractSide(row.contractId)"
+              >
+                {{ row.contractCode || '—' }}
+              </button>
+              <span v-else>{{ row.contractCode || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contractOtherFee.fields.terminationCode'), { contentMin: 120 })"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contractOtherFee.fields.terminationCode')"
+                sortable
+                :sort-order="sortOrderOf('terminationCode')"
+                @update:sort-order="(v) => setSort('terminationCode', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.terminationCode || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.description')"
+            :min-width="textColW(t('contractOtherFee.fields.description'), { kind: 'long' })"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">{{ row.description || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.quantity')"
+            :min-width="colW(t('contractOtherFee.fields.quantity'), { contentMin: 72 })"
+            align="right"
+            header-align="right"
+          >
+            <template #default="{ row }">{{ row.quantity ?? '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.unitAmount')"
+            :min-width="colW(t('contractOtherFee.fields.unitAmount'), { contentMin: 88 })"
+            align="right"
+            header-align="right"
+          >
+            <template #default="{ row }">{{ moneyOrDash(row.unitAmount) }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.subtotal')"
+            :min-width="colW(t('contractOtherFee.fields.subtotal'), { contentMin: 88 })"
+            align="right"
+            header-align="right"
+          >
+            <template #default="{ row }">{{ moneyOrDash(row.subtotal) }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.remark')"
+            :min-width="textColW(t('contractOtherFee.fields.remark'), { kind: 'long' })"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">{{ row.remark || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.customerName')"
+            :min-width="textColW(t('contractOtherFee.fields.customerName'), { kind: 'name' })"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">{{ row.customerName || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :label="t('contractOtherFee.fields.roomCode')"
+            :min-width="colW(t('contractOtherFee.fields.roomCode'), { contentMin: 110 })"
+          >
+            <template #default="{ row }">{{ row.roomCode || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                sortable
+                :sort-order="sortOrderOf('createdBy')"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :width="datetimeColWidth"
+            class-name="col-datetime"
+            label-class-name="col-datetime"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column
+            v-if="isAdmin"
+            :label="t('common.actions')"
+            :width="actionColWidth.two"
+            fixed="right"
+            class-name="col-actions"
+            label-class-name="col-actions"
+          >
+            <template #default="{ row }">
+              <div class="action-pills" @click.stop>
+                <button
+                  type="button"
+                  class="action-pill action-pill--edit"
+                  @click.stop="openEdit(row)"
+                >
+                  {{ t('common.edit') }}
+                </button>
+                <button
+                  type="button"
+                  class="action-pill action-pill--danger"
+                  @click.stop="onDelete(row)"
+                >
+                  {{ t('common.delete') }}
+                </button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div class="table-pagination">
+        <TablePagination
+          v-model:page="page"
+          v-model:page-size="pageSize"
+          :total="total"
+          :page-sizes="pageSizes"
+        />
+      </div>
+    </div>
+
+    <ContractDetailDrawer
+      v-model="contractDrawerVisible"
+      :contract="currentContract"
+      :desktop-direction="contractDrawerDirection"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-room="(id) => openRoomSide(id, 'ltr')"
+    />
+    <CustomerDetailDrawer
+      v-model="customerDrawerVisible"
+      :customer="relatedCustomer"
+      :desktop-direction="customerDrawerDirection"
+    />
+    <RoomDetailDrawer
+      v-model="roomDrawerVisible"
+      :room="relatedRoom"
+      :desktop-direction="roomDrawerDirection"
+    />
+
+    <el-dialog
+      v-model="formVisible"
+      :title="editing ? t('contractOtherFee.edit') : t('contractOtherFee.create')"
+      :width="dialogWidth"
+      :fullscreen="isMobile"
+      destroy-on-close
+      class="lb-dialog"
+    >
+      <el-form label-position="top" class="fee-form">
+        <div class="form-grid">
+          <el-form-item :label="t('contractOtherFee.fields.contractCode')" required class="span-2">
+            <el-select
+              v-model="form.contractId"
+              filterable
+              fit-input-width
+              style="width: 100%"
+              :placeholder="t('contractOtherFee.fields.contractCode')"
+              :disabled="!!editing"
+            >
+              <el-option
+                v-for="opt in contractFilterOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+                :title="opt.label"
+              >
+                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+              </el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.terminationCode')" class="span-2">
+            <el-select
+              v-model="form.terminationId"
+              clearable
+              filterable
+              fit-input-width
+              style="width: 100%"
+              :placeholder="t('contractOtherFee.terminationOptional')"
+              :disabled="!form.contractId"
+            >
+              <el-option
+                v-for="opt in terminationFilterOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.description')" class="span-2">
+            <el-input v-model="form.description" />
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.quantity')">
+            <el-input-number
+              v-model="form.quantity"
+              :min="0"
+              :precision="2"
+              :controls="false"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.unitAmount')">
+            <el-input-number
+              v-model="form.unitAmount"
+              :min="0"
+              :precision="2"
+              :controls="false"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.subtotal')">
+            <el-input :model-value="formatMoney(computedSubtotal)" readonly />
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.sortOrder')">
+            <el-input-number
+              v-model="form.sortOrder"
+              :min="0"
+              :controls="false"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('contractOtherFee.fields.remark')" class="span-2">
+            <el-input v-model="form.remark" type="textarea" :rows="2" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" class="lb-btn-primary" @click="saveForm">
+            {{ t('common.save') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <ImportProgressDialog
+      v-model="importState.visible"
+      :phase="importState.phase"
+      :file-name="importState.fileName"
+      :total="importState.total"
+      :current="importState.current"
+      :percentage="importPercentage"
+      :status-key="importState.statusKey"
+      :stats="importState.stats"
+      :result-tone="importState.resultTone"
+      :result-message="importState.resultMessage"
+      :result-stat-keys="importState.resultStatKeys"
+      @close="closeImport"
+    />
+  </div>
+</template>
+
+<style scoped>
+.head-search {
+  width: min(280px, 42vw);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.select-option-ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fee-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.fee-form :deep(.el-form-item__label) {
+  margin-bottom: 4px !important;
+  line-height: 1.2;
+}
+</style>

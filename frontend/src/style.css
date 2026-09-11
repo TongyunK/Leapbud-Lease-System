@@ -2084,6 +2084,13 @@ button {
   background: var(--lb-brand);
 }
 
+.form-section-hint {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--lb-muted);
+}
+
 @media (max-width: 640px) {
   .admin-page-head--with-chips {
     flex-wrap: wrap;
@@ -2282,32 +2289,79 @@ button {
 }
 
 .lb-clear-filters-btn {
-  --el-button-bg-color: #eef5f1;
-  --el-button-border-color: #b7ccc4;
-  --el-button-text-color: #0f4a32;
-  --el-button-hover-bg-color: #e0ebe5;
-  --el-button-hover-border-color: #0f4a32;
-  --el-button-hover-text-color: #0f4a32;
-  --el-button-active-bg-color: #d4e4dc;
-  --el-button-active-border-color: #0f4a32;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px 0 11px;
+  border-radius: 999px;
+  border: 1px solid #9ecbb3;
+  background: linear-gradient(180deg, #f3faf6 0%, #e4f2ea 100%);
+  color: var(--lb-brand);
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 1px 2px rgba(15, 74, 50, 0.06);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.12s ease;
+  vertical-align: middle;
+}
+
+.lb-clear-filters-btn:hover {
+  border-color: #6fad8f;
+  background: linear-gradient(180deg, #eaf7f0 0%, #d5ebdf 100%);
+  color: var(--lb-brand-dark);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 2px 6px rgba(15, 74, 50, 0.1);
+}
+
+.lb-clear-filters-btn:active {
+  transform: translateY(0.5px);
+  background: linear-gradient(180deg, #dcefe4 0%, #cfe6d9 100%);
+  box-shadow: inset 0 1px 2px rgba(15, 74, 50, 0.08);
+}
+
+.lb-clear-filters-btn:focus-visible {
+  outline: 2px solid rgba(15, 74, 50, 0.35);
+  outline-offset: 2px;
+}
+
+.lb-clear-filters-btn__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+
+.lb-clear-filters-btn__label {
+  white-space: nowrap;
 }
 
 .lb-clear-filters-btn__count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  margin-left: 2px;
+  min-width: 1.25rem;
+  height: 1.25rem;
   padding: 0 5px;
   border-radius: 999px;
   background: var(--lb-brand);
   color: #fff;
-  font-size: 11px;
+  font-size: 0.72rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  box-shadow: 0 1px 2px rgba(15, 74, 50, 0.18);
 }
+
 
 .lb-col-head-popper.el-popper {
   border: 1px solid #e2e8e5 !important;

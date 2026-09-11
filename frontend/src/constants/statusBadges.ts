@@ -57,3 +57,22 @@ export function customerRequirementStatusTone(status: string | null | undefined)
   const key = (status || '').trim()
   return CUSTOMER_REQUIREMENT_STATUS_TONES[key] || 'neutral'
 }
+
+/** 合约状态色 */
+const CONTRACT_STATUS_TONES: Record<string, StatusTone> = {
+  草稿: 'neutral',
+  簽約中: 'signing',
+  已簽約: 'contracting',
+  交吉中: 'signing',
+  租賃中: 'leased',
+  已完成: 'idle',
+  退租中: 'terminating',
+  已退租: 'terminating',
+  已取消: 'neutral',
+  已續約: 'leasing',
+}
+
+export function contractStatusTone(status: string | null | undefined): StatusTone {
+  const key = (status || '').trim()
+  return CONTRACT_STATUS_TONES[key] || 'neutral'
+}

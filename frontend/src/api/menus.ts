@@ -46,6 +46,11 @@ export function updateMenuApi(
   return request.patch<MenuRecord>(`/menus/${id}`, payload)
 }
 
+/** 同级菜单批量排序 */
+export function reorderMenusApi(items: Array<{ id: string; sortOrder: number }>) {
+  return request.patch<{ success: boolean }>('/menus/reorder', { items })
+}
+
 export function deleteMenuApi(id: string) {
   return request.delete<{ success: boolean }>(`/menus/${id}`)
 }

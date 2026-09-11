@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateMenuDto, UpdateMenuDto } from './dto/menu.dto';
+import { CreateMenuDto, ReorderMenusDto, UpdateMenuDto } from './dto/menu.dto';
 import { buildMenuTree, menuAuditInclude, toMenuDto, type MenuDto } from './menu.mapper';
 
 function pruneEmptyDirectories(nodes: MenuDto[]): MenuDto[] {
@@ -183,6 +183,45 @@ export class MenusService {
     const existing = await this.prisma.menu.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Menu ${id} not found`);
     await this.prisma.menu.delete({ where: { id } });
+    return { success: true };
+  }
+
+  /** 批量更新同级菜单 sortOrder（拖拽排序） */
+  async reorder(dto: ReorderMenusDto, actor = '') {
+    const items = dto.items || [];
+    if (!items.length) return { success: true };
+
+    const ids = items.map((i) => i.id);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException('Duplicate menu ids in reorder payload');
+    }
+
+    const rows = await this.prisma.menu.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, parentId: true },
+    });
+    if (rows.length !== ids.length) {
+      throw new BadRequestException('One or more menu ids are invalid');
+    }
+
+    const parentKey = (p: string | null) => p ?? '';
+    const firstParent = parentKey(rows[0]!.parentId);
+    if (rows.some((r) => parentKey(r.parentId) !== firstParent)) {
+      throw new BadRequestException('Reorder items must share the same parent');
+    }
+
+    const actorId = actor || null;
+    await this.prisma.$transaction(
+      items.map((item) =>
+        this.prisma.menu.update({
+          where: { id: item.id },
+          data: {
+            sortOrder: item.sortOrder,
+            ...(actorId ? { updatedById: actorId } : {}),
+          },
+        }),
+      ),
+    );
     return { success: true };
   }
 }

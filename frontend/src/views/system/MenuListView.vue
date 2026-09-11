@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { createMenuApi, fetchMenus, updateMenuApi } from '@/api/menus'
+import { Rank } from '@element-plus/icons-vue'
+import { createMenuApi, fetchMenus, reorderMenusApi, updateMenuApi } from '@/api/menus'
 import { fetchRoleMenuMatrixApi, saveRoleMenuMatrixApi } from '@/api/roles'
 import type { MenuRecord, MenuType } from '@/types/menu'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -23,6 +24,7 @@ const menuActionWidth = computed(() => {
 
 const loading = ref(false)
 const saving = ref(false)
+const reordering = ref(false)
 const formVisible = ref(false)
 const editing = ref<MenuRecord | null>(null)
 const flat = ref<MenuRecord[]>([])
@@ -31,6 +33,9 @@ const matrixRoles = ref<Array<{ id: string; code: string; name: string; isSystem
 const matrixMenus = ref<MenuRecord[]>([])
 /** roleId -> Set(menuId) */
 const matrixChecked = ref<Record<string, Set<string>>>({})
+
+const dragMenuId = ref<string | null>(null)
+const dragOverMenuId = ref<string | null>(null)
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '480px'))
 
@@ -59,14 +64,126 @@ function menuLabel(node: MenuRecord) {
   return node.name
 }
 
-function rowClassName({ row }: { row: MenuRecord }) {
-  return row.type === 'directory' ? 'menu-matrix-row--dir' : 'menu-matrix-row--leaf'
+function parentKey(parentId: string | null | undefined) {
+  return parentId || ''
 }
+
+/** 依赖拖拽态，保证行 class 随 drag 更新 */
+const tableRowClassName = computed(() => {
+  const dragging = dragMenuId.value
+  const over = dragOverMenuId.value
+  return ({ row }: { row: MenuRecord }) => {
+    const classes = [row.type === 'directory' ? 'menu-matrix-row--dir' : 'menu-matrix-row--leaf']
+    if (dragging === row.id) classes.push('menu-matrix-row--dragging')
+    if (over === row.id) classes.push('menu-matrix-row--drag-over')
+    return classes.join(' ')
+  }
+})
 
 function collectChildIds(node: MenuRecord): string[] {
   const ids = [node.id]
   for (const c of node.children || []) ids.push(...collectChildIds(c))
   return ids
+}
+
+/** 取得同级菜单所在数组（根或某目录的 children） */
+function getSiblingList(parentId: string | null): MenuRecord[] | null {
+  if (!parentId) return matrixMenus.value
+  const find = (nodes: MenuRecord[]): MenuRecord[] | null => {
+    for (const n of nodes) {
+      if (n.id === parentId) {
+        if (!n.children) n.children = []
+        return n.children
+      }
+      if (n.children?.length) {
+        const found = find(n.children)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return find(matrixMenus.value)
+}
+
+function findNode(nodes: MenuRecord[], id: string): MenuRecord | null {
+  for (const n of nodes) {
+    if (n.id === id) return n
+    if (n.children?.length) {
+      const found = findNode(n.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function onMenuDragStart(row: MenuRecord, e: DragEvent) {
+  dragMenuId.value = row.id
+  e.dataTransfer?.setData('text/plain', row.id)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+function onMenuDragOver(row: MenuRecord, e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  if (!dragMenuId.value || dragMenuId.value === row.id) return
+  dragOverMenuId.value = row.id
+}
+
+function onMenuDragLeave(row: MenuRecord) {
+  if (dragOverMenuId.value === row.id) dragOverMenuId.value = null
+}
+
+function onMenuDragEnd() {
+  dragMenuId.value = null
+  dragOverMenuId.value = null
+}
+
+async function onMenuDrop(target: MenuRecord, e: DragEvent) {
+  e.preventDefault()
+  const fromId = dragMenuId.value || e.dataTransfer?.getData('text/plain')
+  dragMenuId.value = null
+  dragOverMenuId.value = null
+  if (!fromId || fromId === target.id || reordering.value) return
+
+  const source = findNode(matrixMenus.value, fromId)
+  if (!source) return
+
+  if (parentKey(source.parentId) !== parentKey(target.parentId)) {
+    ElMessage.warning(t('sysMenu.reorderSameParentOnly'))
+    return
+  }
+
+  const list = getSiblingList(source.parentId)
+  if (!list) return
+
+  const fromIdx = list.findIndex((m) => m.id === fromId)
+  const toIdx = list.findIndex((m) => m.id === target.id)
+  if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
+
+  const [item] = list.splice(fromIdx, 1)
+  list.splice(toIdx, 0, item)
+
+  const items = list.map((m, i) => {
+    m.sortOrder = i
+    return { id: m.id, sortOrder: i }
+  })
+
+  matrixMenus.value = [...matrixMenus.value]
+
+  reordering.value = true
+  try {
+    await reorderMenusApi(items)
+    ElMessage.success(t('sysMenu.reordered'))
+    void navStore.loadNav()
+    const orderMap = new Map(items.map((i) => [i.id, i.sortOrder]))
+    flat.value = flat.value.map((m) =>
+      orderMap.has(m.id) ? { ...m, sortOrder: orderMap.get(m.id)! } : m,
+    )
+  } catch {
+    await loadMatrix()
+  } finally {
+    reordering.value = false
+  }
 }
 
 async function loadMatrix() {
@@ -213,7 +330,7 @@ async function toggleActive(row: MenuRecord) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading">
+    <div class="table-card" v-loading="loading || reordering">
       <div class="table-scroll">
         <el-table
           :data="matrixMenus"
@@ -223,16 +340,34 @@ async function toggleActive(row: MenuRecord) {
           row-key="id"
           default-expand-all
           :tree-props="{ children: 'children' }"
-          :row-class-name="rowClassName"
+          :row-class-name="tableRowClassName"
           empty-text="—"
           style="width: 100%"
           class="menu-matrix-table"
         >
-          <el-table-column :label="t('role.matrixFunction')" min-width="220" fixed="left">
+          <el-table-column :label="t('role.matrixFunction')" min-width="240" fixed="left">
             <template #default="{ row }">
-              <span class="menu-matrix-fn" :class="{ 'is-dir': row.type === 'directory' }">
-                {{ menuLabel(row) }}
-              </span>
+              <div
+                class="menu-matrix-fn-wrap"
+                @dragover="onMenuDragOver(row, $event)"
+                @drop="onMenuDrop(row, $event)"
+                @dragleave="onMenuDragLeave(row)"
+              >
+                <button
+                  type="button"
+                  class="menu-row__handle"
+                  draggable="true"
+                  :title="t('sysMenu.dragReorder')"
+                  aria-label="drag"
+                  @dragstart="onMenuDragStart(row, $event)"
+                  @dragend="onMenuDragEnd"
+                >
+                  <el-icon :size="14"><Rank /></el-icon>
+                </button>
+                <span class="menu-matrix-fn" :class="{ 'is-dir': row.type === 'directory' }">
+                  {{ menuLabel(row) }}
+                </span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column
@@ -352,10 +487,43 @@ async function toggleActive(row: MenuRecord) {
 </template>
 
 <style scoped>
+.menu-matrix-fn-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.menu-row__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a9590;
+  cursor: grab;
+  flex: 0 0 auto;
+}
+
+.menu-row__handle:hover {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  color: var(--lb-brand, #0f4a32);
+}
+
+.menu-row__handle:active {
+  cursor: grabbing;
+}
+
 .menu-matrix-fn {
   display: inline-block;
   line-height: 1.4;
   color: #3a4a42;
+  min-width: 0;
 }
 
 .menu-matrix-fn.is-dir {
@@ -392,6 +560,14 @@ async function toggleActive(row: MenuRecord) {
 .menu-matrix-table :deep(.menu-matrix-row--dir .el-table__expand-icon) {
   color: #0f4a32;
   font-weight: 700;
+}
+
+.menu-matrix-table :deep(.menu-matrix-row--dragging > td.el-table__cell) {
+  opacity: 0.55;
+}
+
+.menu-matrix-table :deep(.menu-matrix-row--drag-over > td.el-table__cell) {
+  box-shadow: inset 0 -2px 0 0 var(--lb-brand, #0f4a32);
 }
 
 .menu-matrix-check :deep(.el-checkbox__inner) {

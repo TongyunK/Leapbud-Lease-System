@@ -7,6 +7,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildingListInclude, toBuildingDto } from '../common/dto-mappers';
 import {
+  dateRangeFilter,
+  paginateArgs,
+  parsePage,
+  parsePageSize,
+  parseSortDir,
+  type PaginatedResult,
+} from '../common/pagination';
+import {
   CreateBuildingDto,
   ImportBuildingsDto,
   UpdateBuildingDto,
@@ -20,29 +28,100 @@ function s(v?: string | null) {
 export class BuildingsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(params: { keyword?: string; activeOnly?: boolean } = {}) {
-    const q = params.keyword?.trim();
+  async findAll(params: {
+    keyword?: string;
+    activeOnly?: boolean;
+    managers?: string[];
+    active?: string[];
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<PaginatedResult<ReturnType<typeof toBuildingDto>>> {
+    const page = parsePage(params.page);
+    const pageSize = parsePageSize(params.pageSize);
+    const where = this.buildListWhere(params);
+    const { skip, take } = paginateArgs(page, pageSize);
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.building.count({ where }),
+      this.prisma.building.findMany({
+        where,
+        include: buildingListInclude,
+        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        ...(skip !== undefined ? { skip, take } : {}),
+      }),
+    ]);
+
+    return {
+      items: rows.map(toBuildingDto),
+      total,
+      page: pageSize == null ? 1 : page,
+      pageSize: pageSize == null ? total : pageSize,
+    };
+  }
+
+  private buildListWhere(params: {
+    keyword?: string;
+    activeOnly?: boolean;
+    managers?: string[];
+    active?: string[];
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+  }): Prisma.BuildingWhereInput {
     const where: Prisma.BuildingWhereInput = {};
 
-    if (params.activeOnly) where.active = true;
+    const activeVals = (params.active || [])
+      .map((v) => s(v).toLowerCase())
+      .filter((v) => v === 'true' || v === 'false');
+    if (activeVals.length === 1) {
+      where.active = activeVals[0] === 'true';
+    } else if (!activeVals.length && params.activeOnly) {
+      where.active = true;
+    }
 
-    if (q) {
+    const managers = (params.managers || []).map((v) => s(v)).filter(Boolean);
+    if (managers.length) where.manager = { in: managers };
+
+    const keyword = params.keyword?.trim();
+    if (keyword) {
       where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { address: { contains: q, mode: 'insensitive' } },
-        { addressEn: { contains: q, mode: 'insensitive' } },
-        { manager: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
-        { managerPhone: { contains: q, mode: 'insensitive' } },
+        { name: { contains: keyword, mode: 'insensitive' } },
+        { address: { contains: keyword, mode: 'insensitive' } },
+        { addressEn: { contains: keyword, mode: 'insensitive' } },
+        { manager: { contains: keyword, mode: 'insensitive' } },
+        { email: { contains: keyword, mode: 'insensitive' } },
+        { managerPhone: { contains: keyword, mode: 'insensitive' } },
       ];
     }
 
-    const rows = await this.prisma.building.findMany({
-      where,
-      include: buildingListInclude,
-      orderBy: { name: 'asc' },
-    });
-    return rows.map(toBuildingDto);
+    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+    if (createdAt) where.createdAt = createdAt;
+    const updatedAt = dateRangeFilter(params.updatedAtFrom, params.updatedAtTo, true);
+    if (updatedAt) where.updatedAt = updatedAt;
+
+    return where;
+  }
+
+  private buildListOrderBy(
+    sortBy?: string,
+    sortDir?: 'asc' | 'desc',
+  ): Prisma.BuildingOrderByWithRelationInput[] {
+    const dir = parseSortDir(sortDir) ?? 'asc';
+    const key = s(sortBy);
+    if (key === 'name') return [{ name: dir }];
+    if (key === 'manager') return [{ manager: dir }, { name: 'asc' }];
+    if (key === 'roomCount') return [{ rooms: { _count: dir } }, { name: 'asc' }];
+    if (key === 'createdAt') return [{ createdAt: dir }];
+    if (key === 'updatedAt') return [{ updatedAt: dir }];
+    if (key === 'active') return [{ active: dir }, { name: 'asc' }];
+    return [{ name: 'asc' }];
   }
 
   async findOne(id: string) {
@@ -119,7 +198,7 @@ export class BuildingsService {
     return toBuildingDto(row);
   }
 
-  /** 按大厦名称 upsert（名称匹配大小写不敏感） */
+  /** 按大厦名称 upsert（名称匹配大小写不敏感）；仅按本批名称加载已有行 */
   async importBatch(dto: ImportBuildingsDto, actor = '') {
     const items = dto.items || [];
     let created = 0;
@@ -127,9 +206,17 @@ export class BuildingsService {
     let skipped = 0;
     let failed = 0;
 
-    const existing = await this.prisma.building.findMany({
-      select: { id: true, name: true },
-    });
+    const names = [...new Set(items.map((it) => s(it.name)).filter(Boolean))];
+    const existing = names.length
+      ? await this.prisma.building.findMany({
+          where: {
+            OR: names.map((name) => ({
+              name: { equals: name, mode: 'insensitive' as const },
+            })),
+          },
+          select: { id: true, name: true },
+        })
+      : [];
     const byName = new Map(existing.map((b) => [b.name.trim().toLowerCase(), b]));
 
     for (const item of items) {

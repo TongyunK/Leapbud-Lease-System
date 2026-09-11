@@ -1,0 +1,43 @@
+# Leapbud Lease System — Cursor 忽略（语法同 .gitignore）
+# 已在 .gitignore 中的路径 Cursor 也会忽略；此处补充敏感文件与噪声，减少索引/上下文干扰。
+
+# --- 依赖与构建产物 ---
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/build/
+**/.vite/
+**/coverage/
+**/.turbo/
+**/*.tsbuildinfo
+
+# --- 环境与密钥（硬屏蔽，勿让 Agent 读取） ---
+**/.env
+**/.env.*
+!**/.env.example
+
+# --- 本地数据 / 导入导出杂物 ---
+/data/
+**/*.local
+**/uploads/
+**/tmp/
+**/temp/
+
+# --- 锁文件与日志（体积大、对改码帮助有限） ---
+**/package-lock.json
+**/yarn.lock
+**/pnpm-lock.yaml
+**/*.log
+**/npm-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+
+# --- 编辑器 / OS ---
+**/.idea/
+**/.vscode/*
+!**/.vscode/extensions.json
+**/.DS_Store
+**/Thumbs.db
+
+# --- 二进制与媒体（一般无需索引） ---
+**/*.{png,jpg,jpeg,gif,webp,ico,svg,mp4,webm,pdf,zip,7z,rar,xlsx,xls,csv}

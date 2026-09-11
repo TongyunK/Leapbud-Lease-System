@@ -12,11 +12,12 @@ import {
   importCustomersApi,
   updateCustomerApi,
 } from '@/api/customers'
-import type { CustomerWritePayload } from '@/api/customers'
+import type { CustomerWritePayload, CustomerListQuery } from '@/api/customers'
 import type { CustomerRecord, OccupantRecord } from '@/types/customer'
+import type { CustomerRequirementRecord } from '@/types/customer-requirement'
 import { CUSTOMER_STATUSES } from '@/types/customer'
 import { useIsMobile } from '@/composables/useMediaQuery'
-import { useClientPagination } from '@/composables/useClientPagination'
+import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
@@ -26,9 +27,11 @@ import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
+import RelatedCustomerRequirementsDrawer from '@/components/RelatedCustomerRequirementsDrawer.vue'
 import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
 import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
 import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
@@ -46,14 +49,14 @@ import {
 import { fetchBuildings } from '@/api/buildings'
 import { fetchUsers } from '@/api/users'
 import { fetchCustomerSources } from '@/api/customer-sources'
-import { fetchOccupants } from '@/api/occupants'
+import { fetchOccupants, createOccupantApi } from '@/api/occupants'
 import { fetchRooms } from '@/api/rooms'
 import type { BuildingRecord } from '@/types/building'
 import type { UserRecord } from '@/types/user'
 import type { RoomRecord } from '@/types/room'
 import type { CustomerSourceOption } from '@/types/customer-source'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
-import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -63,11 +66,12 @@ const { actionColWidth } = useActionColWidth()
 const { colW, textColW, statusColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
-const loading = ref(false)
 const formVisible = ref(false)
 const drawerVisible = ref(false)
 const relatedOccupantDrawer = ref(false)
 const relatedOccupantsListDrawer = ref(false)
+const relatedRequirementsListDrawer = ref(false)
+const relatedRequirementDrawer = ref(false)
 const buildingDrawerVisible = ref(false)
 const relatedRoomsDrawer = ref(false)
 const relatedRoomDrawer = ref(false)
@@ -75,10 +79,11 @@ const editing = ref<CustomerRecord | null>(null)
 const current = ref<CustomerRecord | null>(null)
 const relatedOccupant = ref<OccupantRecord | null>(null)
 const relatedOccupantsCustomer = ref<CustomerRecord | null>(null)
+const relatedRequirementsCustomer = ref<CustomerRecord | null>(null)
+const relatedRequirement = ref<CustomerRequirementRecord | null>(null)
 const relatedBuilding = ref<BuildingRecord | null>(null)
 const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
 const relatedRoom = ref<RoomRecord | null>(null)
-const list = ref<CustomerRecord[]>([])
 const buildings = ref<BuildingRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sourceOptions = ref<CustomerSourceOption[]>([])
@@ -90,6 +95,13 @@ const useExistingOccupant = ref(false)
 const linkOccupantId = ref('')
 /** 编辑：当前主要使用者 ID */
 const primaryOccupantId = ref('')
+/** 编辑：下拉选中值（使用者 id，或 NEW_OCCUPANT_VALUE 表示新增） */
+const NEW_OCCUPANT_VALUE = '__new__'
+const primaryOccupantSelect = ref('')
+const customerOccupants = ref<OccupantRecord[]>([])
+const isCreatingOccupant = computed(
+  () => !!editing.value && primaryOccupantSelect.value === NEW_OCCUPANT_VALUE,
+)
 const customerDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
 const occupantDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 
@@ -103,34 +115,46 @@ function userOptionLabel(u: UserRecord) {
   return name || u.account
 }
 
+const sortFilter = useTableSortFilter<CustomerRecord>()
 const {
   filters,
   setFilter,
   setSort,
   setDateRange,
   dateRangeOf,
-  dateRanges,
   sortOrderOf,
   activeConditionCount,
-  clearAll,
-  apply: applySortFilter,
-  uniqueOptions,
-  sortKey,
-  sortOrder,
-} = useTableSortFilter<CustomerRecord>()
+} = sortFilter
 
-const columnGetters = {
-  customerCode: (c: CustomerRecord) => c.customerCode,
-  name: (c: CustomerRecord) => c.name,
-  status: (c: CustomerRecord) => c.status,
-  accountManager: (c: CustomerRecord) => c.accountManager,
-  primaryContact: (c: CustomerRecord) => c.primaryOccupant?.name || c.primaryContact,
-  mobilePhone: (c: CustomerRecord) => c.primaryOccupant?.mobilePhone || c.mobilePhone,
-  buildingName: (c: CustomerRecord) => c.buildingName,
-  occupantCount: (c: CustomerRecord) => c.occupantCount,
-  createdAt: (c: CustomerRecord) => c.createdAt,
-  updatedAt: (c: CustomerRecord) => c.updatedAt,
-}
+const {
+  loading,
+  exporting,
+  list,
+  total,
+  page,
+  pageSize,
+  pageSizes,
+  rowIndex,
+  loadList,
+  fetchExportRows,
+  onClearFilters,
+} = useServerPagedList<CustomerRecord, CustomerListQuery>({
+  keyword,
+  sortFilter,
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => ({
+    keyword: kw,
+    statuses: f.status?.length ? [...f.status] : undefined,
+    accountManagers: f.accountManager?.length ? [...f.accountManager] : undefined,
+    buildingNames: f.buildingName?.length ? [...f.buildingName] : undefined,
+    sortBy,
+    sortDir,
+    createdAtFrom: range('createdAt').from,
+    createdAtTo: range('createdAt').to,
+    page: p,
+    pageSize: ps,
+  }),
+  fetchPage: fetchCustomers,
+})
 
 const statusFilterOptions = computed(() =>
   CUSTOMER_STATUSES.map((s) => ({
@@ -139,39 +163,29 @@ const statusFilterOptions = computed(() =>
   })),
 )
 
-const managerFilterOptions = computed(() => uniqueOptions(list.value, (c) => c.accountManager))
-
-const filtered = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  let base = list.value
-  if (q) {
-    base = base.filter((c) =>
-      [
-        c.customerCode,
-        c.name,
-        c.companyNameZh,
-        c.companyNameEn,
-        c.primaryOccupant?.name || c.primaryContact,
-        c.primaryOccupant?.mobilePhone || c.mobilePhone,
-        c.primaryOccupant?.whatsapp,
-        c.primaryOccupant?.email,
-        c.accountManager,
-        c.buildingName,
-        c.rentedRooms,
-        c.status,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
-    )
+const managerFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const u of users.value) {
+    const label = userOptionLabel(u)
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    opts.push({ value: label, label })
   }
-  return applySortFilter(base, columnGetters)
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
 
-const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
-  useClientPagination(filtered)
-
-watch([keyword, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
+const buildingFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const b of buildings.value) {
+    const name = b.name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 
@@ -225,15 +239,41 @@ function occupantOptionLabel(o: OccupantRecord) {
   return phone ? `${o.name}（${phone}）${cust}` : `${o.name}${cust}`
 }
 
+function customerOccupantOptionLabel(o: OccupantRecord) {
+  const phone = o.mobilePhone || o.whatsapp || ''
+  return phone ? `${o.name}（${phone}）` : o.name
+}
+
+async function loadCustomerOccupants(customerId: string) {
+  try {
+    const { data } = await fetchOccupants({ customerId, pageSize: 200 })
+    customerOccupants.value = data.items
+  } catch {
+    customerOccupants.value = []
+  }
+}
+
+function onPrimaryOccupantSelectChange(value: string) {
+  if (!editing.value) return
+  if (value === NEW_OCCUPANT_VALUE) {
+    primaryOccupantId.value = ''
+    applyOccupantToForm(null)
+    return
+  }
+  primaryOccupantId.value = value
+  const hit = customerOccupants.value.find((o) => o.id === value)
+  applyOccupantToForm(hit)
+}
+
 async function searchOccupantsRemote(query: string) {
   occupantSelectLoading.value = true
   try {
     const { data } = await fetchOccupants({
       keyword: query.trim() || undefined,
-      limit: 40,
+      pageSize: 40,
       lite: true,
     })
-    occupantSelectOptions.value = data
+    occupantSelectOptions.value = data.items
   } catch {
     occupantSelectOptions.value = []
   } finally {
@@ -255,25 +295,23 @@ watch(useExistingOccupant, (yes) => {
   }
 })
 
-async function loadList() {
-  loading.value = true
-  try {
-    const [{ data }, buildingsRes, usersRes, sourcesRes, roomsRes] = await Promise.all([
-      fetchCustomers(),
-      fetchBuildings({ activeOnly: false }),
-      fetchUsers(),
-      fetchCustomerSources({ activeOnly: true }),
-      fetchRooms(),
-    ])
-    list.value = data
-    buildings.value = buildingsRes.data
-    users.value = usersRes.data
-    sourceOptions.value = sourcesRes.data
-    rooms.value = roomsRes.data
-  } finally {
-    loading.value = false
-  }
+async function loadOptions() {
+  const [buildingsRes, usersRes, sourcesRes, roomsRes] = await Promise.all([
+    fetchBuildings({ activeOnly: false }),
+    fetchUsers(),
+    fetchCustomerSources({ activeOnly: true }),
+    fetchRooms(),
+  ])
+  buildings.value = buildingsRes.data.items
+  users.value = usersRes.data
+  sourceOptions.value = sourcesRes.data
+  rooms.value = roomsRes.data.items
 }
+
+onMounted(() => {
+  void loadList()
+  void loadOptions()
+})
 
 function parseRentedRoomCodes(raw?: string | null): string[] {
   if (!raw?.trim()) return []
@@ -335,10 +373,6 @@ function applyOccupantToForm(
   })
 }
 
-onMounted(() => {
-  void loadList()
-})
-
 function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
@@ -347,6 +381,8 @@ function openCreate() {
   useExistingOccupant.value = false
   linkOccupantId.value = ''
   primaryOccupantId.value = ''
+  primaryOccupantSelect.value = ''
+  customerOccupants.value = []
   formVisible.value = true
 }
 
@@ -372,10 +408,30 @@ async function openEdit(row: CustomerRecord) {
     rentedRoomCodes.value = parseRentedRoomCodes(data.rentedRooms)
     useExistingOccupant.value = false
     linkOccupantId.value = ''
-    primaryOccupantId.value = data.primaryOccupantId || ''
-    if (data.primaryOccupant) {
-      applyOccupantToForm(data.primaryOccupant)
+    await loadCustomerOccupants(data.id)
+    if (
+      data.primaryOccupantId &&
+      data.primaryOccupant &&
+      !customerOccupants.value.some((o) => o.id === data.primaryOccupantId)
+    ) {
+      customerOccupants.value = [
+        { ...data.primaryOccupant, id: data.primaryOccupantId } as OccupantRecord,
+        ...customerOccupants.value,
+      ]
+    }
+    if (data.primaryOccupantId) {
+      primaryOccupantId.value = data.primaryOccupantId
+      primaryOccupantSelect.value = data.primaryOccupantId
+      const fromList = customerOccupants.value.find((o) => o.id === data.primaryOccupantId)
+      applyOccupantToForm(data.primaryOccupant || fromList || null)
+    } else if (customerOccupants.value.length) {
+      const first = customerOccupants.value[0]
+      primaryOccupantId.value = first.id
+      primaryOccupantSelect.value = first.id
+      applyOccupantToForm(first)
     } else {
+      primaryOccupantId.value = ''
+      primaryOccupantSelect.value = NEW_OCCUPANT_VALUE
       applyOccupantToForm(null)
     }
     formVisible.value = true
@@ -384,8 +440,8 @@ async function openEdit(row: CustomerRecord) {
   }
 }
 
-function payloadFromForm() {
-  const occupantPayload = {
+function buildOccupantPayload() {
+  return {
     name: occupantForm.name.trim(),
     whatsapp: occupantForm.whatsapp.trim(),
     mobilePhone: occupantForm.mobilePhone.trim(),
@@ -398,6 +454,10 @@ function payloadFromForm() {
     addressProofCopy: occupantForm.addressProofCopy.trim(),
     remark: occupantForm.remark.trim(),
   }
+}
+
+function payloadFromForm(opts?: { includeOccupant?: boolean }) {
+  const includeOccupant = opts?.includeOccupant !== false
   return {
     customerCode: form.customerCode.trim(),
     name: form.name.trim(),
@@ -412,7 +472,7 @@ function payloadFromForm() {
     source: form.source.trim(),
     rentedRooms: rentedRoomCodes.value.join('、'),
     buildingId: form.buildingId.trim() || null,
-    occupant: occupantPayload,
+    ...(includeOccupant ? { occupant: buildOccupantPayload() } : {}),
     ...(editing.value
       ? {
           primaryOccupantId: primaryOccupantId.value || undefined,
@@ -439,17 +499,33 @@ async function saveForm() {
     ElMessage.warning(t('customer.occupantSelectRequired'))
     return
   }
+  if (editing.value && !isCreatingOccupant.value && !primaryOccupantSelect.value) {
+    ElMessage.warning(t('customer.occupantSelectRequired'))
+    return
+  }
   if (!occupantForm.name.trim()) {
     ElMessage.warning(t('customer.occupantNameRequired'))
     return
   }
   try {
-    const payload = payloadFromForm()
-    if (editing.value) {
-      await updateCustomerApi(editing.value.id, payload)
+    if (editing.value && isCreatingOccupant.value) {
+      const occPayload = buildOccupantPayload()
+      const { data: createdOcc } = await createOccupantApi({
+        ...occPayload,
+        customerId: editing.value.id,
+        customerCode: form.customerCode.trim(),
+      })
+      primaryOccupantId.value = createdOcc.id
+      await updateCustomerApi(
+        editing.value.id,
+        payloadFromForm({ includeOccupant: false }),
+      )
+      ElMessage.success(t('customer.updated'))
+    } else if (editing.value) {
+      await updateCustomerApi(editing.value.id, payloadFromForm())
       ElMessage.success(t('customer.updated'))
     } else {
-      await createCustomerApi(payload)
+      await createCustomerApi(payloadFromForm())
       ElMessage.success(t('customer.created'))
     }
     formVisible.value = false
@@ -479,6 +555,17 @@ function openOccupantsSide(row: CustomerRecord) {
   if (!row.occupantCount) return
   relatedOccupantsCustomer.value = row
   relatedOccupantsListDrawer.value = true
+}
+
+function openRequirementsSide(row: CustomerRecord) {
+  if (!row.requirementCount) return
+  relatedRequirementsCustomer.value = row
+  relatedRequirementsListDrawer.value = true
+}
+
+function onOpenRequirementFromCustomer(requirement: CustomerRequirementRecord) {
+  relatedRequirement.value = requirement
+  relatedRequirementDrawer.value = true
 }
 
 async function openDetail(row: CustomerRecord, direction: 'ltr' | 'rtl' = 'rtl') {
@@ -597,23 +684,32 @@ function downloadImportTemplate() {
   ElMessage.success(t('customer.templateDone'))
 }
 
-function exportCustomersXlsx(scope: 'page' | 'filtered' | 'all') {
-  const rows = resolveExportRows(scope, {
-    page: paged.value,
-    filtered: filtered.value,
-    all: list.value,
-  })
-  if (!rows.length) {
-    ElMessage.warning(t('customer.exportEmpty'))
-    return
+async function exportCustomersXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: CustomerRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      ElMessage.info(t('customer.exportLoading'))
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      ElMessage.warning(t('customer.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((r) => customerToIoRow(r, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Customers')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `customers-${exportFileSuffix(scope)}-${day}.xlsx`)
+    ElMessage.success(t('customer.exportDone', { n: rows.length }))
+  } catch {
+    ElMessage.error(t('customer.importFailed'))
+  } finally {
+    exporting.value = false
   }
-  const sheetRows = rows.map((r) => customerToIoRow(r, t))
-  const ws = XLSX.utils.json_to_sheet(sheetRows)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Customers')
-  const day = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `customers-${exportFileSuffix(scope)}-${day}.xlsx`)
-  ElMessage.success(t('customer.exportDone', { n: rows.length }))
 }
 
 async function onImportFile(ev: Event) {
@@ -654,7 +750,7 @@ async function onImportFile(ev: Event) {
         continue
       }
       payloads.push({
-        customerCode: parsed.customerCode,
+        customerCode: parsed.customerCode || undefined,
         name: parsed.name,
         status: parsed.status,
         accountManagerId: resolveAccountManagerId(parsed.accountManagerLabel),
@@ -708,7 +804,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('customer.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button
           v-if="isAdmin"
           type="primary"
@@ -724,7 +820,7 @@ async function onImportFile(ev: Event) {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('customer.dataIo')" :loading="importing">
+          <el-button class="room-io-btn" :aria-label="t('customer.dataIo')" :loading="importing || exporting">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
@@ -767,7 +863,7 @@ async function onImportFile(ev: Event) {
         <el-table
           :key="tableLayoutKey"
           class="customer-table--clickable"
-          :data="paged"
+          :data="list"
           height="100%"
           stripe
           border
@@ -865,10 +961,22 @@ async function onImportFile(ev: Event) {
             :min-width="colW(t('customer.fields.mobilePhone'), { contentMin: 120 })"
           />
           <el-table-column
-            :label="t('customer.fields.buildingName')"
-            :min-width="textColW(t('customer.fields.buildingName'), { kind: 'name' })"
+            prop="buildingName"
+            :min-width="colW(t('customer.fields.buildingName'), { interactive: true, contentMin: 140 })"
             show-overflow-tooltip
           >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.buildingName')"
+                filterable
+                sortable
+                :options="buildingFilterOptions"
+                :model-value="filters.buildingName || []"
+                :sort-order="sortOrderOf('buildingName')"
+                @update:model-value="(v) => setFilter('buildingName', v)"
+                @update:sort-order="(v) => setSort('buildingName', v)"
+              />
+            </template>
             <template #default="{ row }">
               <button
                 v-if="row.buildingId"
@@ -897,6 +1005,25 @@ async function onImportFile(ev: Event) {
               <CountListPill
                 :count="row.occupantCount ?? 0"
                 @click="openOccupantsSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.requirementCount'), { interactive: true, contentMin: 100 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.requirementCount')"
+                sortable
+                :sort-order="sortOrderOf('requirementCount')"
+                @update:sort-order="(v) => setSort('requirementCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.requirementCount ?? 0"
+                @click="openRequirementsSide(row)"
               />
             </template>
           </el-table-column>
@@ -969,6 +1096,7 @@ async function onImportFile(ev: Event) {
       :customer="current"
       :desktop-direction="customerDrawerDirection"
       @open-occupants="openOccupantsSide"
+      @open-requirements="openRequirementsSide"
       @open-building="openBuildingSide"
     />
     <RelatedOccupantsDrawer
@@ -976,6 +1104,18 @@ async function onImportFile(ev: Event) {
       :customer="relatedOccupantsCustomer"
       desktop-direction="ltr"
       @open-occupant="onOpenOccupantFromCustomer"
+    />
+    <RelatedCustomerRequirementsDrawer
+      v-model="relatedRequirementsListDrawer"
+      :customer="relatedRequirementsCustomer"
+      desktop-direction="ltr"
+      @open-requirement="onOpenRequirementFromCustomer"
+    />
+    <CustomerRequirementDetailDrawer
+      v-model="relatedRequirementDrawer"
+      :requirement="relatedRequirement"
+      desktop-direction="ltr"
+      @open-customer="openCustomerFromOccupant"
     />
     <OccupantDetailDrawer
       v-model="relatedOccupantDrawer"
@@ -1126,6 +1266,7 @@ async function onImportFile(ev: Event) {
 
         <section class="form-section">
           <h3>{{ t('customer.sections.occupant') }}</h3>
+          <p class="form-section-hint">{{ t('customer.occupantHint') }}</p>
           <div class="form-grid">
             <el-form-item
               v-if="!editing"
@@ -1162,6 +1303,42 @@ async function onImportFile(ev: Event) {
                   :value="o.id"
                 />
               </el-select>
+            </el-form-item>
+            <el-form-item
+              v-if="editing"
+              :label="t('customer.selectPrimaryOccupant')"
+              class="span-2"
+              required
+            >
+              <el-select
+                v-model="primaryOccupantSelect"
+                filterable
+                style="width: 100%"
+                :placeholder="t('customer.selectPrimaryOccupantPlaceholder')"
+                @change="onPrimaryOccupantSelectChange"
+              >
+                <el-option
+                  v-for="o in customerOccupants"
+                  :key="o.id"
+                  :label="customerOccupantOptionLabel(o)"
+                  :value="o.id"
+                />
+                <el-option
+                  :value="NEW_OCCUPANT_VALUE"
+                  :label="t('customer.createNewOccupant')"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item
+              v-if="editing && isCreatingOccupant"
+              class="span-2"
+            >
+              <el-alert
+                type="info"
+                :closable="false"
+                show-icon
+                :title="t('customer.createNewOccupantHint')"
+              />
             </el-form-item>
             <el-form-item :label="t('occupant.fields.name')" required>
               <el-input v-model="occupantForm.name" />

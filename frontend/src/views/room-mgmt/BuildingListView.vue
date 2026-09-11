@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { fetchBuildings, updateBuildingApi, createBuildingApi, importBuildingsApi } from '@/api/buildings'
-import type { BuildingWritePayload } from '@/api/buildings'
+import {
+  fetchBuildings,
+  updateBuildingApi,
+  createBuildingApi,
+  importBuildingsApi,
+} from '@/api/buildings'
+import type { BuildingListQuery, BuildingWritePayload } from '@/api/buildings'
 import type { BuildingRecord } from '@/types/building'
 import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
-import { useClientPagination } from '@/composables/useClientPagination'
+import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
@@ -24,10 +29,10 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
-import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Search, Upload, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -42,7 +47,6 @@ const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
 const keyword = ref('')
-const loading = ref(false)
 const drawerVisible = ref(false)
 const relatedRoomsDrawer = ref(false)
 const relatedRoomDrawer = ref(false)
@@ -52,6 +56,7 @@ const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
 const relatedRoom = ref<RoomRecord | null>(null)
 const editing = ref<BuildingRecord | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
+const managerFilterOptions = ref<{ value: string; label: string }[]>([])
 const {
   state: importState,
   percentage: importPercentage,
@@ -66,71 +71,80 @@ const {
   close: closeImport,
 } = useImportProgress()
 
-const list = ref<BuildingRecord[]>([])
-
 const {
   filters,
   setFilter,
   setSort,
   setDateRange,
   dateRangeOf,
-  dateRanges,
   sortOrderOf,
   activeConditionCount,
   clearAll,
-  apply: applySortFilter,
-  uniqueOptions,
   sortKey,
   sortOrder,
+  dateRanges,
 } = useTableSortFilter<BuildingRecord>()
 
-const columnGetters = {
-  name: (b: BuildingRecord) => b.name,
-  manager: (b: BuildingRecord) => b.manager,
-  roomCount: (b: BuildingRecord) => b.roomIds.length,
-  active: (b: BuildingRecord) => String(b.active),
-  createdBy: (b: BuildingRecord) => b.createdBy,
-  createdAt: (b: BuildingRecord) => b.createdAt,
-  updatedBy: (b: BuildingRecord) => b.updatedBy,
-  updatedAt: (b: BuildingRecord) => b.updatedAt,
-}
-
-const managerFilterOptions = computed(() => uniqueOptions(list.value, (b) => b.manager))
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
 ])
 
-const filtered = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  const base = !q
-    ? list.value
-    : list.value.filter((b) =>
-        [b.name, b.address, b.addressEn, b.manager, b.email, b.managerPhone]
-          .join(' ')
-          .toLowerCase()
-          .includes(q),
-      )
-  return applySortFilter(base, columnGetters)
+const {
+  loading,
+  exporting,
+  list,
+  total,
+  page,
+  pageSize,
+  pageSizes,
+  rowIndex,
+  resetPage,
+  loadList,
+  fetchExportRows,
+  onClearFilters,
+} = useServerPagedList<BuildingRecord, BuildingListQuery>({
+  keyword,
+  sortFilter: {
+    filters,
+    dateRanges,
+    dateRangeOf,
+    sortKey,
+    sortOrder,
+    clearAll,
+  },
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => {
+    const created = range('createdAt')
+    const updated = range('updatedAt')
+    return {
+      keyword: kw,
+      activeOnly: false,
+      managers: f.manager?.length ? [...f.manager] : undefined,
+      active: f.active?.length ? [...f.active] : undefined,
+      sortBy,
+      sortDir,
+      createdAtFrom: created.from,
+      createdAtTo: created.to,
+      updatedAtFrom: updated.from,
+      updatedAtTo: updated.to,
+      page: p,
+      pageSize: ps,
+    }
+  },
+  fetchPage: fetchBuildings,
 })
 
-const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
-  useClientPagination(filtered)
-
-watch([keyword, filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
-
-async function loadList() {
-  loading.value = true
-  try {
-    const { data } = await fetchBuildings({ activeOnly: false })
-    list.value = data
-  } finally {
-    loading.value = false
-  }
+async function loadManagerOptions() {
+  const { data } = await fetchBuildings({ activeOnly: false })
+  const names = [
+    ...new Set(data.items.map((b) => b.manager.trim()).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  managerFilterOptions.value = names.map((m) => ({ value: m, label: m }))
 }
 
 onMounted(() => {
   void loadList()
+  void loadManagerOptions()
 })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
@@ -199,27 +213,36 @@ function onDataIoCommand(cmd: string | number) {
   }
   const scope = exportScopeFromCommand(cmd)
   if (scope) {
-    exportBuildingsXlsx(scope)
+    void exportBuildingsXlsx(scope)
   }
 }
 
-function exportBuildingsXlsx(scope: 'page' | 'filtered' | 'all') {
-  const rows = resolveExportRows(scope, {
-    page: paged.value,
-    filtered: filtered.value,
-    all: list.value,
-  })
-  if (!rows.length) {
-    ElMessage.warning(t('building.exportEmpty'))
-    return
+async function exportBuildingsXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: BuildingRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      ElMessage.info(t('building.exportLoading'))
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      ElMessage.warning(t('building.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((b) => buildingToIoRow(b, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Buildings')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `buildings-${exportFileSuffix(scope)}-${day}.xlsx`)
+    ElMessage.success(t('building.exportDone', { n: rows.length }))
+  } catch {
+    ElMessage.error(t('building.importFailed'))
+  } finally {
+    exporting.value = false
   }
-  const sheetRows = rows.map((b) => buildingToIoRow(b, t))
-  const ws = XLSX.utils.json_to_sheet(sheetRows)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Buildings')
-  const day = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `buildings-${exportFileSuffix(scope)}-${day}.xlsx`)
-  ElMessage.success(t('building.exportDone', { n: rows.length }))
 }
 
 function onImportFile(ev: Event) {
@@ -279,6 +302,7 @@ async function runImportFile(ev: Event) {
     }
 
     await loadList()
+    void loadManagerOptions()
     resetPage()
     finishImport()
   } catch {
@@ -336,6 +360,7 @@ async function toggleActive(row: BuildingRecord) {
   try {
     await updateBuildingApi(row.id, { active: !row.active })
     await loadList()
+    void loadManagerOptions()
   } catch {
     /* interceptor */
   }
@@ -347,6 +372,7 @@ async function saveForm() {
     try {
       await updateBuildingApi(editing.value.id, { ...form })
       await loadList()
+      void loadManagerOptions()
       formVisible.value = false
     } catch {
       /* interceptor */
@@ -360,6 +386,7 @@ async function saveForm() {
   try {
     await createBuildingApi({ ...form })
     await loadList()
+    void loadManagerOptions()
     formVisible.value = false
   } catch {
     /* interceptor */
@@ -379,7 +406,7 @@ async function saveForm() {
           :prefix-icon="Search"
           :placeholder="t('building.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('building.create') }}
         </el-button>
@@ -389,7 +416,7 @@ async function saveForm() {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('building.dataIo')" :loading="importing">
+          <el-button class="room-io-btn" :aria-label="t('building.dataIo')" :loading="importing || exporting">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
@@ -431,7 +458,7 @@ async function saveForm() {
       <div class="table-scroll">
         <el-table
           :key="tableLayoutKey"
-          :data="paged"
+          :data="list"
           height="100%"
           stripe
           border
@@ -443,7 +470,7 @@ async function saveForm() {
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
           <el-table-column
             prop="name"
-            :min-width="colW(t('building.fields.name'), { interactive: true, contentMin: 168 })"
+            :min-width="textColW(t('building.fields.name'), { interactive: true, kind: 'name' })"
           >
             <template #header>
               <TableColumnHeader
@@ -457,7 +484,7 @@ async function saveForm() {
           <el-table-column
             prop="address"
             :label="t('building.fields.address')"
-            :min-width="colW(t('building.fields.address'), { contentMin: 240 })"
+            :min-width="textColW(t('building.fields.address'), { kind: 'address' })"
             class-name="col-address"
             label-class-name="col-address"
             show-overflow-tooltip
@@ -597,7 +624,7 @@ async function saveForm() {
     </div>
 
     <div v-else class="data-cards">
-      <article v-for="row in paged" :key="row.id" class="data-card">
+      <article v-for="row in list" :key="row.id" class="data-card">
         <div class="data-card__head">
           <div>
             <h3 class="data-card__title">{{ row.name }}</h3>
@@ -657,8 +684,8 @@ async function saveForm() {
           </button>
         </div>
       </article>
-      <el-empty v-if="!filtered.length" />
-      <div v-if="filtered.length" class="table-pagination cards-pagination">
+      <el-empty v-if="!list.length" />
+      <div v-if="total" class="table-pagination cards-pagination">
         <TablePagination v-model:page="page" v-model:page-size="pageSize" :total="total" :page-sizes="pageSizes" />
       </div>
     </div>

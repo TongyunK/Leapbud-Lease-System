@@ -16,6 +16,13 @@ import {
   toOccupantDto,
   toOccupantLiteDto,
 } from '../customers/customer.mapper';
+import {
+  dateRangeFilter,
+  paginateArgs,
+  parsePage,
+  parsePageSize,
+  parseSortDir,
+} from '../common/pagination';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -62,46 +69,132 @@ export class OccupantsService {
   async findAll(params: {
     keyword?: string;
     customerId?: string;
+    customerNames?: string[];
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    page?: number;
+    pageSize?: number;
+    /** @deprecated 兼容旧调用；等同 pageSize */
     limit?: number;
     lite?: boolean;
   }) {
-    const where: Prisma.OccupantWhereInput = {};
-    if (params.customerId?.trim()) where.customerId = params.customerId.trim();
-    const keyword = params.keyword?.trim();
-    if (keyword) {
-      where.OR = [
-        { name: { contains: keyword, mode: 'insensitive' } },
-        { customerCode: { contains: keyword, mode: 'insensitive' } },
-        { relatedCustomerName: { contains: keyword, mode: 'insensitive' } },
-        { mobilePhone: { contains: keyword, mode: 'insensitive' } },
-        { whatsapp: { contains: keyword, mode: 'insensitive' } },
-        { email: { contains: keyword, mode: 'insensitive' } },
-        { idCardNo: { contains: keyword, mode: 'insensitive' } },
-      ];
-    }
-
-    const take =
-      typeof params.limit === 'number' && params.limit > 0
-        ? Math.min(params.limit, 200)
-        : undefined;
+    const page = parsePage(params.page);
+    const pageSize =
+      params.pageSize !== undefined && params.pageSize !== null
+        ? parsePageSize(params.pageSize)
+        : params.limit != null && params.limit > 0
+          ? Math.min(500, Math.max(1, Math.floor(params.limit)))
+          : parsePageSize(undefined);
+    const where = this.buildListWhere(params);
 
     if (params.lite) {
-      const rows = await this.prisma.occupant.findMany({
-        where,
-        select: occupantLiteSelect,
-        orderBy: [{ updatedAt: 'desc' }, { name: 'asc' }],
-        ...(take ? { take } : {}),
-      });
-      return rows.map(toOccupantLiteDto);
+      const [total, rows] = await this.prisma.$transaction([
+        this.prisma.occupant.count({ where }),
+        this.prisma.occupant.findMany({
+          where,
+          select: occupantLiteSelect,
+          orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+          ...paginateArgs(page, pageSize),
+        }),
+      ]);
+      return {
+        items: rows.map(toOccupantLiteDto),
+        total,
+        page,
+        pageSize: pageSize ?? total,
+      };
     }
 
-    const rows = await this.prisma.occupant.findMany({
-      where,
-      include: occupantInclude,
-      orderBy: [{ updatedAt: 'desc' }, { name: 'asc' }],
-      ...(take ? { take } : {}),
-    });
-    return rows.map(toOccupantDto);
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.occupant.count({ where }),
+      this.prisma.occupant.findMany({
+        where,
+        include: occupantInclude,
+        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        ...paginateArgs(page, pageSize),
+      }),
+    ]);
+
+    return {
+      items: rows.map(toOccupantDto),
+      total,
+      page,
+      pageSize: pageSize ?? total,
+    };
+  }
+
+  private buildListWhere(params: {
+    keyword?: string;
+    customerId?: string;
+    customerNames?: string[];
+    createdAtFrom?: string;
+    createdAtTo?: string;
+  }): Prisma.OccupantWhereInput {
+    const where: Prisma.OccupantWhereInput = {};
+    const and: Prisma.OccupantWhereInput[] = [];
+
+    if (params.customerId?.trim()) where.customerId = params.customerId.trim();
+
+    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
+    if (customerNames.length) {
+      and.push({
+        OR: [
+          { customer: { name: { in: customerNames } } },
+          {
+            AND: [{ customerId: null }, { relatedCustomerName: { in: customerNames } }],
+          },
+        ],
+      });
+    }
+
+    const keyword = params.keyword?.trim();
+    if (keyword) {
+      and.push({
+        OR: [
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { customerCode: { contains: keyword, mode: 'insensitive' } },
+          { relatedCustomerName: { contains: keyword, mode: 'insensitive' } },
+          { mobilePhone: { contains: keyword, mode: 'insensitive' } },
+          { whatsapp: { contains: keyword, mode: 'insensitive' } },
+          { contactPhone: { contains: keyword, mode: 'insensitive' } },
+          { email: { contains: keyword, mode: 'insensitive' } },
+          { idCardNo: { contains: keyword, mode: 'insensitive' } },
+          { customer: { name: { contains: keyword, mode: 'insensitive' } } },
+          { customer: { customerCode: { contains: keyword, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+    if (createdAt) where.createdAt = createdAt;
+
+    if (and.length) where.AND = and;
+    return where;
+  }
+
+  private buildListOrderBy(
+    sortBy?: string,
+    sortDir?: 'asc' | 'desc',
+  ): Prisma.OccupantOrderByWithRelationInput[] {
+    const dir = parseSortDir(sortDir) ?? 'asc';
+    const key = s(sortBy);
+    if (key === 'name') return [{ name: dir }];
+    if (key === 'customerName') {
+      return [
+        { customer: { name: dir } },
+        { relatedCustomerName: dir },
+        { name: 'asc' },
+      ];
+    }
+    if (key === 'customerCode') return [{ customerCode: dir }, { name: 'asc' }];
+    if (key === 'mobilePhone') return [{ mobilePhone: dir }, { name: 'asc' }];
+    if (key === 'whatsapp') return [{ whatsapp: dir }, { name: 'asc' }];
+    if (key === 'email') return [{ email: dir }, { name: 'asc' }];
+    if (key === 'createdAt') return [{ createdAt: dir }];
+    if (key === 'updatedAt') return [{ updatedAt: dir }];
+    return [{ updatedAt: 'desc' }, { name: 'asc' }];
   }
 
   async findOne(id: string) {
@@ -209,7 +302,7 @@ export class OccupantsService {
     return { success: true };
   }
 
-  /** 批量导入：重复跳过；按客户编号关联；可为无主要使用者的客户回填 */
+  /** 批量导入：重复跳过；按客户编号优先，否则按关联客户名称（唯一）关联 */
   async importBatch(dto: ImportOccupantsDto, actor = '') {
     const items = dto.items || [];
     let created = 0;
@@ -217,15 +310,76 @@ export class OccupantsService {
     let unlinked = 0;
     let failed = 0;
 
-    const existing = await this.prisma.occupant.findMany({
-      select: {
-        id: true,
-        name: true,
-        customerCode: true,
-        idCardNo: true,
-        mobilePhone: true,
-      },
-    });
+    const idCards = [
+      ...new Set(items.map((it) => s(it.idCardNo).toLowerCase()).filter(Boolean)),
+    ];
+    const batchCodes = [
+      ...new Set(items.map((it) => s(it.customerCode).toLowerCase()).filter(Boolean)),
+    ];
+    const batchNames = [
+      ...new Set(items.map((it) => s(it.name).toLowerCase()).filter(Boolean)),
+    ];
+    const batchMobiles = [
+      ...new Set(
+        items
+          .map((it) => s(it.mobilePhone).replace(/[\s\-()]/g, '').toLowerCase())
+          .filter(Boolean),
+      ),
+    ];
+
+    const dedupOr: Prisma.OccupantWhereInput[] = [];
+    if (idCards.length) {
+      dedupOr.push({
+        OR: idCards.map((id) => ({
+          idCardNo: { equals: id, mode: 'insensitive' as const },
+        })),
+      });
+    }
+    if (batchCodes.length && batchNames.length) {
+      dedupOr.push({
+        AND: [
+          {
+            OR: batchCodes.map((c) => ({
+              customerCode: { equals: c, mode: 'insensitive' as const },
+            })),
+          },
+          {
+            OR: batchNames.map((n) => ({
+              name: { equals: n, mode: 'insensitive' as const },
+            })),
+          },
+        ],
+      });
+    }
+    if (batchNames.length && batchMobiles.length) {
+      dedupOr.push({
+        AND: [
+          {
+            OR: batchNames.map((n) => ({
+              name: { equals: n, mode: 'insensitive' as const },
+            })),
+          },
+          {
+            OR: batchMobiles.map((m) => ({
+              mobilePhone: { contains: m, mode: 'insensitive' as const },
+            })),
+          },
+        ],
+      });
+    }
+
+    const existing = dedupOr.length
+      ? await this.prisma.occupant.findMany({
+          where: { OR: dedupOr },
+          select: {
+            id: true,
+            name: true,
+            customerCode: true,
+            idCardNo: true,
+            mobilePhone: true,
+          },
+        })
+      : [];
     const seenKeys = new Set<string>();
     for (const o of existing) {
       for (const k of occupantDupKeys(o)) seenKeys.add(k);
@@ -234,18 +388,57 @@ export class OccupantsService {
     const codes = [
       ...new Set(items.map((it) => s(it.customerCode)).filter(Boolean)),
     ];
-    const customers = codes.length
-      ? await this.prisma.customer.findMany({
-          where: { customerCode: { in: codes } },
-          select: { id: true, customerCode: true, name: true, primaryOccupantId: true },
-        })
-      : [];
+    const customerNames = [
+      ...new Set(
+        items
+          .filter((it) => !s(it.customerCode) && s(it.relatedCustomerName))
+          .map((it) => s(it.relatedCustomerName)),
+      ),
+    ];
+    const [customersByCode, customersByName] = await Promise.all([
+      codes.length
+        ? this.prisma.customer.findMany({
+            where: { customerCode: { in: codes } },
+            select: { id: true, customerCode: true, name: true, primaryOccupantId: true },
+          })
+        : Promise.resolve([]),
+      customerNames.length
+        ? this.prisma.customer.findMany({
+            where: {
+              OR: customerNames.map((name) => ({
+                name: { equals: name, mode: 'insensitive' as const },
+              })),
+            },
+            select: { id: true, customerCode: true, name: true, primaryOccupantId: true },
+          })
+        : Promise.resolve([]),
+    ]);
     const byCode = new Map(
-      customers.map((c) => [c.customerCode.toLowerCase(), c]),
+      customersByCode.map((c) => [c.customerCode.toLowerCase(), c]),
     );
-    const primaryByCustomer = new Map(
-      customers.map((c) => [c.id, c.primaryOccupantId] as const),
-    );
+    /** 名称不唯一时记为 null，导入时记 unlinked */
+    const customerByName = new Map<
+      string,
+      { id: string; customerCode: string; name: string; primaryOccupantId: string | null } | null
+    >();
+    for (const c of customersByName) {
+      const key = c.name.trim().toLowerCase();
+      if (!key) continue;
+      if (customerByName.has(key)) {
+        customerByName.set(key, null);
+      } else {
+        customerByName.set(key, c);
+      }
+    }
+    const primaryByCustomer = new Map<string, string | null>();
+    for (const c of customersByCode) {
+      primaryByCustomer.set(c.id, c.primaryOccupantId);
+    }
+    for (const c of customersByName) {
+      if (!primaryByCustomer.has(c.id)) {
+        primaryByCustomer.set(c.id, c.primaryOccupantId);
+      }
+    }
 
     const actorId = actor || null;
 
@@ -256,6 +449,7 @@ export class OccupantsService {
         continue;
       }
       const customerCode = s(item.customerCode);
+      const relatedCustomerName = s(item.relatedCustomerName);
       const idCardNo = s(item.idCardNo);
       const mobilePhone = s(item.mobilePhone);
       const candidate = { name, customerCode, idCardNo, mobilePhone };
@@ -265,10 +459,19 @@ export class OccupantsService {
         continue;
       }
 
-      const customer = customerCode
-        ? byCode.get(customerCode.toLowerCase())
-        : undefined;
-      if (customerCode && !customer) unlinked += 1;
+      let customer =
+        (customerCode ? byCode.get(customerCode.toLowerCase()) : undefined) ||
+        undefined;
+      if (customerCode && !customer) {
+        unlinked += 1;
+      } else if (!customer && relatedCustomerName) {
+        const byName = customerByName.get(relatedCustomerName.toLowerCase());
+        if (byName === null || byName === undefined) {
+          unlinked += 1;
+        } else {
+          customer = byName;
+        }
+      }
 
       try {
         const row = await this.prisma.occupant.create({
@@ -276,8 +479,7 @@ export class OccupantsService {
             name,
             customerId: customer?.id ?? null,
             customerCode: customer?.customerCode || customerCode,
-            relatedCustomerName:
-              s(item.relatedCustomerName) || customer?.name || '',
+            relatedCustomerName: relatedCustomerName || customer?.name || '',
             whatsapp: s(item.whatsapp),
             mobilePhone,
             contactPhone: s(item.contactPhone),

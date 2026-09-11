@@ -1,5 +1,6 @@
 import request from './request'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
+import type { PaginatedResult } from '@/types/pagination'
 
 export type CustomerRequirementWritePayload = {
   requirementCode?: string
@@ -17,16 +18,50 @@ export type CustomerRequirementWritePayload = {
   windowConfigId?: string | null
 }
 
-export function fetchCustomerRequirements(params?: {
+export type CustomerRequirementListQuery = {
   keyword?: string
   status?: string
+  statuses?: string[]
   customerId?: string
-}) {
-  const query: Record<string, string> = {}
+  customerNames?: string[]
+  salesManagers?: string[]
+  sizeConfigLabels?: string[]
+  acConfigLabels?: string[]
+  windowConfigLabels?: string[]
+  sortBy?: string
+  sortDir?: 'asc' | 'desc'
+  requirementDateFrom?: string
+  requirementDateTo?: string
+  createdAtFrom?: string
+  createdAtTo?: string
+  page?: number
+  pageSize?: number
+}
+
+export type CustomerRequirementListPage = PaginatedResult<CustomerRequirementRecord>
+
+export function fetchCustomerRequirements(params?: CustomerRequirementListQuery) {
+  const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.status) query.status = params.status
+  if (params?.statuses?.length) query.statuses = params.statuses.join(',')
   if (params?.customerId) query.customerId = params.customerId
-  return request.get<CustomerRequirementRecord[]>('/customer-requirements', {
+  if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
+  if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')
+  if (params?.sizeConfigLabels?.length) query.sizeConfigLabels = params.sizeConfigLabels.join(',')
+  if (params?.acConfigLabels?.length) query.acConfigLabels = params.acConfigLabels.join(',')
+  if (params?.windowConfigLabels?.length) {
+    query.windowConfigLabels = params.windowConfigLabels.join(',')
+  }
+  if (params?.sortBy) query.sortBy = params.sortBy
+  if (params?.sortDir) query.sortDir = params.sortDir
+  if (params?.requirementDateFrom) query.requirementDateFrom = params.requirementDateFrom
+  if (params?.requirementDateTo) query.requirementDateTo = params.requirementDateTo
+  if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
+  if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.page != null) query.page = params.page
+  if (params?.pageSize != null) query.pageSize = params.pageSize
+  return request.get<CustomerRequirementListPage>('/customer-requirements', {
     params: Object.keys(query).length ? query : undefined,
   })
 }

@@ -36,6 +36,7 @@ export interface CustomerRecord {
   /** 列表展示：主要使用者手机 */
   mobilePhone: string
   occupantCount: number
+  requirementCount: number
   createdBy: string
   updatedBy: string
   createdAt: string

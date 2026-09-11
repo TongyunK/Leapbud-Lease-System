@@ -7,27 +7,39 @@ import * as XLSX from 'xlsx'
 import {
   createCustomerRequirementApi,
   deleteCustomerRequirementApi,
+  fetchCustomerRequirement,
   fetchCustomerRequirements,
   importCustomerRequirementsApi,
   updateCustomerRequirementApi,
 } from '@/api/customer-requirements'
-import type { CustomerRequirementImportItem } from '@/api/customer-requirements'
-import { fetchCustomers } from '@/api/customers'
+import type { CustomerRequirementImportItem, CustomerRequirementListQuery } from '@/api/customer-requirements'
+import { fetchCustomer, fetchCustomers } from '@/api/customers'
 import { fetchRoomConfigs } from '@/api/room-configs'
 import { fetchUsers } from '@/api/users'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
 import { CUSTOMER_REQUIREMENT_STATUSES } from '@/types/customer-requirement'
-import type { CustomerRecord } from '@/types/customer'
+import type { CustomerRecord, OccupantRecord } from '@/types/customer'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { UserRecord } from '@/types/user'
+import type { BuildingRecord } from '@/types/building'
+import type { RoomRecord } from '@/types/room'
+import { fetchBuildings } from '@/api/buildings'
 import { useIsMobile } from '@/composables/useMediaQuery'
-import { useClientPagination } from '@/composables/useClientPagination'
+import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
+import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
+import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
+import RelatedCustomerRequirementsDrawer from '@/components/RelatedCustomerRequirementsDrawer.vue'
+import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
+import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
+import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
+import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import { customerRequirementStatusTone } from '@/constants/statusBadges'
@@ -42,7 +54,7 @@ import {
   rowToCustomerRequirementIoPayload,
 } from '@/utils/customerRequirementExport'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
-import { exportFileSuffix, exportScopeFromCommand, resolveExportRows } from '@/utils/exportScope'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -51,10 +63,8 @@ const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
-const loading = ref(false)
 const formVisible = ref(false)
 const editing = ref<CustomerRequirementRecord | null>(null)
-const list = ref<CustomerRequirementRecord[]>([])
 const customers = ref<CustomerRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sizeOptions = ref<RoomConfigOption[]>([])
@@ -62,35 +72,77 @@ const acOptions = ref<RoomConfigOption[]>([])
 const windowOptions = ref<RoomConfigOption[]>([])
 const keyword = ref('')
 
+const drawerVisible = ref(false)
+const current = ref<CustomerRequirementRecord | null>(null)
+const customerDrawerVisible = ref(false)
+const relatedCustomer = ref<CustomerRecord | null>(null)
+const relatedOccupantsListDrawer = ref(false)
+const relatedOccupantDrawer = ref(false)
+const relatedOccupant = ref<OccupantRecord | null>(null)
+const relatedRequirementsListDrawer = ref(false)
+const relatedRequirementDrawer = ref(false)
+const relatedRequirement = ref<CustomerRequirementRecord | null>(null)
+const buildingDrawerVisible = ref(false)
+const relatedBuilding = ref<BuildingRecord | null>(null)
+const relatedRoomsDrawer = ref(false)
+const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
+const relatedRoomDrawer = ref(false)
+const relatedRoom = ref<RoomRecord | null>(null)
+const buildings = ref<BuildingRecord[]>([])
+const customerDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
+const requirementDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
+const occupantDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+
+function userOptionLabel(u: UserRecord) {
+  const name = u.displayName?.trim()
+  return name || u.account
+}
+
+const sortFilter = useTableSortFilter<CustomerRequirementRecord>()
 const {
   filters,
   setFilter,
   setSort,
   setDateRange,
   dateRangeOf,
-  dateRanges,
   sortOrderOf,
   activeConditionCount,
-  clearAll,
-  apply: applySortFilter,
-  uniqueOptions,
-  sortKey,
-  sortOrder,
-} = useTableSortFilter<CustomerRequirementRecord>()
+} = sortFilter
 
-const columnGetters = {
-  requirementCode: (o: CustomerRequirementRecord) => o.requirementCode,
-  customerName: (o: CustomerRequirementRecord) => o.customerName,
-  salesManager: (o: CustomerRequirementRecord) => o.salesManager,
-  requirementDate: (o: CustomerRequirementRecord) => o.requirementDate,
-  status: (o: CustomerRequirementRecord) => o.status,
-  leaseDuration: (o: CustomerRequirementRecord) => o.leaseDuration,
-  budget: (o: CustomerRequirementRecord) => o.budget ?? -1,
-  sizeConfigLabel: (o: CustomerRequirementRecord) => o.sizeConfigLabel,
-  acConfigLabel: (o: CustomerRequirementRecord) => o.acConfigLabel,
-  windowConfigLabel: (o: CustomerRequirementRecord) => o.windowConfigLabel,
-  createdAt: (o: CustomerRequirementRecord) => o.createdAt,
-}
+const {
+  loading,
+  exporting,
+  list,
+  total,
+  page,
+  pageSize,
+  pageSizes,
+  rowIndex,
+  loadList,
+  fetchExportRows,
+  onClearFilters,
+} = useServerPagedList<CustomerRequirementRecord, CustomerRequirementListQuery>({
+  keyword,
+  sortFilter,
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => ({
+    keyword: kw,
+    statuses: f.status?.length ? [...f.status] : undefined,
+    customerNames: f.customerName?.length ? [...f.customerName] : undefined,
+    salesManagers: f.salesManager?.length ? [...f.salesManager] : undefined,
+    sizeConfigLabels: f.sizeConfigLabel?.length ? [...f.sizeConfigLabel] : undefined,
+    acConfigLabels: f.acConfigLabel?.length ? [...f.acConfigLabel] : undefined,
+    windowConfigLabels: f.windowConfigLabel?.length ? [...f.windowConfigLabel] : undefined,
+    sortBy,
+    sortDir,
+    requirementDateFrom: range('requirementDate').from,
+    requirementDateTo: range('requirementDate').to,
+    createdAtFrom: range('createdAt').from,
+    createdAtTo: range('createdAt').to,
+    page: p,
+    pageSize: ps,
+  }),
+  fetchPage: fetchCustomerRequirements,
+})
 
 const statusFilterOptions = computed(() =>
   CUSTOMER_REQUIREMENT_STATUSES.map((s) => ({
@@ -99,45 +151,45 @@ const statusFilterOptions = computed(() =>
   })),
 )
 
-const customerNameFilterOptions = computed(() =>
-  uniqueOptions(list.value, (o) => o.customerName),
-)
-const salesManagerFilterOptions = computed(() =>
-  uniqueOptions(list.value, (o) => o.salesManager),
-)
-const sizeConfigFilterOptions = computed(() =>
-  uniqueOptions(list.value, (o) => o.sizeConfigLabel),
-)
-const acConfigFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.acConfigLabel))
-const windowConfigFilterOptions = computed(() =>
-  uniqueOptions(list.value, (o) => o.windowConfigLabel),
-)
-
-const filtered = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  if (!q) return list.value
-  return list.value.filter((row) =>
-    [
-      row.requirementCode,
-      row.customerName,
-      row.customerCode,
-      row.salesManager,
-      row.content,
-      row.remark,
-      row.leaseDuration,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(q),
-  )
+const customerNameFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const c of customers.value) {
+    const name = c.name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
 
-const sorted = computed(() => applySortFilter(filtered.value, columnGetters))
+const salesManagerFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const u of users.value) {
+    const label = userOptionLabel(u)
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    opts.push({ value: label, label })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
 
-const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
-  useClientPagination(sorted)
-
-watch([filters, dateRanges, sortKey, sortOrder, keyword], () => resetPage(), { deep: true })
+const sizeConfigFilterOptions = computed(() =>
+  sizeOptions.value
+    .map((o) => ({ value: o.label, label: o.label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant')),
+)
+const acConfigFilterOptions = computed(() =>
+  acOptions.value
+    .map((o) => ({ value: o.label, label: o.label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant')),
+)
+const windowConfigFilterOptions = computed(() =>
+  windowOptions.value
+    .map((o) => ({ value: o.label, label: o.label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant')),
+)
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
 
@@ -163,24 +215,16 @@ const form = reactive({
   windowConfigId: '' as string,
 })
 
-async function loadList() {
-  loading.value = true
-  try {
-    const { data } = await fetchCustomerRequirements()
-    list.value = data
-  } finally {
-    loading.value = false
-  }
-}
-
 async function loadOptions() {
-  const [custRes, userRes, confRes] = await Promise.all([
+  const [custRes, userRes, confRes, buildingsRes] = await Promise.all([
     fetchCustomers(),
     fetchUsers(),
     fetchRoomConfigs({ activeOnly: true }),
+    fetchBuildings({ activeOnly: false }),
   ])
-  customers.value = custRes.data
+  customers.value = custRes.data.items
   users.value = userRes.data.filter((u) => u.status === 'active')
+  buildings.value = buildingsRes.data.items
   const configs = confRes.data
   sizeOptions.value = configs.filter((c) => c.type === 'size')
   acOptions.value = configs.filter((c) => c.type === 'ac')
@@ -299,6 +343,84 @@ function userLabel(u: UserRecord) {
   return u.displayName?.trim() || u.account
 }
 
+async function openDetail(row: CustomerRequirementRecord, direction: 'ltr' | 'rtl' = 'rtl') {
+  try {
+    const { data } = await fetchCustomerRequirement(row.id)
+    current.value = data
+    requirementDrawerDirection.value = direction
+    drawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function onRowClick(row: CustomerRequirementRecord, _column: unknown, event: Event) {
+  const el = event.target as HTMLElement | null
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
+  void openDetail(row, 'rtl')
+}
+
+async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
+  if (!customerId) return
+  try {
+    const { data } = await fetchCustomer(customerId)
+    relatedCustomer.value = data
+    customerDrawerDirection.value = direction
+    customerDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function openOccupantsSide(row: CustomerRecord) {
+  if (!row.occupantCount) return
+  relatedCustomer.value = row
+  relatedOccupantsListDrawer.value = true
+}
+
+function openRequirementsSide(row: CustomerRecord) {
+  if (!row.requirementCount) return
+  relatedCustomer.value = row
+  relatedRequirementsListDrawer.value = true
+}
+
+function onOpenOccupantFromCustomer(occupant: OccupantRecord) {
+  relatedOccupant.value = occupant
+  occupantDrawerDirection.value = 'ltr'
+  relatedOccupantDrawer.value = true
+}
+
+function onOpenRequirementFromList(requirement: CustomerRequirementRecord) {
+  relatedRequirement.value = requirement
+  relatedRequirementDrawer.value = true
+}
+
+function openBuildingSide(buildingId?: string | null) {
+  if (!buildingId) return
+  const building = buildings.value.find((b) => b.id === buildingId) || null
+  if (!building) {
+    ElMessage.warning(t('building.notFound'))
+    return
+  }
+  relatedBuilding.value = building
+  buildingDrawerVisible.value = true
+}
+
+function openRoomsSide(row: BuildingRecord) {
+  if (!row.roomIds?.length) return
+  relatedRoomsBuilding.value = row
+  relatedRoomsDrawer.value = true
+}
+
+function onOpenRoomFromList(room: RoomRecord) {
+  relatedRoom.value = room
+  relatedRoomDrawer.value = true
+}
+
+async function openCustomerFromOccupant(customerId: string) {
+  await openCustomerSide(customerId, 'ltr')
+}
+
 const importInputRef = ref<HTMLInputElement | null>(null)
 const {
   state: importState,
@@ -338,23 +460,32 @@ function downloadImportTemplate() {
   ElMessage.success(t('customerRequirement.templateDone'))
 }
 
-function exportRequirementsXlsx(scope: 'page' | 'filtered' | 'all') {
-  const rows = resolveExportRows(scope, {
-    page: paged.value,
-    filtered: sorted.value,
-    all: list.value,
-  })
-  if (!rows.length) {
-    ElMessage.warning(t('customerRequirement.exportEmpty'))
-    return
+async function exportRequirementsXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: CustomerRequirementRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      ElMessage.info(t('customerRequirement.exportLoading'))
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      ElMessage.warning(t('customerRequirement.exportEmpty'))
+      return
+    }
+    const sheetRows = rows.map((r) => customerRequirementToIoRow(r, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Requirements')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `customer-requirements-${exportFileSuffix(scope)}-${day}.xlsx`)
+    ElMessage.success(t('customerRequirement.exportDone', { n: rows.length }))
+  } catch {
+    ElMessage.error(t('customerRequirement.importFailed'))
+  } finally {
+    exporting.value = false
   }
-  const sheetRows = rows.map((r) => customerRequirementToIoRow(r, t))
-  const ws = XLSX.utils.json_to_sheet(sheetRows)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Requirements')
-  const day = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `customer-requirements-${exportFileSuffix(scope)}-${day}.xlsx`)
-  ElMessage.success(t('customerRequirement.exportDone', { n: rows.length }))
 }
 
 async function onImportFile(ev: Event) {
@@ -449,7 +580,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('customerRequirement.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
+        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button
           v-if="isAdmin"
           type="primary"
@@ -465,7 +596,7 @@ async function onImportFile(ev: Event) {
           popper-class="room-io-popper"
           @command="onDataIoCommand"
         >
-          <el-button class="room-io-btn" :aria-label="t('customerRequirement.dataIo')" :loading="importing">
+          <el-button class="room-io-btn" :aria-label="t('customerRequirement.dataIo')" :loading="importing || exporting">
             <el-icon :size="16"><ExportIcon /></el-icon>
           </el-button>
           <template #dropdown>
@@ -507,12 +638,14 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           :key="tableLayoutKey"
-          :data="paged"
+          :data="list"
           height="100%"
           stripe
           border
           empty-text="—"
           style="width: 100%"
+          class="requirement-table--clickable"
+          @row-click="onRowClick"
         >
           <el-table-column
             type="index"
@@ -552,7 +685,17 @@ async function onImportFile(ev: Event) {
                 @update:sort-order="(v) => setSort('customerName', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.customerName || '—' }}</template>
+            <template #default="{ row }">
+              <button
+                v-if="row.customerId"
+                type="button"
+                class="fk-link"
+                @click.stop="openCustomerSide(row.customerId)"
+              >
+                {{ row.customerName || '—' }}
+              </button>
+              <span v-else>{{ row.customerName || '—' }}</span>
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('customerRequirement.fields.salesManager'), { interactive: true, contentMin: 110 })"
@@ -736,11 +879,19 @@ async function onImportFile(ev: Event) {
             label-class-name="col-actions"
           >
             <template #default="{ row }">
-              <div class="action-pills">
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+              <div class="action-pills" @click.stop>
+                <button
+                  type="button"
+                  class="action-pill action-pill--edit"
+                  @click="openEdit(row as CustomerRequirementRecord)"
+                >
                   {{ t('common.edit') }}
                 </button>
-                <button type="button" class="action-pill action-pill--danger" @click="onDelete(row)">
+                <button
+                  type="button"
+                  class="action-pill action-pill--danger"
+                  @click="onDelete(row as CustomerRequirementRecord)"
+                >
                   {{ t('common.delete') }}
                 </button>
               </div>
@@ -757,6 +908,63 @@ async function onImportFile(ev: Event) {
         />
       </div>
     </div>
+
+    <CustomerRequirementDetailDrawer
+      v-model="drawerVisible"
+      :requirement="current"
+      :desktop-direction="requirementDrawerDirection"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+    />
+    <CustomerDetailDrawer
+      v-model="customerDrawerVisible"
+      :customer="relatedCustomer"
+      :desktop-direction="customerDrawerDirection"
+      @open-occupants="openOccupantsSide"
+      @open-requirements="openRequirementsSide"
+      @open-building="openBuildingSide"
+    />
+    <RelatedOccupantsDrawer
+      v-model="relatedOccupantsListDrawer"
+      :customer="relatedCustomer"
+      desktop-direction="ltr"
+      @open-occupant="onOpenOccupantFromCustomer"
+    />
+    <RelatedCustomerRequirementsDrawer
+      v-model="relatedRequirementsListDrawer"
+      :customer="relatedCustomer"
+      desktop-direction="ltr"
+      @open-requirement="onOpenRequirementFromList"
+    />
+    <CustomerRequirementDetailDrawer
+      v-model="relatedRequirementDrawer"
+      :requirement="relatedRequirement"
+      desktop-direction="ltr"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+    />
+    <OccupantDetailDrawer
+      v-model="relatedOccupantDrawer"
+      :occupant="relatedOccupant"
+      :desktop-direction="occupantDrawerDirection"
+      @open-customer="openCustomerFromOccupant"
+    />
+    <BuildingDetailDrawer
+      v-model="buildingDrawerVisible"
+      :building="relatedBuilding"
+      desktop-direction="ltr"
+      @open-rooms="openRoomsSide"
+    />
+    <RelatedRoomsDrawer
+      v-model="relatedRoomsDrawer"
+      :building="relatedRoomsBuilding"
+      desktop-direction="ltr"
+      @open-room="onOpenRoomFromList"
+    />
+    <RoomDetailDrawer
+      v-model="relatedRoomDrawer"
+      :room="relatedRoom"
+      desktop-direction="ltr"
+      @open-building="openBuildingSide"
+    />
 
     <ImportProgressDialog
       v-model="importState.visible"
@@ -915,6 +1123,10 @@ async function onImportFile(ev: Event) {
   width: min(280px, 42vw);
 }
 
+.requirement-table--clickable :deep(.el-table__body tr) {
+  cursor: pointer;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -923,6 +1135,13 @@ async function onImportFile(ev: Event) {
 
 .room-io-file {
   display: none;
+}
+
+.select-option-ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 640px) {

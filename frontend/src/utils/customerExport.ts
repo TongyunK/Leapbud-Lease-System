@@ -61,7 +61,7 @@ const HEADER_ALIASES: Record<CustomerIoFieldKey, string[]> = {
   customerCode: ['客戶編號', '客户编号'],
   name: ['客戶名稱', '客户名称'],
   status: ['狀態', '状态'],
-  accountManager: ['客戶經理', '客户经理'],
+  accountManager: ['客戶經理', '客户经理', '結售經理', '结售经理'],
   companyNameZh: ['公司名稱（中文）', '公司名稱（中）', '公司名称（中文）', '公司名称（中）'],
   companyNameEn: ['公司名稱（英文）', '公司名稱（英）', '公司名称（英文）', '公司名称（英）'],
   businessRegNo: ['商業登記號碼', '商業登記號', '商业登记号码', '商业登记号'],
@@ -182,6 +182,7 @@ export function pickCustomerIoValue(
 }
 
 export type CustomerIoPayload = {
+  /** 可为空；后端自动生成 */
   customerCode: string
   name: string
   status: string
@@ -216,7 +217,7 @@ export function rowToCustomerIoPayload(
 ): CustomerIoPayload | null {
   const customerCode = pickCustomerIoValue(row, 'customerCode', t)
   const name = pickCustomerIoValue(row, 'name', t)
-  if (!customerCode || !name) return null
+  if (!name) return null
   const occupantName = pickCustomerIoValue(row, 'primaryContact', t)
   return {
     customerCode,

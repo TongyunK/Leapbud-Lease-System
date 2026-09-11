@@ -15,6 +15,14 @@ import {
   customerRequirementInclude,
   toCustomerRequirementDto,
 } from './customer-requirement.mapper';
+import { userWhereActorLabels } from '../common/audit';
+import {
+  dateRangeFilter,
+  paginateArgs,
+  parsePage,
+  parsePageSize,
+  parseSortDir,
+} from '../common/pagination';
 
 const ALLOWED_STATUSES = new Set(['跟進中', '已簽約', '已取消']);
 
@@ -54,28 +62,158 @@ function nullId(v: string | null | undefined): string | null {
 export class CustomerRequirementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(params: { keyword?: string; status?: string; customerId?: string }) {
+  async findAll(params: {
+    keyword?: string;
+    status?: string;
+    statuses?: string[];
+    customerId?: string;
+    customerNames?: string[];
+    salesManagers?: string[];
+    sizeConfigLabels?: string[];
+    acConfigLabels?: string[];
+    windowConfigLabels?: string[];
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    requirementDateFrom?: string;
+    requirementDateTo?: string;
+    createdAtFrom?: string;
+    createdAtTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = parsePage(params.page);
+    const pageSize = parsePageSize(params.pageSize);
+    const where = this.buildListWhere(params);
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.customerRequirement.count({ where }),
+      this.prisma.customerRequirement.findMany({
+        where,
+        include: customerRequirementInclude,
+        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        ...paginateArgs(page, pageSize),
+      }),
+    ]);
+
+    return {
+      items: rows.map(toCustomerRequirementDto),
+      total,
+      page,
+      pageSize: pageSize ?? total,
+    };
+  }
+
+  private buildListWhere(params: {
+    keyword?: string;
+    status?: string;
+    statuses?: string[];
+    customerId?: string;
+    customerNames?: string[];
+    salesManagers?: string[];
+    sizeConfigLabels?: string[];
+    acConfigLabels?: string[];
+    windowConfigLabels?: string[];
+    requirementDateFrom?: string;
+    requirementDateTo?: string;
+    createdAtFrom?: string;
+    createdAtTo?: string;
+  }): Prisma.CustomerRequirementWhereInput {
     const where: Prisma.CustomerRequirementWhereInput = {};
-    if (params.status) where.status = params.status;
+    const and: Prisma.CustomerRequirementWhereInput[] = [];
+
     if (params.customerId) where.customerId = params.customerId;
-    const keyword = s(params.keyword);
-    if (keyword) {
-      where.OR = [
-        { requirementCode: { contains: keyword, mode: 'insensitive' } },
-        { content: { contains: keyword, mode: 'insensitive' } },
-        { remark: { contains: keyword, mode: 'insensitive' } },
-        { leaseDuration: { contains: keyword, mode: 'insensitive' } },
-        { customer: { name: { contains: keyword, mode: 'insensitive' } } },
-        { customer: { customerCode: { contains: keyword, mode: 'insensitive' } } },
-      ];
+
+    const statuses = [
+      ...new Set(
+        [...(params.statuses || []), params.status?.trim() || '']
+          .map((v) => s(v))
+          .filter(Boolean),
+      ),
+    ];
+    if (statuses.length === 1) where.status = statuses[0];
+    else if (statuses.length > 1) where.status = { in: statuses };
+
+    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
+    if (customerNames.length) {
+      and.push({ customer: { name: { in: customerNames } } });
     }
 
-    const rows = await this.prisma.customerRequirement.findMany({
-      where,
-      include: customerRequirementInclude,
-      orderBy: [{ requirementDate: 'desc' }, { createdAt: 'desc' }],
-    });
-    return rows.map(toCustomerRequirementDto);
+    const salesManagers = (params.salesManagers || []).map((v) => s(v)).filter(Boolean);
+    if (salesManagers.length) {
+      and.push({ salesManagerUser: userWhereActorLabels(salesManagers) });
+    }
+
+    const sizeLabels = (params.sizeConfigLabels || []).map((v) => s(v)).filter(Boolean);
+    if (sizeLabels.length) and.push({ sizeConfig: { label: { in: sizeLabels } } });
+
+    const acLabels = (params.acConfigLabels || []).map((v) => s(v)).filter(Boolean);
+    if (acLabels.length) and.push({ acConfig: { label: { in: acLabels } } });
+
+    const windowLabels = (params.windowConfigLabels || []).map((v) => s(v)).filter(Boolean);
+    if (windowLabels.length) and.push({ windowConfig: { label: { in: windowLabels } } });
+
+    const keyword = s(params.keyword);
+    if (keyword) {
+      and.push({
+        OR: [
+          { requirementCode: { contains: keyword, mode: 'insensitive' } },
+          { content: { contains: keyword, mode: 'insensitive' } },
+          { remark: { contains: keyword, mode: 'insensitive' } },
+          { leaseDuration: { contains: keyword, mode: 'insensitive' } },
+          { customer: { name: { contains: keyword, mode: 'insensitive' } } },
+          { customer: { customerCode: { contains: keyword, mode: 'insensitive' } } },
+          { salesManagerUser: { account: { contains: keyword, mode: 'insensitive' } } },
+          { salesManagerUser: { displayName: { contains: keyword, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    const requirementDate = dateRangeFilter(
+      params.requirementDateFrom,
+      params.requirementDateTo,
+    );
+    if (requirementDate) where.requirementDate = requirementDate;
+
+    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+    if (createdAt) where.createdAt = createdAt;
+
+    if (and.length) where.AND = and;
+    return where;
+  }
+
+  private buildListOrderBy(
+    sortBy?: string,
+    sortDir?: 'asc' | 'desc',
+  ): Prisma.CustomerRequirementOrderByWithRelationInput[] {
+    const dir = parseSortDir(sortDir) ?? 'asc';
+    const key = s(sortBy);
+    if (key === 'requirementCode') return [{ requirementCode: dir }];
+    if (key === 'customerName') {
+      return [{ customer: { name: dir } }, { requirementDate: 'desc' }];
+    }
+    if (key === 'salesManager') {
+      return [
+        { salesManagerUser: { displayName: dir } },
+        { salesManagerUser: { account: dir } },
+        { requirementDate: 'desc' },
+      ];
+    }
+    if (key === 'requirementDate') return [{ requirementDate: dir }];
+    if (key === 'status') return [{ status: dir }, { requirementDate: 'desc' }];
+    if (key === 'leaseDuration') return [{ leaseDuration: dir }];
+    if (key === 'budget') return [{ budget: dir }];
+    if (key === 'sizeConfigLabel') {
+      return [{ sizeConfig: { label: dir } }, { requirementDate: 'desc' }];
+    }
+    if (key === 'acConfigLabel') {
+      return [{ acConfig: { label: dir } }, { requirementDate: 'desc' }];
+    }
+    if (key === 'windowConfigLabel') {
+      return [{ windowConfig: { label: dir } }, { requirementDate: 'desc' }];
+    }
+    if (key === 'createdAt') return [{ createdAt: dir }];
+    if (key === 'updatedAt') return [{ updatedAt: dir }];
+    return [{ requirementDate: 'desc' }, { createdAt: 'desc' }];
   }
 
   async findOne(id: string) {
@@ -346,13 +484,18 @@ export class CustomerRequirementsService {
     const customerByCode = new Map(
       customers.map((c) => [c.customerCode.toLowerCase(), c.id] as const),
     );
-    const customerByName = new Map<string, string>();
+    /** 名称 / 公司中英名不唯一时记为 null，导入时 unlinked */
+    const customerByName = new Map<string, string | null>();
     for (const c of customers) {
       const keys = [c.name, c.companyNameZh, c.companyNameEn]
         .map((x) => x.trim().toLowerCase())
         .filter(Boolean);
       for (const k of keys) {
-        if (!customerByName.has(k)) customerByName.set(k, c.id);
+        if (customerByName.has(k)) {
+          customerByName.set(k, null);
+        } else {
+          customerByName.set(k, c.id);
+        }
       }
     }
     const userByLabel = new Map<string, string>();
@@ -379,9 +522,17 @@ export class CustomerRequirementsService {
         skipped += 1;
         continue;
       }
-      const customerId =
+      let customerId =
         (customerCode ? customerByCode.get(customerCode.toLowerCase()) : undefined) ||
-        (customerName ? customerByName.get(customerName.toLowerCase()) : undefined);
+        undefined;
+      if (!customerId && customerName) {
+        const byName = customerByName.get(customerName.toLowerCase());
+        if (byName === null) {
+          unlinked += 1;
+          continue;
+        }
+        customerId = byName || undefined;
+      }
       if (!customerId) {
         unlinked += 1;
         continue;
