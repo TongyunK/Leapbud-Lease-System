@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -12,6 +13,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger
 import { UserRole } from '@prisma/client';
 import { RoomsService } from './rooms.service';
 import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
+import { BatchDeleteDto } from '../common/batch-delete';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -96,6 +98,15 @@ export class RoomsController {
     return this.roomsService.importBatch(dto, actorUserId(user));
   }
 
+  @Post('batch-delete')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete rooms by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.roomsService.removeMany(dto.ids);
+  }
+
   @Post()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -114,5 +125,13 @@ export class RoomsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.roomsService.update(id, dto, actorUserId(user));
+  }
+
+  @Delete(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin)
+  remove(@Param('id') id: string) {
+    return this.roomsService.remove(id);
   }
 }

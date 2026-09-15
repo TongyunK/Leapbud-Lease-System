@@ -19,6 +19,7 @@ import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { parseSortDir, splitCsv } from '../common/pagination';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('customers')
 @Controller('customers')
@@ -79,6 +80,13 @@ export class CustomersController {
   @ApiOkResponse({ description: 'Batch import customers (upsert by customerCode)' })
   importBatch(@Body() dto: ImportCustomersDto, @CurrentUser() user?: JwtPayload) {
     return this.customersService.importBatch(dto, actorUserId(user));
+  }
+
+  @Post('batch-delete')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete customers by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.customersService.removeMany(dto.ids);
   }
 
   @Post()

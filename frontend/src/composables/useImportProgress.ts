@@ -2,6 +2,14 @@ import { computed, reactive } from 'vue'
 
 export type ImportStatKey = 'created' | 'updated' | 'skipped' | 'failed' | 'unlinked'
 
+export type ImportIssueStatus = 'skipped' | 'unlinked' | 'failed'
+
+export type ImportIssue = {
+  status: ImportIssueStatus
+  reason: string
+  keys?: Record<string, string>
+}
+
 export type ImportStats = Partial<Record<ImportStatKey, number>>
 
 export type ImportPhase = 'idle' | 'progress' | 'result'
@@ -28,6 +36,7 @@ export function useImportProgress() {
     resultTone: 'success' as ImportResultTone,
     resultMessage: '',
     resultStatKeys: ['created', 'updated', 'skipped', 'failed'] as ImportStatKey[],
+    issues: [] as ImportIssue[],
   })
 
   const percentage = computed(() => {
@@ -36,6 +45,7 @@ export function useImportProgress() {
   })
 
   const importing = computed(() => state.phase === 'progress')
+  const hasIssues = computed(() => state.issues.length > 0)
 
   function resetStats(next?: ImportStats) {
     Object.assign(state.stats, EMPTY_STATS, next || {})
@@ -51,6 +61,7 @@ export function useImportProgress() {
     state.current = 0
     state.statusKey = 'preparing'
     resetStats()
+    state.issues = []
     state.resultMessage = ''
     state.resultTone = 'success'
     if (opts.statKeys?.length) state.resultStatKeys = [...opts.statKeys]
@@ -73,6 +84,11 @@ export function useImportProgress() {
 
   function bump(key: ImportStatKey, by = 1) {
     state.stats[key] = (state.stats[key] || 0) + by
+  }
+
+  function appendIssues(list?: ImportIssue[] | null) {
+    if (!list?.length) return
+    state.issues.push(...list)
   }
 
   function finish(opts?: {
@@ -107,11 +123,13 @@ export function useImportProgress() {
     state,
     percentage,
     importing,
+    hasIssues,
     begin,
     setTotal,
     setPreparing,
     setProcessing,
     bump,
+    appendIssues,
     finish,
     fail,
     close,

@@ -16,6 +16,8 @@ import {
   type PaginatedResult,
 } from '../common/pagination';
 import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -331,6 +333,7 @@ export class RoomsService {
     let skipped = 0;
     let unlinked = 0;
     let failed = 0;
+    const issues: ImportIssue[] = [];
 
     const codes = [...new Set(items.map((it) => s(it.roomCode)).filter(Boolean))];
     const existingRows = codes.length
@@ -367,19 +370,37 @@ export class RoomsService {
     for (const item of items) {
       const roomCode = s(item.roomCode);
       const name = s(item.name) || roomCode;
+      const buildingId = s(item.buildingId);
+      const buildingName = s(item.buildingName);
+      const keys = {
+        房間編號: roomCode,
+        房間名稱: name,
+        大廈名稱: buildingName,
+        大廈ID: buildingId,
+      };
+
       if (!roomCode) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少房間編號', keys);
         continue;
       }
 
-      const buildingId = s(item.buildingId);
-      const buildingName = s(item.buildingName);
       const building =
         (buildingId ? byBuildingId.get(buildingId) : undefined) ||
         (buildingName ? byBuildingName.get(buildingName.toLowerCase()) : undefined);
 
       if (!building) {
         unlinked += 1;
+        pushImportIssue(
+          issues,
+          'unlinked',
+          buildingId
+            ? `大廈 ID「${buildingId}」未找到`
+            : buildingName
+              ? `大廈「${buildingName}」未找到`
+              : '缺少大廈名稱或 ID，無法關聯',
+          keys,
+        );
         continue;
       }
 
@@ -400,11 +421,36 @@ export class RoomsService {
           byCode.set(roomCode, { id: row.id, roomCode });
           created += 1;
         }
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立或更新房間失敗';
+        pushImportIssue(issues, 'failed', msg, keys);
       }
     }
 
-    return { created, updated, skipped, unlinked, failed };
+    return { created, updated, skipped, unlinked, failed, issues };
+  }
+
+  async remove(id: string) {
+    const existing = await this.prisma.room.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { contracts: true, leaseTerminations: true },
+        },
+      },
+    });
+    if (!existing) throw new NotFoundException(`Room ${id} not found`);
+    if (existing._count.contracts > 0 || existing._count.leaseTerminations > 0) {
+      throw new ConflictException(
+        `Room「${existing.roomCode}」仍有關聯合約或退租記錄，無法刪除`,
+      );
+    }
+    await this.prisma.room.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 }

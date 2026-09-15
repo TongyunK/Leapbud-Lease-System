@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AcIcon: typeof import('./components/icons/AcIcon.vue')['default']
     AuditDetailSection: typeof import('./components/AuditDetailSection.vue')['default']
+    BatchProgressDialog: typeof import('./components/BatchProgressDialog.vue')['default']
     BuildingDetailDrawer: typeof import('./components/BuildingDetailDrawer.vue')['default']
     ClearTableFiltersButton: typeof import('./components/ClearTableFiltersButton.vue')['default']
     ContractDetailDrawer: typeof import('./components/ContractDetailDrawer.vue')['default']

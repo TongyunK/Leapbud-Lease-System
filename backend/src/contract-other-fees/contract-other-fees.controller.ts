@@ -22,6 +22,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('contract-other-fees')
 @Controller('contract-other-fees')
@@ -71,6 +72,13 @@ export class ContractOtherFeesController {
   @ApiOkResponse({ description: 'Batch import contract other fees / deposit deductions' })
   importBatch(@Body() dto: ImportContractOtherFeesDto, @CurrentUser() user?: JwtPayload) {
     return this.contractOtherFeesService.importBatch(dto, actorUserId(user));
+  }
+
+  @Post('batch-delete')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete contract other fees by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.contractOtherFeesService.removeMany(dto.ids);
   }
 
   @Get(':id')

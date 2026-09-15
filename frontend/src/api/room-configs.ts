@@ -40,6 +40,13 @@ export function deleteRoomConfigApi(id: string) {
   return request.delete<{ success: boolean }>(`/room-configs/${id}`)
 }
 
+export function batchDeleteRoomConfigsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/room-configs/batch-delete',
+    { ids },
+  )
+}
+
 /** 按呎数匹配尺寸区间（含下界、不含上界；无上界则 ≥min；无下界则 <max） */
 export function matchSizeOption(
   options: RoomConfigOption[],

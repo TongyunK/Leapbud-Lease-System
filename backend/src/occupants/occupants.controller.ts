@@ -23,6 +23,7 @@ import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { parseSortDir, splitCsv } from '../common/pagination';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('occupants')
 @Controller('occupants')
@@ -88,6 +89,13 @@ export class OccupantsController {
   @ApiOkResponse({ description: 'Batch import occupants (skip duplicates)' })
   importBatch(@Body() dto: ImportOccupantsDto, @CurrentUser() user?: JwtPayload) {
     return this.occupantsService.importBatch(dto, actorUserId(user));
+  }
+
+  @Post('batch-delete')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete occupants by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.occupantsService.removeMany(dto.ids);
   }
 
   @Post()

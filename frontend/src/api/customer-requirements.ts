@@ -85,12 +85,24 @@ export function deleteCustomerRequirementApi(id: string) {
   return request.delete<{ success: boolean }>(`/customer-requirements/${id}`)
 }
 
+export function batchDeleteCustomerRequirementsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/customer-requirements/batch-delete',
+    { ids },
+  )
+}
+
 export type ImportBatchResult = {
   created: number
   updated: number
   skipped: number
   failed: number
   unlinked?: number
+  issues?: Array<{
+    status: 'skipped' | 'unlinked' | 'failed'
+    reason: string
+    keys?: Record<string, string>
+  }>
 }
 
 export type CustomerRequirementImportItem = {

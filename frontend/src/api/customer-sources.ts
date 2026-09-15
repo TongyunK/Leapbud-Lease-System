@@ -29,3 +29,10 @@ export function updateCustomerSourceApi(
 export function deleteCustomerSourceApi(id: string) {
   return request.delete<{ success: boolean }>(`/customer-sources/${id}`)
 }
+
+export function batchDeleteCustomerSourcesApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/customer-sources/batch-delete',
+    { ids },
+  )
+}

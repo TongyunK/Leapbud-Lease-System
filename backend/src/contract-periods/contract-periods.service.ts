@@ -19,6 +19,8 @@ import {
   contractByRoomSelect,
   pickContractFromRoomCandidates,
 } from '../common/resolve-contract-by-room';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -270,12 +272,17 @@ export class ContractPeriodsService {
     return { success: true };
   }
 
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
   async importBatch(dto: ImportContractPeriodsDto) {
     const items = dto.items || [];
     let created = 0;
     let skipped = 0;
     let failed = 0;
     let unlinked = 0;
+    const issues: ImportIssue[] = [];
 
     const codes = [
       ...new Set(items.map((it) => s(it.contractCode) || '').filter(Boolean)),
@@ -360,9 +367,15 @@ export class ContractPeriodsService {
       const contractId = s(item.contractId);
       const roomCode = s(item.roomCode);
       const customerName = s(item.customerName);
+      const keys = {
+        合約編號: contractCode,
+        房間編號: roomCode,
+        客戶名稱: customerName,
+      };
 
       if (!contractCode && !contractId && !roomCode) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少合約編號、合約 ID 或房間編號', keys);
         continue;
       }
 
@@ -376,6 +389,7 @@ export class ContractPeriodsService {
         const room = roomByCode.get(roomCode.toLowerCase());
         if (!room) {
           unlinked += 1;
+          pushImportIssue(issues, 'unlinked', `房間「${roomCode}」未找到`, keys);
           continue;
         }
         const picked = pickContractFromRoomCandidates(
@@ -384,6 +398,14 @@ export class ContractPeriodsService {
         );
         if (!picked) {
           unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            customerName
+              ? `房間「${roomCode}」下無法唯一匹配客戶「${customerName}」的合約`
+              : `房間「${roomCode}」下無有效合約或合約不唯一`,
+            keys,
+          );
           continue;
         }
         contract = { id: picked.id, contractCode: picked.contractCode };
@@ -391,20 +413,44 @@ export class ContractPeriodsService {
 
       if (!contract) {
         unlinked += 1;
+        pushImportIssue(
+          issues,
+          'unlinked',
+          contractCode
+            ? `合約編號「${contractCode}」未找到`
+            : contractId
+              ? `合約 ID「${contractId}」未找到`
+              : '無法解析關聯合約',
+          keys,
+        );
         continue;
       }
 
       let fields;
       try {
         fields = await this.normalizeFields(item, labelSet, true);
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '期間字段驗證失敗';
+        pushImportIssue(issues, 'failed', msg, { ...keys, 合約編號: contract.contractCode });
         continue;
       }
 
       const dupKey = `${contract.contractCode.toLowerCase()}|${fields.dateType}|${dateOnlyStr(fields.startDate)}|${dateOnlyStr(fields.endDate)}`;
       if (seen.has(dupKey)) {
         skipped += 1;
+        pushImportIssue(
+          issues,
+          'skipped',
+          `合約「${contract.contractCode}」已存在相同期間記錄`,
+          {
+            ...keys,
+            合約編號: contract.contractCode,
+            日期類型: fields.dateType,
+            開始日期: dateOnlyStr(fields.startDate),
+            結束日期: dateOnlyStr(fields.endDate),
+          },
+        );
         continue;
       }
 
@@ -431,8 +477,10 @@ export class ContractPeriodsService {
         seen.add(dupKey);
         touched.add(contract.id);
         created += 1;
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立合約期間失敗';
+        pushImportIssue(issues, 'failed', msg, { ...keys, 合約編號: contract.contractCode });
       }
     }
 
@@ -440,7 +488,7 @@ export class ContractPeriodsService {
       await this.resyncContractDates(this.prisma, cid);
     }
 
-    return { created, skipped, failed, unlinked };
+    return { created, skipped, failed, unlinked, issues };
   }
 
   private async resolveContract(contractId?: string | null, contractCode?: string | null) {

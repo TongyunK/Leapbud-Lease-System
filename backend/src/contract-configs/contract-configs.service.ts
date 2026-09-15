@@ -13,6 +13,7 @@ import {
   isContractConfigType,
   toContractConfigDto,
 } from './contract-config.mapper';
+import { runBatchRemove } from '../common/batch-delete';
 
 const PROTECTED_KEY_CODES = new Set<string>([
   KEY_DEPOSIT_CODES.door,
@@ -134,6 +135,10 @@ export class ContractConfigsService {
     }
     await this.prisma.contractConfigOption.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 
   /** 数量 × 配置单价 → 按金金额 */

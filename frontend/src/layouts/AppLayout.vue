@@ -27,10 +27,7 @@ const userStore = useUserStore()
 const navStore = useNavStore()
 const isMobile = useIsMobile()
 const isCompact = useIsCompact()
-const { shortcuts: rawShortcuts, removeShortcut } = useFrequentRoutes()
-const shortcuts = computed(() =>
-  rawShortcuts.value.filter((name) => !navStore.loaded || navStore.hasRoute(name)),
-)
+const { shortcuts, removeShortcut } = useFrequentRoutes()
 
 const collapsed = ref(false)
 const mobileOpen = ref(false)
@@ -146,20 +143,9 @@ function toggleNav() {
 }
 
 function shortcutLabel(name: FrequentRouteName) {
-  const map: Record<string, string> = {
-    buildings: 'menu.buildings',
-    rooms: 'menu.rooms',
-    customers: 'menu.customers',
-    occupants: 'menu.occupants',
-    users: 'menu.users',
-    roles: 'menu.roles',
-    menus: 'menu.menus',
-    roomConfigs: 'menu.roomConfigs',
-    roomTypes: 'menu.roomTypes',
-    customerSources: 'menu.customerSources',
-  }
-  const i18nKey = map[name]
-  if (i18nKey && te(i18nKey)) return t(i18nKey)
+  const matched = router.getRoutes().find((r) => r.name === name)
+  const titleKey = matched?.meta?.titleKey
+  if (typeof titleKey === 'string' && te(titleKey)) return t(titleKey)
   return name
 }
 

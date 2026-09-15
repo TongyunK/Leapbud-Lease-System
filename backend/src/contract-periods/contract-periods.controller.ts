@@ -20,6 +20,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('contract-periods')
 @Controller('contract-periods')
@@ -92,6 +93,13 @@ export class ContractPeriodsController {
   @ApiOkResponse({ description: 'Batch import contract periods' })
   importBatch(@Body() dto: ImportContractPeriodsDto) {
     return this.contractPeriodsService.importBatch(dto);
+  }
+
+  @Post('batch-delete')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete contract periods by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.contractPeriodsService.removeMany(dto.ids);
   }
 
   @Get(':id')

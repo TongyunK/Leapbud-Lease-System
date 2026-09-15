@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createRoleApi,
   deleteRoleApi,
+  batchDeleteRolesApi,
   fetchRoles,
   updateRoleApi,
 } from '@/api/roles'
@@ -17,12 +18,15 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
-const { colW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const roleActionWidth = computed(() => {
   void locale.value
   return measureActionColWidth([t('common.edit'), t('common.delete')])
@@ -74,6 +78,65 @@ const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(sorted)
 
 watch([filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
+
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<RoleRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([filters, dateRanges, sortKey, sortOrder], () => {
+  clearSelection()
+}, { deep: true })
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    await selectRows(sorted.value)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteRolesApi(chunk), setBatchProgress)
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '520px'))
 
@@ -194,7 +257,26 @@ async function toggleActive(row: RoleRecord) {
 
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
-        <el-table :key="tableLayoutKey" :data="paged" height="100%" stripe border empty-text="—" style="width: 100%">
+        <el-table
+          ref="tableRef"
+          :key="tableLayoutKey"
+          :data="paged"
+          row-key="id"
+          height="100%"
+          stripe
+          border
+          empty-text="—"
+          style="width: 100%"
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -205,7 +287,9 @@ async function toggleActive(row: RoleRecord) {
             header-align="center"
           />
           <el-table-column
-            :min-width="colW(t('role.fields.code'), { interactive: true, contentMin: 120 })"
+            :min-width="codeColW(t('role.fields.code'), { interactive: true, samples: paged.map((r) => r.code) })"
+            class-name="col-code"
+            label-class-name="col-code"
           >
             <template #header>
               <TableColumnHeader
@@ -334,7 +418,23 @@ async function toggleActive(row: RoleRecord) {
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="pageSizes"
-        />
+          :selected-count="selectedCount"
+          enable-select-all
+          :select-all-loading="selectAllLoading"
+          @select-all="onSelectAll"
+          @clear-selection="clearSelection"
+        >
+          <template #batch>
+            <button
+              type="button"
+              class="lb-pager__batch-btn"
+              :disabled="batchDeleting || selectAllLoading"
+              @click="onBatchDelete"
+            >
+              {{ t('common.batchDelete') }}
+            </button>
+          </template>
+        </TablePagination>
       </div>
     </div>
 
@@ -374,5 +474,17 @@ async function toggleActive(row: RoleRecord) {
         </el-button>
       </template>
     </el-dialog>
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
+    />
   </div>
 </template>

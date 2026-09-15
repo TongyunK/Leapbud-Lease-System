@@ -9,6 +9,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -28,6 +29,12 @@ export class UsersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
+  }
+
+  @Post('batch-delete')
+  @ApiOkResponse({ description: 'Batch delete users by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.usersService.removeMany(dto.ids);
   }
 
   @Post()

@@ -18,6 +18,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('customer-sources')
 @Controller('customer-sources')
@@ -35,6 +36,15 @@ export class CustomerSourcesController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.customerSourcesService.findOne(id);
+  }
+
+  @Post('batch-delete')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete customer sources by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.customerSourcesService.removeMany(dto.ids);
   }
 
   @Post()

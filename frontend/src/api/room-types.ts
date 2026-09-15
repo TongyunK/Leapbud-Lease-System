@@ -33,3 +33,10 @@ export function updateRoomTypeApi(
 export function deleteRoomTypeApi(id: string) {
   return request.delete<{ success: boolean }>(`/room-types/${id}`)
 }
+
+export function batchDeleteRoomTypesApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/room-types/batch-delete',
+    { ids },
+  )
+}

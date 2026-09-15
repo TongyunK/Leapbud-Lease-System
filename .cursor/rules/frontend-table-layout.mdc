@@ -12,47 +12,51 @@ alwaysApply: true
 ```ts
 import { useTableColWidth } from '@/composables/useTableColWidth'
 
-const { colW, textColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
+  useTableColWidth()
 ```
 
 ```vue
 <el-table :key="tableLayoutKey" ...>
-  <!-- 带 TableColumnHeader（排序/筛选/日期） -->
-  <el-table-column
-    :min-width="colW(t('xxx.fields.code'), { interactive: true, contentMin: 120 })"
-  />
+ <!-- 业务编号列：按当前列表 samples 测宽，完整显示不省略、不统一写死 -->
+ <el-table-column
+ :min-width="codeColW(t('xxx.fields.contractCode'), { interactive: true, samples: list.map((r) => r.contractCode) })"
+ class-name="col-code"
+ label-class-name="col-code"
+ />
 
-  <!-- 较长文本：名称 / 长文 / 地址，用统一 contentMin（见 tableLayout 常量） -->
-  <el-table-column
-    :min-width="textColW(t('xxx.fields.name'), { interactive: true, kind: 'name' })"
-  />
-  <el-table-column
-    :min-width="textColW(t('xxx.fields.content'), { kind: 'long' })"
-  />
-  <el-table-column
-    :min-width="textColW(t('xxx.fields.address'), { kind: 'address' })"
-  />
+ <!-- 较长文本：名称 / 长文 / 地址，用统一 contentMin（见 tableLayout 常量） -->
+ <el-table-column
+ :min-width="textColW(t('xxx.fields.name'), { interactive: true, kind: 'name' })"
+ />
+ <el-table-column
+ :min-width="textColW(t('xxx.fields.content'), { kind: 'long' })"
+ />
+ <el-table-column
+ :min-width="textColW(t('xxx.fields.address'), { kind: 'address' })"
+ />
 
-  <!-- StatusBadge 状态列：按全部状态文案测宽，保证 Following up 等英文完整显示 -->
-  <el-table-column
-    :min-width="statusColW(t('xxx.fields.status'), statusFilterOptions.map((o) => o.label))"
-  />
+ <!-- StatusBadge 状态列：按全部状态文案测宽，保证 Following up 等英文完整显示 -->
+ <el-table-column
+ :min-width="statusColW(t('xxx.fields.status'), statusFilterOptions.map((o) => o.label))"
+ />
 
-  <!-- 创建人 / 更新人：完整显示账号 -->
-  <el-table-column :label="t('common.createdBy')" :min-width="auditUserColWidth" />
+ <!-- 创建人 / 更新人：完整显示账号 -->
+ <el-table-column :label="t('common.createdBy')" :min-width="auditUserColWidth" />
 
-  <!-- 时间戳列 -->
-  <el-table-column
-    :width="datetimeColWidth"
-    class-name="col-datetime"
-    label-class-name="col-datetime"
-  />
+ <!-- 时间戳列 -->
+ <el-table-column
+ :width="datetimeColWidth"
+ class-name="col-datetime"
+ label-class-name="col-datetime"
+ />
 </el-table>
 ```
 
 ## 约定
 
 - `colW(label, { interactive, contentMin })`：`label` 传**当前语言已翻译**文案；有表头控件时 `interactive: true`；`contentMin` 为内容区下限。
+- **业务编号列**必须用 `codeColW(label, { interactive, samples })`，`samples` 传当前页/列表编号；并加 `class-name="col-code"` / `label-class-name="col-code"`。禁止统一写死偏大 `contentMin`，也禁止 `show-overflow-tooltip`。
 - **较长文本列**用 `textColW(label, { kind })`：`name`（约 200）/ `long`（约 240）/ `address`（约 280），勿再手写偏窄的 `contentMin`。
 - **StatusBadge 状态列**必须用 `statusColW(表头, 全部状态文案)`，勿只写死 `contentMin`；无交互表头时传 `{ interactive: false }`。
 - 创建人 / 更新人列统一 `auditUserColWidth`。
@@ -64,4 +68,7 @@ const { colW, textColW, statusColW, datetimeColWidth, auditUserColWidth, tableLa
 ```vue
 <!-- ❌ 状态列只按中文宽度，英文徽章会被截成 Following u -->
 <el-table-column :min-width="colW(t('xxx.fields.status'), { interactive: true, contentMin: 100 })" />
+
+<!-- ❌ 编号列写死统一下限，短编号（如 CM600157）会过宽 -->
+<el-table-column :min-width="colW(t('customer.fields.customerCode'), { interactive: true, contentMin: 176 })" />
 ```

@@ -83,6 +83,13 @@ export function deleteContractPeriodApi(id: string) {
   return request.delete<{ success: boolean }>(`/contract-periods/${id}`)
 }
 
+export function batchDeleteContractPeriodsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/contract-periods/batch-delete',
+    { ids },
+  )
+}
+
 export function importContractPeriodsApi(items: ContractPeriodWritePayload[]) {
   return request.post<ImportBatchResult>('/contract-periods/import', { items })
 }

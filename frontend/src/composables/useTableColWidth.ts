@@ -48,6 +48,13 @@ function resolveHeaderFont(): string {
   return `700 ${size} ${resolveFontFamily()}`
 }
 
+/** 表体编号/链接字重（.fk-link 为 600），字号用 --lb-table-body */
+function resolveCodeBodyFont(): string {
+  const size =
+    getComputedStyle(document.documentElement).getPropertyValue('--lb-table-body').trim() || '0.86rem'
+  return `600 ${size} ${resolveFontFamily()}`
+}
+
 function resolveBadgeFont(): string {
   // 与 .lb-status 一致
   return `650 0.78rem ${resolveFontFamily()}`
@@ -128,6 +135,37 @@ export function useTableColWidth() {
   }
 
   /**
+   * 业务编号列：按传入 samples（当前页/列表编号）中最长者测宽，完整显示且不统一写死。
+   * 用表体字号 + 600 字重测（与 .fk-link / 单元格一致），避免按表头偏小字号估窄导致省略。
+   * 无 samples 时仅按表头（+交互槽）测宽。
+   */
+  function codeColW(
+    label: string,
+    opts: {
+      interactive?: boolean
+      samples?: Array<string | null | undefined>
+    } = {},
+  ): number {
+    void locale.value
+    const samples = (opts.samples ?? [])
+      .map((s) => String(s ?? '').trim())
+      .filter(Boolean)
+    const contentMin = samples.length
+      ? Math.max(
+          ...samples.map((s) =>
+            Math.ceil(
+              estimateTextWidth(s, resolveCodeBodyFont()) + HEADER_CELL_PAD + WIDTH_SLACK,
+            ),
+          ),
+        )
+      : 0
+    return measureTableColWidth(label, {
+      interactive: opts.interactive,
+      contentMin,
+    })
+  }
+
+  /**
    * 状态徽章列：表头 + 全部状态文案取最大，保证中/英完整显示（如 Following up）。
    * @param headerLabel 表头文案（已翻译）
    * @param statusLabels 当前语言下全部状态文案
@@ -168,5 +206,5 @@ export function useTableColWidth() {
   /** 挂到 el-table :key，切换语言时强制重算列布局 */
   const tableLayoutKey = computed(() => locale.value)
 
-  return { colW, textColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey }
+  return { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey }
 }

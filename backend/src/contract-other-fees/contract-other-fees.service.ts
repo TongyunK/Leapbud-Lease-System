@@ -22,6 +22,8 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
   contractByRoomSelect,
   pickContractFromRoomCandidates,
@@ -202,6 +204,7 @@ export class ContractOtherFeesService {
     let skipped = 0;
     let failed = 0;
     let unlinked = 0;
+    const issues: ImportIssue[] = [];
     const actorId = actor || null;
 
     const contractCodes = [
@@ -306,9 +309,23 @@ export class ContractOtherFeesService {
       const customerName = s(item.customerName);
       const termId = s(item.terminationId);
       const termCode = s(item.terminationCode);
+      const description = s(item.description);
+      const keys = {
+        合約編號: contractCode,
+        房間編號: roomCode,
+        客戶名稱: customerName,
+        退租編號: termCode,
+        費用描述: description,
+      };
 
       if (!contractCode && !contractIdHint && !roomCode && !termCode && !termId) {
         skipped += 1;
+        pushImportIssue(
+          issues,
+          'skipped',
+          '缺少合約編號、房間編號或退租編號等定位字段',
+          keys,
+        );
         continue;
       }
 
@@ -340,6 +357,14 @@ export class ContractOtherFeesService {
           : terminationByCode.get(termCode.toLowerCase()) || null;
         if (!termination?.contract) {
           unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            termCode
+              ? `退租編號「${termCode}」未找到`
+              : `退租 ID「${termId}」未找到`,
+            keys,
+          );
           continue;
         }
         contract = termination.contract;
@@ -349,6 +374,7 @@ export class ContractOtherFeesService {
         const room = roomByCode.get(roomCode.toLowerCase());
         if (!room) {
           unlinked += 1;
+          pushImportIssue(issues, 'unlinked', `房間「${roomCode}」未找到`, keys);
           continue;
         }
         const picked = pickContractFromRoomCandidates(
@@ -357,6 +383,14 @@ export class ContractOtherFeesService {
         );
         if (!picked) {
           unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            customerName
+              ? `房間「${roomCode}」下無法唯一匹配客戶「${customerName}」的合約`
+              : `房間「${roomCode}」下無有效合約或合約不唯一`,
+            keys,
+          );
           continue;
         }
         contract = { id: picked.id, contractCode: picked.contractCode };
@@ -364,6 +398,16 @@ export class ContractOtherFeesService {
 
       if (!contract) {
         unlinked += 1;
+        pushImportIssue(
+          issues,
+          'unlinked',
+          contractCode
+            ? `合約編號「${contractCode}」未找到`
+            : contractIdHint
+              ? `合約 ID「${contractIdHint}」未找到`
+              : '無法解析關聯合約',
+          keys,
+        );
         continue;
       }
 
@@ -377,13 +421,20 @@ export class ContractOtherFeesService {
           : terminationByCode.get(termCode.toLowerCase()) || null;
         if (!termination || termination.contractId !== contract.id) {
           failed += 1;
+          pushImportIssue(
+            issues,
+            'failed',
+            termCode
+              ? `退租編號「${termCode}」無效或不屬於合約「${contract.contractCode}」`
+              : `退租 ID「${termId}」無效或不屬於該合約`,
+            { ...keys, 合約編號: contract.contractCode },
+          );
           continue;
         }
         terminationId = termination.id;
         resolvedTermCode = termination.terminationCode;
       }
 
-      const description = s(item.description);
       const quantity = decimalField(numOrZero(item.quantity), 'quantity');
       const unitAmount = decimalField(numOrZero(item.unitAmount), 'unitAmount');
       const subtotal = feeSubtotal(quantity, unitAmount, item.subtotal);
@@ -391,6 +442,12 @@ export class ContractOtherFeesService {
       const dupKey = `${contract.contractCode.toLowerCase()}|${(resolvedTermCode || '').toLowerCase()}|${description.toLowerCase()}|${quantity.toString()}|${unitAmount.toString()}`;
       if (seen.has(dupKey)) {
         skipped += 1;
+        pushImportIssue(
+          issues,
+          'skipped',
+          `合約「${contract.contractCode}」已存在相同其他費用記錄`,
+          { ...keys, 合約編號: contract.contractCode, 退租編號: resolvedTermCode },
+        );
         continue;
       }
 
@@ -411,12 +468,14 @@ export class ContractOtherFeesService {
         });
         seen.add(dupKey);
         created += 1;
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立其他費用失敗';
+        pushImportIssue(issues, 'failed', msg, { ...keys, 合約編號: contract.contractCode });
       }
     }
 
-    return { created, updated: 0, skipped, failed, unlinked };
+    return { created, updated: 0, skipped, failed, unlinked, issues };
   }
 
   async update(id: string, dto: UpdateContractOtherFeeDto, actor = '') {
@@ -473,6 +532,10 @@ export class ContractOtherFeesService {
     if (!existing) throw new NotFoundException(`Contract other fee ${id} not found`);
     await this.prisma.contractOtherFee.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 
   private async resolveContract(contractId?: string | null, contractCode?: string | null) {

@@ -64,6 +64,13 @@ export function deleteContractOtherFeeApi(id: string) {
   return request.delete<{ success: boolean }>(`/contract-other-fees/${id}`)
 }
 
+export function batchDeleteContractOtherFeesApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/contract-other-fees/batch-delete',
+    { ids },
+  )
+}
+
 export function importContractOtherFeesApi(items: ContractOtherFeeImportPayload[]) {
   return request.post<ImportBatchResult>('/contract-other-fees/import', { items })
 }

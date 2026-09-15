@@ -71,6 +71,13 @@ export function deleteLeaseTerminationApi(id: string) {
   return request.delete<{ success: boolean }>(`/lease-terminations/${id}`)
 }
 
+export function batchDeleteLeaseTerminationsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/lease-terminations/batch-delete',
+    { ids },
+  )
+}
+
 export function importLeaseTerminationsApi(items: LeaseTerminationImportPayload[]) {
   return request.post<ImportBatchResult>('/lease-terminations/import', { items })
 }

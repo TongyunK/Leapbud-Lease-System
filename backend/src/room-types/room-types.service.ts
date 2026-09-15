@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomTypeDto, UpdateRoomTypeDto } from './dto/room-type.dto';
 import { roomTypeAuditInclude, toRoomTypeDto } from './room-type.mapper';
+import { runBatchRemove } from '../common/batch-delete';
 
 @Injectable()
 export class RoomTypesService {
@@ -92,5 +93,9 @@ export class RoomTypesService {
     if (!existing) throw new NotFoundException(`Room type ${id} not found`);
     await this.prisma.roomTypeOption.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 }

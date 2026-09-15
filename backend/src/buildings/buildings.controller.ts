@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -21,6 +22,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import { parseSortDir, splitCsv } from '../common/pagination';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('buildings')
 @Controller('buildings')
@@ -86,6 +88,15 @@ export class BuildingsController {
     return this.buildingsService.importBatch(dto, actorUserId(user));
   }
 
+  @Post('batch-delete')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete buildings by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.buildingsService.removeMany(dto.ids);
+  }
+
   @Post()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -104,5 +115,13 @@ export class BuildingsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.buildingsService.update(id, dto, actorUserId(user));
+  }
+
+  @Delete(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin)
+  remove(@Param('id') id: string) {
+    return this.buildingsService.remove(id);
   }
 }

@@ -21,6 +21,8 @@ import {
   parsePageSize,
   parseSortDir,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -529,6 +531,10 @@ export class CustomersService {
     return { success: true };
   }
 
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
   /** 批量导入：有编号则按编号 upsert；无编号则自动生成后新建 */
   async importBatch(dto: ImportCustomersDto, actor = '') {
     const items = dto.items || [];
@@ -536,6 +542,7 @@ export class CustomersService {
     let updated = 0;
     let skipped = 0;
     let failed = 0;
+    const issues: ImportIssue[] = [];
 
     const codes = [
       ...new Set(items.map((it) => s(it.customerCode)).filter(Boolean)),
@@ -553,11 +560,14 @@ export class CustomersService {
 
     for (const item of items) {
       const name = s(item.name);
+      let code = s(item.customerCode);
+      const keys = { 客戶編號: code, 客戶名稱: name };
+
       if (!name) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少客戶名稱', keys);
         continue;
       }
-      let code = s(item.customerCode);
       try {
         if (code) {
           const hit = byCode.get(code);
@@ -577,11 +587,13 @@ export class CustomersService {
           reserved.add(code.toLowerCase());
           created += 1;
         }
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立或更新客戶失敗';
+        pushImportIssue(issues, 'failed', msg, { ...keys, 客戶編號: code });
       }
     }
 
-    return { created, updated, skipped, failed };
+    return { created, updated, skipped, failed, issues };
   }
 }

@@ -23,6 +23,8 @@ import {
   parsePageSize,
   parseSortDir,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -302,6 +304,10 @@ export class OccupantsService {
     return { success: true };
   }
 
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
   /** 批量导入：重复跳过；按客户编号优先，否则按关联客户名称（唯一）关联 */
   async importBatch(dto: ImportOccupantsDto, actor = '') {
     const items = dto.items || [];
@@ -309,6 +315,7 @@ export class OccupantsService {
     let skipped = 0;
     let unlinked = 0;
     let failed = 0;
+    const issues: ImportIssue[] = [];
 
     const idCards = [
       ...new Set(items.map((it) => s(it.idCardNo).toLowerCase()).filter(Boolean)),
@@ -444,18 +451,28 @@ export class OccupantsService {
 
     for (const item of items) {
       const name = s(item.name);
-      if (!name) {
-        skipped += 1;
-        continue;
-      }
       const customerCode = s(item.customerCode);
       const relatedCustomerName = s(item.relatedCustomerName);
       const idCardNo = s(item.idCardNo);
       const mobilePhone = s(item.mobilePhone);
+      const issueKeys = {
+        姓名: name,
+        客戶編號: customerCode,
+        關聯客戶: relatedCustomerName,
+        身份證號: idCardNo,
+        手提電話: mobilePhone,
+      };
+
+      if (!name) {
+        skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少使用者姓名', issueKeys);
+        continue;
+      }
       const candidate = { name, customerCode, idCardNo, mobilePhone };
       const keys = occupantDupKeys(candidate);
       if (keys.some((k) => seenKeys.has(k))) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '已存在相同身分證、客戶編號+姓名或姓名+手機的紀錄', issueKeys);
         continue;
       }
 
@@ -464,10 +481,30 @@ export class OccupantsService {
         undefined;
       if (customerCode && !customer) {
         unlinked += 1;
+        pushImportIssue(
+          issues,
+          'unlinked',
+          `客戶編號「${customerCode}」未找到`,
+          issueKeys,
+        );
       } else if (!customer && relatedCustomerName) {
         const byName = customerByName.get(relatedCustomerName.toLowerCase());
-        if (byName === null || byName === undefined) {
+        if (byName === null) {
           unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            `關聯客戶「${relatedCustomerName}」不唯一，無法匹配`,
+            issueKeys,
+          );
+        } else if (byName === undefined) {
+          unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            `關聯客戶「${relatedCustomerName}」未找到`,
+            issueKeys,
+          );
         } else {
           customer = byName;
         }
@@ -507,11 +544,13 @@ export class OccupantsService {
           });
           primaryByCustomer.set(row.customerId, row.id);
         }
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立使用者失敗';
+        pushImportIssue(issues, 'failed', msg, issueKeys);
       }
     }
 
-    return { created, updated: 0, skipped, unlinked, failed };
+    return { created, updated: 0, skipped, unlinked, failed, issues };
   }
 }

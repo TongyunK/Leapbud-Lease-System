@@ -38,3 +38,10 @@ export function updateContractConfigApi(
 export function deleteContractConfigApi(id: string) {
   return request.delete<{ success: boolean }>(`/contract-configs/${id}`)
 }
+
+export function batchDeleteContractConfigsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/contract-configs/batch-delete',
+    { ids },
+  )
+}

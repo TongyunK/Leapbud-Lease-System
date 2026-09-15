@@ -23,6 +23,8 @@ import {
   parsePageSize,
   parseSortDir,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
 const ALLOWED_STATUSES = new Set(['跟進中', '已簽約', '已取消']);
 
@@ -415,6 +417,10 @@ export class CustomerRequirementsService {
     return { success: true };
   }
 
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
   /** 批量导入：有需求编号则 upsert；按客户编号或客户名称关联；经理/配置按名称匹配 */
   async importBatch(dto: ImportCustomerRequirementsDto, actor = '') {
     const items = dto.items || [];
@@ -423,6 +429,7 @@ export class CustomerRequirementsService {
     let skipped = 0;
     let unlinked = 0;
     let failed = 0;
+    const issues: ImportIssue[] = [];
 
     const codes = [
       ...new Set(items.map((it) => s(it.customerCode)).filter(Boolean)),
@@ -518,8 +525,16 @@ export class CustomerRequirementsService {
     for (const item of items) {
       const customerCode = s(item.customerCode);
       const customerName = s(item.customerName);
+      const requirementCode = s(item.requirementCode);
+      const keys = {
+        需求編號: requirementCode,
+        客戶編號: customerCode,
+        客戶名稱: customerName,
+      };
+
       if (!customerCode && !customerName) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少客戶編號或客戶名稱', keys);
         continue;
       }
       let customerId =
@@ -529,24 +544,50 @@ export class CustomerRequirementsService {
         const byName = customerByName.get(customerName.toLowerCase());
         if (byName === null) {
           unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            `客戶名稱「${customerName}」不唯一，無法匹配`,
+            keys,
+          );
           continue;
         }
         customerId = byName || undefined;
       }
       if (!customerId) {
         unlinked += 1;
+        pushImportIssue(
+          issues,
+          'unlinked',
+          customerCode
+            ? `客戶編號「${customerCode}」未找到`
+            : `客戶名稱「${customerName}」未找到`,
+          keys,
+        );
         continue;
       }
 
       const status = this.tryNormalizeStatus(item.status);
       if (status == null) {
         skipped += 1;
+        pushImportIssue(
+          issues,
+          'skipped',
+          `狀態「${s(item.status)}」無效或缺失`,
+          keys,
+        );
         continue;
       }
 
       const requirementDate = this.tryParseDateOnly(item.requirementDate);
       if (requirementDate === undefined) {
         skipped += 1;
+        pushImportIssue(
+          issues,
+          'skipped',
+          `需求日期「${s(item.requirementDate)}」格式無效或缺失`,
+          keys,
+        );
         continue;
       }
 
@@ -598,11 +639,10 @@ export class CustomerRequirementsService {
           });
           updated += 1;
         } else {
-          const requirementCode =
-            code || (await this.nextRequirementCode(reqByCode));
+          const newCode = code || (await this.nextRequirementCode(reqByCode));
           const row = await this.prisma.customerRequirement.create({
             data: {
-              requirementCode,
+              requirementCode: newCode,
               ...data,
               createdById: actorId,
             },
@@ -611,11 +651,13 @@ export class CustomerRequirementsService {
           reqByCode.set(row.requirementCode.toLowerCase(), row.id);
           created += 1;
         }
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立或更新客戶需求失敗';
+        pushImportIssue(issues, 'failed', msg, keys);
       }
     }
 
-    return { created, updated, skipped, unlinked, failed };
+    return { created, updated, skipped, unlinked, failed, issues };
   }
 }

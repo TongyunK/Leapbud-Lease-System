@@ -81,6 +81,17 @@ export function updateRoomApi(id: string, payload: Partial<RoomWritePayload>) {
   return request.patch<RoomRecord>(`/rooms/${id}`, payload)
 }
 
+export function deleteRoomApi(id: string) {
+  return request.delete<{ success: boolean }>(`/rooms/${id}`)
+}
+
+export function batchDeleteRoomsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/rooms/batch-delete',
+    { ids },
+  )
+}
+
 export function importRoomsApi(items: RoomWritePayload[]) {
   return request.post<ImportBatchResult>('/rooms/import', { items })
 }

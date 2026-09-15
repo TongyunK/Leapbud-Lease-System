@@ -106,6 +106,13 @@ export function deleteContractApi(id: string) {
   return request.delete<{ success: boolean }>(`/contracts/${id}`)
 }
 
+export function batchDeleteContractsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/contracts/batch-delete',
+    { ids },
+  )
+}
+
 export type ContractImportItem = {
   contractCode?: string
   roomCode: string

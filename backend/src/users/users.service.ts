@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { toUserDto, userAuditInclude } from './user.mapper';
+import { runBatchRemove } from '../common/batch-delete';
 
 @Injectable()
 export class UsersService {
@@ -98,5 +99,9 @@ export class UsersService {
     }
     await this.prisma.user.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 }

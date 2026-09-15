@@ -18,6 +18,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('contract-configs')
 @Controller('contract-configs')
@@ -39,6 +40,15 @@ export class ContractConfigsController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.contractConfigsService.findOne(id);
+  }
+
+  @Post('batch-delete')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete contract configs by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.contractConfigsService.removeMany(dto.ids);
   }
 
   @Post()

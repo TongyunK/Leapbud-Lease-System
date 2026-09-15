@@ -37,7 +37,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
-const { colW, textColW, statusColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, textColW, codeColW, statusColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 const requirements = ref<CustomerRequirementRecord[]>([])
 const loading = ref(false)
 const keyword = ref('')
@@ -140,7 +140,10 @@ watch(
   },
 )
 
-function onRowClick(row: CustomerRequirementRecord) {
+function onRowClick(row: CustomerRequirementRecord, column?: { type?: string }, event?: Event) {
+  if (column?.type === 'selection') return
+  const el = event?.target as HTMLElement | null
+  if (el?.closest('.el-checkbox, .el-table-column--selection, button, a')) return
   emit('openRequirement', row)
 }
 </script>
@@ -180,6 +183,7 @@ function onRowClick(row: CustomerRequirementRecord) {
           style="width: 100%"
           @row-click="onRowClick"
         >
+          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -191,7 +195,9 @@ function onRowClick(row: CustomerRequirementRecord) {
           <el-table-column
             prop="requirementCode"
             :label="t('customerRequirement.fields.requirementCode')"
-            :min-width="colW(t('customerRequirement.fields.requirementCode'), { contentMin: 120 })"
+            :min-width="codeColW(t('customerRequirement.fields.requirementCode'), { samples: paged.map((r) => r.requirementCode) })"
+            class-name="col-code"
+            label-class-name="col-code"
             show-overflow-tooltip
           />
           <el-table-column

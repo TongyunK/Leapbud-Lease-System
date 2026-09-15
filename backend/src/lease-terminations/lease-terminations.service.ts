@@ -24,6 +24,8 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
   contractByRoomSelect,
   pickContractFromRoomCandidates,
@@ -226,6 +228,7 @@ export class LeaseTerminationsService {
     let skipped = 0;
     let failed = 0;
     let unlinked = 0;
+    const issues: ImportIssue[] = [];
     const actorId = actor || null;
 
     const contractCodes = [
@@ -285,9 +288,17 @@ export class LeaseTerminationsService {
       const contractCode = s(item.contractCode);
       const roomCode = s(item.roomCode);
       const customerName = s(item.customerName);
+      const terminationCode = s(item.terminationCode);
+      const keys = {
+        退租編號: terminationCode,
+        合約編號: contractCode,
+        房間編號: roomCode,
+        客戶名稱: customerName,
+      };
 
       if (!contractCode && !contractId && !roomCode) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少合約編號、合約 ID 或房間編號', keys);
         continue;
       }
 
@@ -309,6 +320,7 @@ export class LeaseTerminationsService {
         const room = roomByCode.get(roomCode.toLowerCase());
         if (!room) {
           unlinked += 1;
+          pushImportIssue(issues, 'unlinked', `房間「${roomCode}」未找到`, keys);
           continue;
         }
         const picked = pickContractFromRoomCandidates(
@@ -317,6 +329,14 @@ export class LeaseTerminationsService {
         );
         if (!picked) {
           unlinked += 1;
+          pushImportIssue(
+            issues,
+            'unlinked',
+            customerName
+              ? `房間「${roomCode}」下無法唯一匹配客戶「${customerName}」的合約`
+              : `房間「${roomCode}」下無有效合約或合約不唯一`,
+            keys,
+          );
           continue;
         }
         contract = {
@@ -329,12 +349,22 @@ export class LeaseTerminationsService {
 
       if (!contract) {
         unlinked += 1;
+        pushImportIssue(
+          issues,
+          'unlinked',
+          contractCode
+            ? `合約編號「${contractCode}」未找到`
+            : contractId
+              ? `合約 ID「${contractId}」未找到`
+              : '無法解析關聯合約',
+          keys,
+        );
         continue;
       }
 
-      const terminationCode = s(item.terminationCode);
       if (terminationCode && existingCodes.has(terminationCode.toLowerCase())) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', `退租編號「${terminationCode}」已存在`, keys);
         continue;
       }
 
@@ -365,12 +395,14 @@ export class LeaseTerminationsService {
         });
         existingCodes.add(code.toLowerCase());
         created += 1;
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立退租記錄失敗';
+        pushImportIssue(issues, 'failed', msg, { ...keys, 合約編號: contract.contractCode });
       }
     }
 
-    return { created, updated: 0, skipped, failed, unlinked };
+    return { created, updated: 0, skipped, failed, unlinked, issues };
   }
 
   async update(id: string, dto: UpdateLeaseTerminationDto, actor = '') {
@@ -447,6 +479,10 @@ export class LeaseTerminationsService {
       await tx.leaseTermination.delete({ where: { id } });
     });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 
   private async nextTerminationCode() {

@@ -3,6 +3,7 @@ import { Prisma, RoomConfigType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomConfigDto, UpdateRoomConfigDto } from './dto/room-config.dto';
 import { buildSizeLabel, roomConfigAuditInclude, toRoomConfigDto } from './room-config.mapper';
+import { runBatchRemove } from '../common/batch-delete';
 
 @Injectable()
 export class RoomConfigsService {
@@ -93,6 +94,10 @@ export class RoomConfigsService {
     if (!existing) throw new NotFoundException(`Config ${id} not found`);
     await this.prisma.roomConfigOption.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 
   private resolveLabel(

@@ -71,6 +71,17 @@ export function updateBuildingApi(id: string, payload: Partial<BuildingWritePayl
   return request.patch<BuildingRecord>(`/buildings/${id}`, payload)
 }
 
+export function deleteBuildingApi(id: string) {
+  return request.delete<{ success: boolean }>(`/buildings/${id}`)
+}
+
+export function batchDeleteBuildingsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/buildings/batch-delete',
+    { ids },
+  )
+}
+
 export function importBuildingsApi(items: BuildingWritePayload[]) {
   return request.post<ImportBatchResult>('/buildings/import', { items })
 }

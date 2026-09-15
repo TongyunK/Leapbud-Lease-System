@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx'
 import {
   createOccupantApi,
   deleteOccupantApi,
+  batchDeleteOccupantsApi,
   fetchOccupants,
   importOccupantsApi,
   updateOccupantApi,
@@ -33,6 +34,7 @@ import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
 import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
@@ -45,6 +47,8 @@ import {
 } from '@/utils/occupantExport'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -85,6 +89,9 @@ const {
   dateRangeOf,
   sortOrderOf,
   activeConditionCount,
+  sortKey,
+  sortOrder,
+  dateRanges,
 } = sortFilter
 
 const {
@@ -115,6 +122,66 @@ const {
   }),
   fetchPage: fetchOccupants,
 })
+
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<OccupantRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([keyword, customerIdFilter, filters, sortKey, sortOrder, dateRanges], () => {
+  clearSelection()
+})
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    const rows = await fetchExportRows('filtered')
+    await selectRows(rows)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!isAdmin.value || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteOccupantsApi(chunk), setBatchProgress)
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
 
 const customerFilterOptions = computed(() =>
   customers.value.map((c) => ({
@@ -281,9 +348,10 @@ function openDetail(row: OccupantRecord, direction: 'ltr' | 'rtl' = 'rtl') {
   drawerVisible.value = true
 }
 
-function onRowClick(row: OccupantRecord, _column: unknown, event: Event) {
+function onRowClick(row: OccupantRecord, column: { type?: string } | undefined, event: Event) {
+  if (column?.type === 'selection') return
   const el = event.target as HTMLElement | null
-  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection')) return
   openDetail(row, 'rtl')
 }
 
@@ -345,6 +413,7 @@ const {
   setPreparing: setImportPreparing,
   setProcessing: setImportProcessing,
   bump: bumpImport,
+  appendIssues: appendImportIssues,
   finish: finishImport,
   fail: failImport,
   close: closeImport,
@@ -436,6 +505,17 @@ async function onImportFile(ev: Event) {
       const parsed = rowToOccupantIoPayload(row, t)
       if (!parsed) {
         bumpImport('skipped')
+        appendImportIssues([
+          {
+            status: 'skipped',
+            reason: t('common.importUi.parseSkipped'),
+            keys: {
+              姓名: String(row['姓名'] ?? row['使用者姓名'] ?? ''),
+              客戶編號: String(row['客戶編號'] ?? row['客户编号'] ?? ''),
+              關聯客戶: String(row['關聯客戶'] ?? row['关联客户'] ?? row['客戶名稱'] ?? row['客户名称'] ?? ''),
+            },
+          },
+        ])
         continue
       }
       payloads.push({
@@ -467,8 +547,20 @@ async function onImportFile(ev: Event) {
         if (data.skipped) bumpImport('skipped', data.skipped)
         if (data.unlinked) bumpImport('unlinked', data.unlinked)
         if (data.failed) bumpImport('failed', data.failed)
+        appendImportIssues(data.issues)
       } catch {
         bumpImport('failed', batch.length)
+        appendImportIssues(
+          batch.map((it) => ({
+            status: 'failed' as const,
+            reason: t('common.importUi.batchRequestFailed'),
+            keys: {
+              姓名: it.name || '',
+              客戶編號: it.customerCode || '',
+              關聯客戶: it.relatedCustomerName || '',
+            },
+          })),
+        )
       }
     }
 
@@ -550,17 +642,28 @@ async function onImportFile(ev: Event) {
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
         <el-table
+          ref="tableRef"
           :key="tableLayoutKey"
           class="occupant-table--clickable"
           :data="list"
+          row-key="id"
           height="100%"
           stripe
           border
           scrollbar-always-on
           empty-text="—"
           style="width: 100%"
+          @selection-change="onSelectionChange"
           @row-click="onRowClick"
         >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -703,7 +806,23 @@ async function onImportFile(ev: Event) {
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="pageSizes"
-        />
+          :selected-count="selectedCount"
+          enable-select-all
+          :select-all-loading="selectAllLoading"
+          @select-all="onSelectAll"
+          @clear-selection="clearSelection"
+        >
+          <template v-if="isAdmin" #batch>
+            <button
+              type="button"
+              class="lb-pager__batch-btn"
+              :disabled="batchDeleting || selectAllLoading"
+              @click="onBatchDelete"
+            >
+              {{ t('common.batchDelete') }}
+            </button>
+          </template>
+        </TablePagination>
       </div>
     </div>
 
@@ -842,7 +961,20 @@ async function onImportFile(ev: Event) {
       :result-tone="importState.resultTone"
       :result-message="importState.resultMessage"
       :result-stat-keys="importState.resultStatKeys"
+      :issues="importState.issues"
       @close="closeImport"
+    />
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
     />
   </div>
 </template>

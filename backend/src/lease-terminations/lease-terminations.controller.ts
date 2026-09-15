@@ -22,6 +22,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('lease-terminations')
 @Controller('lease-terminations')
@@ -74,6 +75,13 @@ export class LeaseTerminationsController {
   @ApiOkResponse({ description: 'Batch import lease terminations' })
   importBatch(@Body() dto: ImportLeaseTerminationsDto, @CurrentUser() user?: JwtPayload) {
     return this.leaseTerminationsService.importBatch(dto, actorUserId(user));
+  }
+
+  @Post('batch-delete')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete lease terminations by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.leaseTerminationsService.removeMany(dto.ids);
   }
 
   @Get(':id')

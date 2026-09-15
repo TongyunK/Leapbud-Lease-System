@@ -61,6 +61,13 @@ export function deleteOccupantApi(id: string) {
   return request.delete<{ success: boolean }>(`/occupants/${id}`)
 }
 
+export function batchDeleteOccupantsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/occupants/batch-delete',
+    { ids },
+  )
+}
+
 export function importOccupantsApi(items: OccupantWritePayload[]) {
   return request.post<ImportBatchResult>('/occupants/import', { items })
 }

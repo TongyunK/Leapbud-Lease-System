@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import * as XLSX from 'xlsx'
 import type {
+  ImportIssue,
   ImportPhase,
   ImportResultTone,
   ImportStatKey,
@@ -21,6 +23,7 @@ const props = withDefaults(
     resultTone: ImportResultTone
     resultMessage: string
     resultStatKeys: ImportStatKey[]
+    issues?: ImportIssue[]
   }>(),
   {
     phase: 'idle',
@@ -32,6 +35,7 @@ const props = withDefaults(
     resultTone: 'success',
     resultMessage: '',
     resultStatKeys: () => ['created', 'updated', 'skipped', 'failed'],
+    issues: () => [],
   },
 )
 
@@ -76,6 +80,10 @@ const resultIconClass = computed(() => {
   return 'is-success'
 })
 
+const canDownloadIssues = computed(
+  () => props.phase === 'result' && (props.issues?.length || 0) > 0,
+)
+
 function handleBeforeClose(done: () => void) {
   if (props.phase === 'progress') return
   done()
@@ -84,6 +92,34 @@ function handleBeforeClose(done: () => void) {
 function onClose() {
   visible.value = false
   emit('close')
+}
+
+function downloadIssues() {
+  const list = props.issues || []
+  if (!list.length) return
+
+  const keySet = new Set<string>()
+  for (const issue of list) {
+    for (const k of Object.keys(issue.keys || {})) keySet.add(k)
+  }
+  const keyCols = [...keySet]
+
+  const rows = list.map((issue) => {
+    const row: Record<string, string> = {
+      [t('common.importUi.issueStatus')]: t(`common.importUi.stats.${issue.status}`),
+      [t('common.importUi.issueReason')]: issue.reason || '',
+    }
+    for (const k of keyCols) {
+      row[k] = issue.keys?.[k] || ''
+    }
+    return row
+  })
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'issues')
+  const base = (props.fileName || 'import').replace(/\.[^.]+$/, '')
+  XLSX.writeFile(wb, `${base}_未成功明細.xlsx`)
 }
 </script>
 
@@ -135,17 +171,26 @@ function onClose() {
         <span class="import-file-label">{{ t('common.importUi.file') }}</span>
         <span class="import-file-name" :title="fileName">{{ fileName }}</span>
       </p>
-      <dl v-if="resultTone !== 'error' || liveStatKeys.some((k) => (stats[k] ?? 0) > 0)" class="import-stats result-stats">
+      <dl
+        v-if="resultTone !== 'error' || liveStatKeys.some((k) => (stats[k] ?? 0) > 0)"
+        class="import-stats result-stats"
+      >
         <div v-for="key in liveStatKeys" :key="key" class="import-stat">
           <dt>{{ t(`common.importUi.stats.${key}`) }}</dt>
           <dd>{{ stats[key] ?? 0 }}</dd>
         </div>
       </dl>
       <p v-if="resultMessage" class="import-result-msg">{{ resultMessage }}</p>
+      <p v-if="canDownloadIssues" class="import-issues-hint">
+        {{ t('common.importUi.downloadIssues') }}（{{ issues.length }}）
+      </p>
     </div>
 
     <template v-if="phase === 'result'" #footer>
       <div class="dialog-footer">
+        <el-button v-if="canDownloadIssues" @click="downloadIssues">
+          {{ t('common.importUi.downloadIssues') }}
+        </el-button>
         <el-button type="primary" class="lb-btn-primary" @click="onClose">
           {{ t('common.importUi.close') }}
         </el-button>
@@ -268,5 +313,18 @@ function onClose() {
 
 .result-file {
   margin-top: -4px;
+}
+
+.import-issues-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

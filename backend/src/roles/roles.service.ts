@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AssignRoleMenusDto, CreateRoleDto, SaveRoleMenuMatrixDto, UpdateRoleDto } from './dto/role.dto';
 import { roleAuditInclude, toRoleDto } from './role.mapper';
 import { buildMenuTree, menuAuditInclude } from '../menus/menu.mapper';
+import { runBatchRemove } from '../common/batch-delete';
 
 @Injectable()
 export class RolesService {
@@ -107,6 +108,10 @@ export class RolesService {
     }
     await this.prisma.role.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 
   async getMenuIds(id: string) {

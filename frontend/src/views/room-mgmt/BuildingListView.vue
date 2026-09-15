@@ -3,6 +3,8 @@ import {
   fetchBuildings,
   updateBuildingApi,
   createBuildingApi,
+  deleteBuildingApi,
+  batchDeleteBuildingsApi,
   importBuildingsApi,
 } from '@/api/buildings'
 import type { BuildingListQuery, BuildingWritePayload } from '@/api/buildings'
@@ -20,6 +22,7 @@ import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import WorkingHoursField from '@/components/WorkingHoursField.vue'
 import {
   buildingIoTemplateExampleRow,
@@ -32,10 +35,12 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Search, Upload, Download } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 const { t } = useI18n()
@@ -66,6 +71,7 @@ const {
   setPreparing: setImportPreparing,
   setProcessing: setImportProcessing,
   bump: bumpImport,
+  appendIssues: appendImportIssues,
   finish: finishImport,
   fail: failImport,
   close: closeImport,
@@ -134,6 +140,66 @@ const {
   fetchPage: fetchBuildings,
 })
 
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<BuildingRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([keyword, filters, sortKey, sortOrder, dateRanges], () => {
+  clearSelection()
+})
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    const rows = await fetchExportRows('filtered')
+    await selectRows(rows)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!isAdmin.value || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteBuildingsApi(chunk), setBatchProgress)
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 async function loadManagerOptions() {
   const { data } = await fetchBuildings({ activeOnly: false })
   const names = [
@@ -191,9 +257,10 @@ function onOpenBuildingFromRoom(buildingId: string) {
   if (b) openDetail(b)
 }
 
-function onBuildingRowClick(row: BuildingRecord, _column: unknown, event: Event) {
+function onBuildingRowClick(row: BuildingRecord, column: { type?: string } | undefined, event: Event) {
+  if (column?.type === 'selection') return
   const el = event.target as HTMLElement | null
-  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox')) return
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection')) return
   openDetail(row)
 }
 
@@ -279,6 +346,15 @@ async function runImportFile(ev: Event) {
       const parsed = rowToBuildingIoPayload(row, t)
       if (!parsed) {
         bumpImport('skipped')
+        appendImportIssues([
+          {
+            status: 'skipped',
+            reason: t('common.importUi.parseSkipped'),
+            keys: {
+              大廈名稱: String(row['大廈名稱'] ?? row['大厦名称'] ?? row['大廈'] ?? row['大厦'] ?? ''),
+            },
+          },
+        ])
         continue
       }
       payloads.push(parsed)
@@ -296,8 +372,16 @@ async function runImportFile(ev: Event) {
         if (data.updated) bumpImport('updated', data.updated)
         if (data.skipped) bumpImport('skipped', data.skipped)
         if (data.failed) bumpImport('failed', data.failed)
+        appendImportIssues(data.issues)
       } catch {
         bumpImport('failed', batch.length)
+        appendImportIssues(
+          batch.map((it) => ({
+            status: 'failed' as const,
+            reason: t('common.importUi.batchRequestFailed'),
+            keys: { 大廈名稱: it.name || '' },
+          })),
+        )
       }
     }
 
@@ -457,16 +541,27 @@ async function saveForm() {
     <div v-if="!useCards" class="table-card" v-loading="loading">
       <div class="table-scroll">
         <el-table
+          ref="tableRef"
           :key="tableLayoutKey"
           :data="list"
+          row-key="id"
           height="100%"
           stripe
           border
           empty-text="—"
           class="building-table--clickable"
           style="width: 100%"
+          @selection-change="onSelectionChange"
           @row-click="onBuildingRowClick"
         >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
           <el-table-column
             prop="name"
@@ -619,7 +714,28 @@ async function saveForm() {
         </el-table>
       </div>
       <div class="table-pagination">
-        <TablePagination v-model:page="page" v-model:page-size="pageSize" :total="total" :page-sizes="pageSizes" />
+        <TablePagination
+          v-model:page="page"
+          v-model:page-size="pageSize"
+          :total="total"
+          :page-sizes="pageSizes"
+          :selected-count="selectedCount"
+          enable-select-all
+          :select-all-loading="selectAllLoading"
+          @select-all="onSelectAll"
+          @clear-selection="clearSelection"
+        >
+          <template v-if="isAdmin" #batch>
+            <button
+              type="button"
+              class="lb-pager__batch-btn"
+              :disabled="batchDeleting || selectAllLoading"
+              @click="onBatchDelete"
+            >
+              {{ t('common.batchDelete') }}
+            </button>
+          </template>
+        </TablePagination>
       </div>
     </div>
 
@@ -794,7 +910,20 @@ async function saveForm() {
       :result-tone="importState.resultTone"
       :result-message="importState.resultMessage"
       :result-stat-keys="importState.resultStatKeys"
+      :issues="importState.issues"
       @close="closeImport"
+    />
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
     />
   </div>
 </template>

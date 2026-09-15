@@ -36,3 +36,10 @@ export function updateUserApi(
 export function deleteUserApi(id: string) {
   return request.delete<{ success: boolean }>(`/users/${id}`)
 }
+
+export function batchDeleteUsersApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/users/batch-delete',
+    { ids },
+  )
+}

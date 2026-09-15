@@ -23,6 +23,7 @@ import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { parseSortDir, splitCsv } from '../common/pagination';
+import { BatchDeleteDto } from '../common/batch-delete';
 
 @ApiTags('customer-requirements')
 @Controller('customer-requirements')
@@ -101,6 +102,13 @@ export class CustomerRequirementsController {
   @ApiOkResponse({ description: 'Batch import customer requirements (upsert by requirementCode)' })
   importBatch(@Body() dto: ImportCustomerRequirementsDto, @CurrentUser() user?: JwtPayload) {
     return this.customerRequirementsService.importBatch(dto, actorUserId(user));
+  }
+
+  @Post('batch-delete')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Batch delete customer requirements by ids' })
+  removeMany(@Body() dto: BatchDeleteDto) {
+    return this.customerRequirementsService.removeMany(dto.ids);
   }
 
   @Post()

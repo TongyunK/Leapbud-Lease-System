@@ -18,6 +18,8 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
 const ALLOWED_STATUSES = new Set([
   '草稿',
@@ -660,6 +662,10 @@ export class ContractsService {
     return { success: true };
   }
 
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
   /** 批量导入：按房间编号 + 客户编号（或客户名称）关联；合约编号重复则跳过 */
   async importBatch(dto: ImportContractsDto, actor = '') {
     const items = dto.items || [];
@@ -667,6 +673,7 @@ export class ContractsService {
     let skipped = 0;
     let unlinked = 0;
     let failed = 0;
+    const issues: ImportIssue[] = [];
 
     const roomCodes = [...new Set(items.map((it) => s(it.roomCode)).filter(Boolean))];
     const customerCodes = [...new Set(items.map((it) => s(it.customerCode)).filter(Boolean))];
@@ -756,8 +763,17 @@ export class ContractsService {
       const roomCode = s(item.roomCode);
       const customerCode = s(item.customerCode);
       const customerName = s(item.customerName);
+      const contractCode = s(item.contractCode);
+      const keys = {
+        合約編號: contractCode,
+        房間編號: roomCode,
+        客戶編號: customerCode,
+        客戶名稱: customerName,
+      };
+
       if (!roomCode || (!customerCode && !customerName)) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少房間編號，或缺少客戶編號/客戶名稱', keys);
         continue;
       }
 
@@ -768,20 +784,30 @@ export class ContractsService {
       if (!customer && customerName) {
         const byName = customerByName.get(customerName.toLowerCase());
         if (byName === null) {
-          // 重名，无法唯一匹配
           unlinked += 1;
+          pushImportIssue(issues, 'unlinked', `客戶名稱「${customerName}」不唯一，無法匹配`, keys);
           continue;
         }
         customer = byName;
       }
       if (!room || !customer) {
         unlinked += 1;
+        const parts: string[] = [];
+        if (!room) parts.push(`房間「${roomCode}」未找到`);
+        if (!customer) {
+          parts.push(
+            customerCode
+              ? `客戶編號「${customerCode}」未找到`
+              : `客戶名稱「${customerName}」未找到`,
+          );
+        }
+        pushImportIssue(issues, 'unlinked', parts.join('；'), keys);
         continue;
       }
 
-      const contractCode = s(item.contractCode);
       if (contractCode && seenCodes.has(contractCode.toLowerCase())) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', `合約編號「${contractCode}」已存在`, keys);
         continue;
       }
 
@@ -794,6 +820,12 @@ export class ContractsService {
         const req = reqByCode.get(requirementCode.toLowerCase());
         if (!req || req.customerId !== customer.id) {
           failed += 1;
+          pushImportIssue(
+            issues,
+            'failed',
+            `需求編號「${requirementCode}」無效或不屬於該客戶`,
+            { ...keys, 需求編號: requirementCode },
+          );
           continue;
         }
         requirementId = req.id;
@@ -829,11 +861,13 @@ export class ContractsService {
         );
         if (contractCode) seenCodes.add(contractCode.toLowerCase());
         created += 1;
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立合約失敗';
+        pushImportIssue(issues, 'failed', msg, keys);
       }
     }
 
-    return { created, updated: 0, skipped, failed, unlinked };
+    return { created, updated: 0, skipped, failed, unlinked, issues };
   }
 }

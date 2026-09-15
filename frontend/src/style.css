@@ -23,6 +23,9 @@
   --el-color-primary-light-8: #b7ccc4;
   --el-color-primary-light-9: #cfddd7;
   --el-color-primary-dark-2: #0c3d29;
+  --el-checkbox-checked-bg-color: var(--lb-brand);
+  --el-checkbox-checked-input-border-color: var(--lb-brand);
+  --el-checkbox-input-border-color-hover: var(--lb-brand);
   --el-switch-on-color: #0f4a32;
   --el-switch-off-color: #c9d2cc;
   font-family: 'Outfit', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
@@ -708,6 +711,35 @@ button {
   padding-right: 6px;
 }
 
+/* 多选列表头：左右 padding 需对称，否则全选框相对行内勾选框右偏 */
+.table-card .el-table th.el-table-column--selection > .cell {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* 表格多选框：强制主题色（覆盖 Element Plus 默认蓝） */
+.table-card .el-table .el-table-column--selection .el-checkbox__inner:hover,
+.related-list__table .el-table-column--selection .el-checkbox__inner:hover {
+  border-color: var(--lb-brand);
+}
+
+.table-card .el-table .el-table-column--selection .el-checkbox__input.is-checked .el-checkbox__inner,
+.table-card .el-table .el-table-column--selection .el-checkbox__input.is-indeterminate .el-checkbox__inner,
+.related-list__table .el-table-column--selection .el-checkbox__input.is-checked .el-checkbox__inner,
+.related-list__table .el-table-column--selection .el-checkbox__input.is-indeterminate .el-checkbox__inner {
+  background-color: var(--lb-brand);
+  border-color: var(--lb-brand);
+}
+
+.table-card .el-table .el-table-column--selection .el-checkbox__input.is-focus .el-checkbox__inner,
+.table-card .el-table .el-table-column--selection .el-checkbox__input.is-checked .el-checkbox__inner,
+.table-card .el-table .el-table-column--selection .el-checkbox__input.is-indeterminate .el-checkbox__inner,
+.related-list__table .el-table-column--selection .el-checkbox__input.is-focus .el-checkbox__inner,
+.related-list__table .el-table-column--selection .el-checkbox__input.is-checked .el-checkbox__inner,
+.related-list__table .el-table-column--selection .el-checkbox__input.is-indeterminate .el-checkbox__inner {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand) 18%, transparent);
+}
+
 .table-card .el-table .col-address .cell {
   white-space: nowrap;
   overflow: hidden;
@@ -718,6 +750,22 @@ button {
 .el-table .col-datetime .cell {
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: clip;
+}
+
+/* 业务编号列：完整显示，不省略号截断 */
+.table-card .el-table .col-code .cell,
+.related-list__table .col-code .cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* 编号列内外键链接：勿再 ellipsis，列宽已按编号测满 */
+.table-card .el-table .col-code .fk-link,
+.related-list__table .col-code .fk-link {
+  max-width: none;
+  overflow: visible;
   text-overflow: clip;
 }
 
@@ -1283,10 +1331,19 @@ button {
   background: #f3f5f4;
 }
 
+.lb-pager__left {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-self: start;
+  min-width: 0;
+  grid-column: 1;
+}
+
 .lb-pager__total {
   display: inline-flex;
   align-items: center;
-  justify-self: start;
   min-height: 28px;
   padding: 0 12px;
   border-radius: 999px;
@@ -1296,6 +1353,76 @@ button {
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+}
+
+.lb-pager__batch {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lb-pager__selected {
+  color: var(--lb-brand, #0f4a32);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.lb-pager__batch-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lb-pager__batch-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid #c0392b;
+  background: #fff;
+  color: #c0392b;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lb-pager__batch-btn:hover:not(:disabled) {
+  background: #c0392b;
+  color: #fff;
+}
+
+.lb-pager__batch-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lb-pager__batch-btn--primary {
+  border-color: var(--lb-brand, #0f4a32);
+  color: var(--lb-brand, #0f4a32);
+}
+
+.lb-pager__batch-btn--primary:hover:not(:disabled) {
+  background: var(--lb-brand, #0f4a32);
+  color: #fff;
+}
+
+.lb-pager__batch-btn--muted {
+  border-color: #cfd8d3;
+  color: #4a5c54;
+}
+
+.lb-pager__batch-btn--muted:hover:not(:disabled) {
+  background: #e8ecea;
+  color: #243029;
+  border-color: #b7c7bd;
 }
 
 .lb-pager__nav {

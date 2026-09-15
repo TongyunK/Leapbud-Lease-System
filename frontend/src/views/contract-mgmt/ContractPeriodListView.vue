@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 import {
   createContractPeriodApi,
   deleteContractPeriodApi,
+  batchDeleteContractPeriodsApi,
   fetchContractPeriods,
   importContractPeriodsApi,
   updateContractPeriodApi,
@@ -35,6 +36,7 @@ import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
 import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
@@ -47,6 +49,8 @@ import {
 } from '@/utils/contractPeriodExport'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 const EXPORT_PAGE_SIZE = 500
@@ -56,7 +60,7 @@ const userStore = useUserStore()
 const isMobile = useIsMobile()
 const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
-const { colW, textColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, textColW, codeColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
 const loading = ref(false)
@@ -70,6 +74,19 @@ const pageSize = ref(20)
 const pageSizes = PAGE_SIZES
 const contracts = ref<ContractRecord[]>([])
 const periodTypeOptions = ref<ContractConfigOption[]>([])
+
+/** 编号列宽随当前页数据变化时强制重算（避免首屏空列表后列宽卡住） */
+const codeLayoutKey = computed(() =>
+  [
+    codeColW(t('contractPeriod.fields.contractCode'), {
+      interactive: true,
+      samples: list.value.map((r) => r.contractCode),
+    }),
+    codeColW(t('contractPeriod.fields.roomCode'), {
+      samples: list.value.map((r) => r.roomCode),
+    }),
+  ].join('-'),
+)
 
 const contractDrawerVisible = ref(false)
 const currentContract = ref<ContractRecord | null>(null)
@@ -105,6 +122,66 @@ const contractFilterOptions = computed(() =>
     label: `${c.contractCode} · ${c.customerName} · ${c.roomCode}`,
   })),
 )
+
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<ContractPeriodListRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([keyword, filters, sortKey, sortOrder, dateRanges], () => {
+  clearSelection()
+})
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    const rows = await fetchExportRows('filtered')
+    await selectRows(rows)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!isAdmin.value || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteContractPeriodsApi(chunk), setBatchProgress)
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
 
 function rowIndex(indexOnPage: number) {
   return (page.value - 1) * pageSize.value + indexOnPage + 1
@@ -385,6 +462,7 @@ const {
   setPreparing: setImportPreparing,
   setProcessing: setImportProcessing,
   bump: bumpImport,
+  appendIssues: appendImportIssues,
   finish: finishImport,
   fail: failImport,
   close: closeImport,
@@ -475,6 +553,17 @@ async function onImportFile(ev: Event) {
       const parsed = rowToContractPeriodIoPayload(row, t)
       if (!parsed) {
         bumpImport('skipped')
+        appendImportIssues([
+          {
+            status: 'skipped',
+            reason: t('common.importUi.parseSkipped'),
+            keys: {
+              合約編號: String(row['合約編號'] ?? row['合约编号'] ?? ''),
+              房間編號: String(row['房間編號'] ?? row['房间编号'] ?? ''),
+              客戶名稱: String(row['客戶名稱'] ?? row['客户名称'] ?? ''),
+            },
+          },
+        ])
         continue
       }
       payloads.push(parsed)
@@ -492,8 +581,20 @@ async function onImportFile(ev: Event) {
         if (data.skipped) bumpImport('skipped', data.skipped)
         if (data.unlinked) bumpImport('unlinked', data.unlinked)
         if (data.failed) bumpImport('failed', data.failed)
+        appendImportIssues(data.issues)
       } catch {
         bumpImport('failed', batch.length)
+        appendImportIssues(
+          batch.map((it) => ({
+            status: 'failed' as const,
+            reason: t('common.importUi.batchRequestFailed'),
+            keys: {
+              合約編號: it.contractCode || '',
+              房間編號: it.roomCode || '',
+              客戶名稱: it.customerName || '',
+            },
+          })),
+        )
       }
     }
 
@@ -574,15 +675,26 @@ async function onImportFile(ev: Event) {
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
         <el-table
-          :key="tableLayoutKey"
+          ref="tableRef"
+          :key="`${tableLayoutKey}-${codeLayoutKey}`"
           :data="list"
+          row-key="id"
           height="100%"
           stripe
           border
           scrollbar-always-on
           empty-text="—"
           style="width: 100%"
+          @selection-change="onSelectionChange"
         >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -593,7 +705,9 @@ async function onImportFile(ev: Event) {
             header-align="center"
           />
           <el-table-column
-            :min-width="colW(t('contractPeriod.fields.contractCode'), { interactive: true, contentMin: 120 })"
+            :width="codeColW(t('contractPeriod.fields.contractCode'), { interactive: true, samples: list.map((r) => r.contractCode) })"
+            class-name="col-code"
+            label-class-name="col-code"
             fixed="left"
           >
             <template #header>
@@ -696,7 +810,9 @@ async function onImportFile(ev: Event) {
           </el-table-column>
           <el-table-column
             :label="t('contractPeriod.fields.roomCode')"
-            :min-width="colW(t('contractPeriod.fields.roomCode'), { contentMin: 110 })"
+            :min-width="codeColW(t('contractPeriod.fields.roomCode'), { samples: list.map((r) => r.roomCode) })"
+            class-name="col-code"
+            label-class-name="col-code"
           >
             <template #default="{ row }">{{ row.roomCode || '—' }}</template>
           </el-table-column>
@@ -778,7 +894,23 @@ async function onImportFile(ev: Event) {
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="pageSizes"
-        />
+          :selected-count="selectedCount"
+          enable-select-all
+          :select-all-loading="selectAllLoading"
+          @select-all="onSelectAll"
+          @clear-selection="clearSelection"
+        >
+          <template v-if="isAdmin" #batch>
+            <button
+              type="button"
+              class="lb-pager__batch-btn"
+              :disabled="batchDeleting || selectAllLoading"
+              @click="onBatchDelete"
+            >
+              {{ t('common.batchDelete') }}
+            </button>
+          </template>
+        </TablePagination>
       </div>
     </div>
 
@@ -911,7 +1043,20 @@ async function onImportFile(ev: Event) {
       :result-tone="importState.resultTone"
       :result-message="importState.resultMessage"
       :result-stat-keys="importState.resultStatKeys"
+      :issues="importState.issues"
       @close="closeImport"
+    />
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
     />
   </div>
 </template>

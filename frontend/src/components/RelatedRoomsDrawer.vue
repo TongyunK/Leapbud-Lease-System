@@ -33,7 +33,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
-const { colW, textColW, statusColW, tableLayoutKey } = useTableColWidth()
+const { colW, textColW, codeColW, statusColW, tableLayoutKey } = useTableColWidth()
 const rooms = ref<RoomRecord[]>([])
 const loading = ref(false)
 const keyword = ref('')
@@ -96,7 +96,10 @@ watch(
   },
 )
 
-function onRowClick(row: RoomRecord) {
+function onRowClick(row: RoomRecord, column?: { type?: string }, event?: Event) {
+  if (column?.type === 'selection') return
+  const el = event?.target as HTMLElement | null
+  if (el?.closest('.el-checkbox, .el-table-column--selection, button, a')) return
   emit('openRoom', row)
 }
 </script>
@@ -135,6 +138,7 @@ function onRowClick(row: RoomRecord) {
           style="width: 100%"
           @row-click="onRowClick"
         >
+          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -146,7 +150,9 @@ function onRowClick(row: RoomRecord) {
           <el-table-column
             prop="roomCode"
             :label="t('room.fields.roomCode')"
-            :min-width="colW(t('room.fields.roomCode'), { contentMin: 110 })"
+            :min-width="codeColW(t('room.fields.roomCode'), { samples: paged.map((r) => r.roomCode) })"
+            class-name="col-code"
+            label-class-name="col-code"
             show-overflow-tooltip
           />
           <el-table-column

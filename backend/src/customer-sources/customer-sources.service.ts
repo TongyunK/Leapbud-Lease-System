@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerSourceDto, UpdateCustomerSourceDto } from './dto/customer-source.dto';
 import { customerSourceAuditInclude, toCustomerSourceDto } from './customer-source.mapper';
+import { runBatchRemove } from '../common/batch-delete';
 
 @Injectable()
 export class CustomerSourcesService {
@@ -88,5 +89,9 @@ export class CustomerSourcesService {
     if (!existing) throw new NotFoundException(`Customer source ${id} not found`);
     await this.prisma.customerSourceOption.delete({ where: { id } });
     return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 }

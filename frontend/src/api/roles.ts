@@ -35,6 +35,13 @@ export function deleteRoleApi(id: string) {
   return request.delete<{ success: boolean }>(`/roles/${id}`)
 }
 
+export function batchDeleteRolesApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/roles/batch-delete',
+    { ids },
+  )
+}
+
 export function fetchRoleMenusApi(id: string) {
   return request.get<{ menuIds: string[] }>(`/roles/${id}/menus`)
 }

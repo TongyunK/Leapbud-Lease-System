@@ -1,6 +1,6 @@
 import type { RoomRecord, RoomStatus } from '@/types/room'
 
-/** 房間導入/導出欄位（兼容舊系統「房間信息」表頭） */
+/** 房間導入/導出字段（兼容舊系統「房間信息」表頭） */
 export const ROOM_IO_FIELD_KEYS = [
   'roomCode',
   'name',

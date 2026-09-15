@@ -119,7 +119,10 @@ watch(
   },
 )
 
-function onRowClick(row: OccupantRecord) {
+function onRowClick(row: OccupantRecord, column?: { type?: string }, event?: Event) {
+  if (column?.type === 'selection') return
+  const el = event?.target as HTMLElement | null
+  if (el?.closest('.el-checkbox, .el-table-column--selection, button, a')) return
   emit('openOccupant', row)
 }
 </script>
@@ -159,6 +162,7 @@ function onRowClick(row: OccupantRecord) {
           style="width: 100%"
           @row-click="onRowClick"
         >
+          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"

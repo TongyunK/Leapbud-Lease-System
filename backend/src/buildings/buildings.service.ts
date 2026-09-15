@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,6 +15,8 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
+import { runBatchRemove } from '../common/batch-delete';
+import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
   CreateBuildingDto,
   ImportBuildingsDto,
@@ -205,6 +208,7 @@ export class BuildingsService {
     let updated = 0;
     let skipped = 0;
     let failed = 0;
+    const issues: ImportIssue[] = [];
 
     const names = [...new Set(items.map((it) => s(it.name)).filter(Boolean))];
     const existing = names.length
@@ -221,8 +225,11 @@ export class BuildingsService {
 
     for (const item of items) {
       const name = s(item.name);
+      const keys = { 大廈名稱: name };
+
       if (!name) {
         skipped += 1;
+        pushImportIssue(issues, 'skipped', '缺少大廈名稱', keys);
         continue;
       }
       try {
@@ -235,11 +242,30 @@ export class BuildingsService {
           byName.set(name.toLowerCase(), { id: row.id, name });
           created += 1;
         }
-      } catch {
+      } catch (e) {
         failed += 1;
+        const msg = e instanceof Error ? e.message : '建立或更新大廈失敗';
+        pushImportIssue(issues, 'failed', msg, keys);
       }
     }
 
-    return { created, updated, skipped, failed };
+    return { created, updated, skipped, failed, issues };
+  }
+
+  async remove(id: string) {
+    const existing = await this.prisma.building.findUnique({
+      where: { id },
+      include: { _count: { select: { rooms: true } } },
+    });
+    if (!existing) throw new NotFoundException(`Building ${id} not found`);
+    if (existing._count.rooms > 0) {
+      throw new ConflictException(`大廈「${existing.name}」下仍有房間，無法刪除`);
+    }
+    await this.prisma.building.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async removeMany(ids: string[]) {
+    return runBatchRemove(ids, (id) => this.remove(id));
   }
 }
