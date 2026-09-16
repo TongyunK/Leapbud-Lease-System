@@ -20,6 +20,7 @@ export type ContractOtherFeeWritePayload = {
 export type ContractOtherFeeListQuery = {
   keyword?: string
   contractId?: string
+  customerNames?: string[]
   terminationId?: string
   sortBy?: string
   sortDir?: 'asc' | 'desc'
@@ -33,6 +34,7 @@ export function fetchContractOtherFees(params?: ContractOtherFeeListQuery) {
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.contractId) query.contractId = params.contractId
+  if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.terminationId) query.terminationId = params.terminationId
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir

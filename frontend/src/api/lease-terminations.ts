@@ -25,6 +25,7 @@ export type LeaseTerminationWritePayload = {
 export type LeaseTerminationListQuery = {
   keyword?: string
   contractId?: string
+  customerNames?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   terminationDateFrom?: string
@@ -39,6 +40,7 @@ export function fetchLeaseTerminations(params?: LeaseTerminationListQuery) {
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.contractId) query.contractId = params.contractId
+  if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.terminationDateFrom) query.terminationDateFrom = params.terminationDateFrom

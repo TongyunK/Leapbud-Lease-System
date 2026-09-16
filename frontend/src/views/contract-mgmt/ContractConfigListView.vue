@@ -383,9 +383,12 @@ async function toggleActive(row: ContractConfigOption) {
               <TableColumnHeader
                 :label="t('contractConfig.fields.active')"
                 filterable
+                sortable
                 :options="activeFilterOptions"
                 :model-value="filters.active || []"
+                :sort-order="sortOrderOf('active')"
                 @update:model-value="(v) => setFilter('active', v)"
+                @update:sort-order="(v) => setSort('active', v)"
               />
             </template>
             <template #default="{ row }">

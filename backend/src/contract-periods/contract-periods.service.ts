@@ -71,6 +71,7 @@ export class ContractPeriodsService {
   async findAll(params: {
     keyword?: string;
     contractId?: string;
+    customerNames?: string[];
     dateTypes?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
@@ -111,6 +112,7 @@ export class ContractPeriodsService {
   private buildListWhere(params: {
     keyword?: string;
     contractId?: string;
+    customerNames?: string[];
     dateTypes?: string[];
     startDateFrom?: string;
     startDateTo?: string;
@@ -126,6 +128,11 @@ export class ContractPeriodsService {
 
     const dateTypes = (params.dateTypes || []).map((v) => s(v)).filter(Boolean);
     if (dateTypes.length) where.dateType = { in: dateTypes };
+
+    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
+    if (customerNames.length) {
+      where.contract = { customer: { name: { in: customerNames } } };
+    }
 
     const keyword = params.keyword?.trim();
     if (keyword) {

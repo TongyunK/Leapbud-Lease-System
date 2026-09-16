@@ -8,6 +8,7 @@ import {
   createContractOtherFeeApi,
   deleteContractOtherFeeApi,
   batchDeleteContractOtherFeesApi,
+  fetchContractOtherFee,
   fetchContractOtherFees,
   importContractOtherFeesApi,
   updateContractOtherFeeApi,
@@ -25,15 +26,11 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { fetchCustomer } from '@/api/customers'
-import { fetchRoom } from '@/api/rooms'
-import type { CustomerRecord } from '@/types/customer'
-import type { RoomRecord } from '@/types/room'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
@@ -63,15 +60,13 @@ const editing = ref<ContractOtherFeeRecord | null>(null)
 const contracts = ref<ContractRecord[]>([])
 const terminationsForForm = ref<LeaseTerminationRecord[]>([])
 
+const drawerVisible = ref(false)
+const current = ref<ContractOtherFeeRecord | null>(null)
+const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const contractDrawerVisible = ref(false)
 const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
-const customerDrawerVisible = ref(false)
-const relatedCustomer = ref<CustomerRecord | null>(null)
-const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const roomDrawerVisible = ref(false)
-const relatedRoom = ref<RoomRecord | null>(null)
-const roomDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
   filters,
@@ -314,7 +309,25 @@ async function onDelete(row: ContractOtherFeeRecord) {
   }
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'rtl') {
+async function openDetail(row: ContractOtherFeeRecord, direction: 'ltr' | 'rtl' = 'rtl') {
+  try {
+    const { data } = await fetchContractOtherFee(row.id)
+    current.value = data
+    detailDirection.value = direction
+    drawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function onRowClick(row: ContractOtherFeeRecord, column: { type?: string } | undefined, event: Event) {
+  if (column?.type === 'selection') return
+  const el = event.target as HTMLElement | null
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection')) return
+  void openDetail(row, 'rtl')
+}
+
+async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   if (!contractId) return
   try {
     const { data } = await fetchContract(contractId)
@@ -327,27 +340,19 @@ async function openContractSide(contractId?: string | null, direction: 'ltr' | '
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!customerId) return
-  try {
-    const { data } = await fetchCustomer(customerId)
-    relatedCustomer.value = data
-    customerDrawerDirection.value = direction
-    customerDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openCustomerSide(customerId, direction)
 }
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!roomId) return
-  try {
-    const { data } = await fetchRoom(roomId)
-    relatedRoom.value = data
-    roomDrawerDirection.value = direction
-    roomDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openRoomSide(roomId, direction)
+}
+
+async function openBuildingSide(buildingId?: string | null) {
+  await relationDrawers.value?.openBuildingSide(buildingId)
+}
+
+async function openRequirementSide(requirementId?: string | null) {
+  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 function moneyOrDash(v: number | null | undefined): string {
@@ -588,6 +593,7 @@ async function onImportFile(ev: Event) {
           empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
+          @row-click="onRowClick"
         >
           <el-table-column
             type="selection"
@@ -656,27 +662,48 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.description || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('depositDeduction.fields.quantity')"
-            :min-width="colW(t('depositDeduction.fields.quantity'), { contentMin: 72 })"
+            :min-width="colW(t('depositDeduction.fields.quantity'), { interactive: true, contentMin: 72 })"
             align="right"
             header-align="right"
           >
+            <template #header>
+              <TableColumnHeader
+                :label="t('depositDeduction.fields.quantity')"
+                sortable
+                :sort-order="sortOrderOf('quantity')"
+                @update:sort-order="(v) => setSort('quantity', v)"
+              />
+            </template>
             <template #default="{ row }">{{ row.quantity ?? '—' }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('depositDeduction.fields.unitAmount')"
-            :min-width="colW(t('depositDeduction.fields.unitAmount'), { contentMin: 100 })"
+            :min-width="colW(t('depositDeduction.fields.unitAmount'), { interactive: true, contentMin: 100 })"
             align="right"
             header-align="right"
           >
+            <template #header>
+              <TableColumnHeader
+                :label="t('depositDeduction.fields.unitAmount')"
+                sortable
+                :sort-order="sortOrderOf('unitAmount')"
+                @update:sort-order="(v) => setSort('unitAmount', v)"
+              />
+            </template>
             <template #default="{ row }">{{ moneyOrDash(row.unitAmount) }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('depositDeduction.fields.subtotal')"
-            :min-width="colW(t('depositDeduction.fields.subtotal'), { contentMin: 100 })"
+            :min-width="colW(t('depositDeduction.fields.subtotal'), { interactive: true, contentMin: 100 })"
             align="right"
             header-align="right"
           >
+            <template #header>
+              <TableColumnHeader
+                :label="t('depositDeduction.fields.subtotal')"
+                sortable
+                :sort-order="sortOrderOf('subtotal')"
+                @update:sort-order="(v) => setSort('subtotal', v)"
+              />
+            </template>
             <template #default="{ row }">{{ moneyOrDash(row.subtotal) }}</template>
           </el-table-column>
           <el-table-column
@@ -766,23 +793,25 @@ async function onImportFile(ev: Event) {
       </div>
     </div>
 
+    <ContractOtherFeeDetailDrawer
+      v-model="drawerVisible"
+      :fee="current"
+      i18n-ns="depositDeduction"
+      :desktop-direction="detailDirection"
+      @open-contract="(id) => openContractSide(id, 'ltr')"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-room="(id) => openRoomSide(id, 'ltr')"
+    />
     <ContractDetailDrawer
       v-model="contractDrawerVisible"
       :contract="currentContract"
       :desktop-direction="contractDrawerDirection"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+      @open-building="openBuildingSide"
+      @open-requirement="openRequirementSide"
     />
-    <CustomerDetailDrawer
-      v-model="customerDrawerVisible"
-      :customer="relatedCustomer"
-      :desktop-direction="customerDrawerDirection"
-    />
-    <RoomDetailDrawer
-      v-model="roomDrawerVisible"
-      :room="relatedRoom"
-      :desktop-direction="roomDrawerDirection"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

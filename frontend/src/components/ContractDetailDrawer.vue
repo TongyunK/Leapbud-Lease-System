@@ -25,6 +25,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   openCustomer: [customerId: string]
   openRoom: [roomId: string]
+  openBuilding: [buildingId: string]
+  openRequirement: [requirementId: string]
 }>()
 
 const { t } = useI18n()
@@ -91,7 +93,17 @@ function statusLabel(status: string) {
           </div>
           <div>
             <dt>{{ t('contract.fields.buildingName') }}</dt>
-            <dd>{{ dash(contract.buildingName) }}</dd>
+            <dd>
+              <button
+                v-if="contract.buildingId"
+                type="button"
+                class="fk-link"
+                @click="emit('openBuilding', contract.buildingId)"
+              >
+                {{ contract.buildingName || '—' }}
+              </button>
+              <template v-else>{{ dash(contract.buildingName) }}</template>
+            </dd>
           </div>
           <div>
             <dt>{{ t('contract.fields.customerName') }}</dt>
@@ -113,7 +125,17 @@ function statusLabel(status: string) {
           </div>
           <div>
             <dt>{{ t('contract.fields.requirementCode') }}</dt>
-            <dd>{{ dash(contract.requirementCode) }}</dd>
+            <dd>
+              <button
+                v-if="contract.requirementId"
+                type="button"
+                class="fk-link"
+                @click="emit('openRequirement', contract.requirementId)"
+              >
+                {{ contract.requirementCode || '—' }}
+              </button>
+              <template v-else>{{ dash(contract.requirementCode) }}</template>
+            </dd>
           </div>
           <div>
             <dt>{{ t('contract.fields.startDate') }}</dt>

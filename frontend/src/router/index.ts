@@ -141,6 +141,56 @@ const router = createRouter({
           },
         },
         {
+          path: 'finance-mgmt/deposit-refunds',
+          name: 'depositRefunds',
+          component: () => import('@/views/finance-mgmt/DepositRefundListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.depositRefunds',
+            subtitleKey: 'depositRefund.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/invoices',
+          name: 'invoices',
+          component: () => import('@/views/finance-mgmt/InvoiceListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.invoices',
+            subtitleKey: 'invoice.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/invoice-service-details',
+          name: 'invoiceServiceDetails',
+          component: () => import('@/views/finance-mgmt/InvoiceServiceDetailListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.invoiceServiceDetails',
+            subtitleKey: 'invoiceServiceDetail.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/receivables',
+          name: 'receivables',
+          component: () => import('@/views/finance-mgmt/ReceivableListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.receivables',
+            subtitleKey: 'receivable.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/receipts',
+          name: 'receipts',
+          component: () => import('@/views/finance-mgmt/ReceiptListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.receipts',
+            subtitleKey: 'receipt.subtitle',
+          },
+        },
+        {
           path: 'system/users',
           name: 'users',
           component: () => import('@/views/system/UserListView.vue'),

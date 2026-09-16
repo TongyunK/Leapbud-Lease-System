@@ -76,3 +76,28 @@ export function contractStatusTone(status: string | null | undefined): StatusTon
   const key = (status || '').trim()
   return CONTRACT_STATUS_TONES[key] || 'neutral'
 }
+
+/** 按金退还状态色：草稿灰 / 未退按金橙 / 已退按金绿 / 已取消红 */
+const DEPOSIT_REFUND_STATUS_TONES: Record<string, StatusTone> = {
+  草稿: 'neutral',
+  未退按金: 'signing',
+  已退按金: 'idle',
+  已取消: 'terminating',
+}
+
+export function depositRefundStatusTone(status: string | null | undefined): StatusTone {
+  const key = (status || '').trim()
+  return DEPOSIT_REFUND_STATUS_TONES[key] || 'neutral'
+}
+
+/** 发票状态色：待开票橙 / 已开票绿 / 已取消红 */
+const INVOICE_STATUS_TONES: Record<string, StatusTone> = {
+  待開票: 'signing',
+  已開票: 'idle',
+  已取消: 'terminating',
+}
+
+export function invoiceStatusTone(status: string | null | undefined): StatusTone {
+  const key = (status || '').trim()
+  return INVOICE_STATUS_TONES[key] || 'neutral'
+}

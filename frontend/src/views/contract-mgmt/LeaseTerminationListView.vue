@@ -8,6 +8,7 @@ import {
   createLeaseTerminationApi,
   deleteLeaseTerminationApi,
   batchDeleteLeaseTerminationsApi,
+  fetchLeaseTermination,
   fetchLeaseTerminations,
   importLeaseTerminationsApi,
   updateLeaseTerminationApi,
@@ -24,15 +25,11 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { fetchCustomer } from '@/api/customers'
-import { fetchRoom } from '@/api/rooms'
-import type { CustomerRecord } from '@/types/customer'
-import type { RoomRecord } from '@/types/room'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
@@ -61,18 +58,17 @@ const formVisible = ref(false)
 const editing = ref<LeaseTerminationRecord | null>(null)
 const contracts = ref<ContractRecord[]>([])
 
+const drawerVisible = ref(false)
+const current = ref<LeaseTerminationRecord | null>(null)
+const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const contractDrawerVisible = ref(false)
 const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
-const customerDrawerVisible = ref(false)
-const relatedCustomer = ref<CustomerRecord | null>(null)
-const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const roomDrawerVisible = ref(false)
-const relatedRoom = ref<RoomRecord | null>(null)
-const roomDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
   filters,
+  setFilter,
   setSort,
   setDateRange,
   dateRangeOf,
@@ -99,11 +95,12 @@ const {
 } = useServerPagedList<LeaseTerminationRecord, LeaseTerminationListQuery>({
   keyword,
   sortFilter: { filters, dateRanges, dateRangeOf, sortKey, sortOrder, clearAll },
-  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range }) => {
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => {
     const termination = range('terminationDate')
     const created = range('createdAt')
     return {
       keyword: kw,
+      customerNames: f.customerName?.length ? [...f.customerName] : undefined,
       sortBy,
       sortDir,
       terminationDateFrom: termination.from,
@@ -187,6 +184,18 @@ const contractFilterOptions = computed(() =>
     roomId: c.roomId,
   })),
 )
+
+const customerNameFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const c of contracts.value) {
+    const name = c.customerName?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
 
 const selectedContractDisplay = computed(() => {
   const opt = contractFilterOptions.value.find((o) => o.value === form.contractId)
@@ -347,7 +356,25 @@ async function onDelete(row: LeaseTerminationRecord) {
   }
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'rtl') {
+async function openDetail(row: LeaseTerminationRecord, direction: 'ltr' | 'rtl' = 'rtl') {
+  try {
+    const { data } = await fetchLeaseTermination(row.id)
+    current.value = data
+    detailDirection.value = direction
+    drawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function onRowClick(row: LeaseTerminationRecord, column: { type?: string } | undefined, event: Event) {
+  if (column?.type === 'selection') return
+  const el = event.target as HTMLElement | null
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection')) return
+  void openDetail(row, 'rtl')
+}
+
+async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   if (!contractId) return
   try {
     const { data } = await fetchContract(contractId)
@@ -360,27 +387,19 @@ async function openContractSide(contractId?: string | null, direction: 'ltr' | '
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!customerId) return
-  try {
-    const { data } = await fetchCustomer(customerId)
-    relatedCustomer.value = data
-    customerDrawerDirection.value = direction
-    customerDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openCustomerSide(customerId, direction)
 }
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!roomId) return
-  try {
-    const { data } = await fetchRoom(roomId)
-    relatedRoom.value = data
-    roomDrawerDirection.value = direction
-    roomDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openRoomSide(roomId, direction)
+}
+
+async function openBuildingSide(buildingId?: string | null) {
+  await relationDrawers.value?.openBuildingSide(buildingId)
+}
+
+async function openRequirementSide(requirementId?: string | null) {
+  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
@@ -617,6 +636,7 @@ async function onImportFile(ev: Event) {
           empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
+          @row-click="onRowClick"
         >
           <el-table-column
             type="selection"
@@ -678,19 +698,59 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
-            :label="t('leaseTermination.fields.customerName')"
-            :min-width="textColW(t('leaseTermination.fields.customerName'), { kind: 'name' })"
+            :min-width="textColW(t('leaseTermination.fields.customerName'), { interactive: true, kind: 'name' })"
             show-overflow-tooltip
           >
-            <template #default="{ row }">{{ row.customerName || '—' }}</template>
+            <template #header>
+              <TableColumnHeader
+                :label="t('leaseTermination.fields.customerName')"
+                filterable
+                sortable
+                :options="customerNameFilterOptions"
+                :model-value="filters.customerName || []"
+                :sort-order="sortOrderOf('customerName')"
+                @update:model-value="(v) => setFilter('customerName', v)"
+                @update:sort-order="(v) => setSort('customerName', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <button
+                v-if="row.customerId"
+                type="button"
+                class="fk-link"
+                :title="row.customerName"
+                @click.stop="openCustomerSide(row.customerId)"
+              >
+                {{ row.customerName || '—' }}
+              </button>
+              <span v-else>{{ row.customerName || '—' }}</span>
+            </template>
           </el-table-column>
           <el-table-column
-            :label="t('leaseTermination.fields.roomCode')"
-            :min-width="codeColW(t('leaseTermination.fields.roomCode'), { samples: list.map((r) => r.roomCode) })"
+            :min-width="codeColW(t('leaseTermination.fields.roomCode'), { interactive: true, samples: list.map((r) => r.roomCode) })"
             class-name="col-code"
             label-class-name="col-code"
           >
-            <template #default="{ row }">{{ row.roomCode || '—' }}</template>
+            <template #header>
+              <TableColumnHeader
+                :label="t('leaseTermination.fields.roomCode')"
+                sortable
+                :sort-order="sortOrderOf('roomCode')"
+                @update:sort-order="(v) => setSort('roomCode', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <button
+                v-if="row.roomId"
+                type="button"
+                class="fk-link"
+                :title="row.roomCode"
+                @click.stop="openRoomSide(row.roomId)"
+              >
+                {{ row.roomCode || '—' }}
+              </button>
+              <span v-else>{{ row.roomCode || '—' }}</span>
+            </template>
           </el-table-column>
           <el-table-column
             :label="t('leaseTermination.fields.reason')"
@@ -716,19 +776,35 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.terminationDate || '—' }}</template>
           </el-table-column>
           <el-table-column
-            prop="doorKeyReturnedQty"
-            :label="t('leaseTermination.fields.doorKeyReturnedQty')"
-            :min-width="colW(t('leaseTermination.fields.doorKeyReturnedQty'), { contentMin: 72 })"
+            :min-width="colW(t('leaseTermination.fields.doorKeyReturnedQty'), { interactive: true, contentMin: 72 })"
             align="right"
             header-align="right"
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('leaseTermination.fields.doorKeyReturnedQty')"
+                sortable
+                :sort-order="sortOrderOf('doorKeyReturnedQty')"
+                @update:sort-order="(v) => setSort('doorKeyReturnedQty', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.doorKeyReturnedQty ?? '—' }}</template>
+          </el-table-column>
           <el-table-column
-            prop="smartCardReturnedQty"
-            :label="t('leaseTermination.fields.smartCardReturnedQty')"
-            :min-width="colW(t('leaseTermination.fields.smartCardReturnedQty'), { contentMin: 72 })"
+            :min-width="colW(t('leaseTermination.fields.smartCardReturnedQty'), { interactive: true, contentMin: 72 })"
             align="right"
             header-align="right"
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('leaseTermination.fields.smartCardReturnedQty')"
+                sortable
+                :sort-order="sortOrderOf('smartCardReturnedQty')"
+                @update:sort-order="(v) => setSort('smartCardReturnedQty', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.smartCardReturnedQty ?? '—' }}</template>
+          </el-table-column>
           <el-table-column
             :label="t('leaseTermination.fields.relatedDepositRefund')"
             :min-width="textColW(t('leaseTermination.fields.relatedDepositRefund'), { kind: 'name' })"
@@ -823,23 +899,24 @@ async function onImportFile(ev: Event) {
       </div>
     </div>
 
+    <LeaseTerminationDetailDrawer
+      v-model="drawerVisible"
+      :termination="current"
+      :desktop-direction="detailDirection"
+      @open-contract="(id) => openContractSide(id, 'ltr')"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-room="(id) => openRoomSide(id, 'ltr')"
+    />
     <ContractDetailDrawer
       v-model="contractDrawerVisible"
       :contract="currentContract"
       :desktop-direction="contractDrawerDirection"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+      @open-building="openBuildingSide"
+      @open-requirement="openRequirementSide"
     />
-    <CustomerDetailDrawer
-      v-model="customerDrawerVisible"
-      :customer="relatedCustomer"
-      :desktop-direction="customerDrawerDirection"
-    />
-    <RoomDetailDrawer
-      v-model="roomDrawerVisible"
-      :room="relatedRoom"
-      :desktop-direction="roomDrawerDirection"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

@@ -19,6 +19,11 @@ import { ContractConfigsModule } from './contract-configs/contract-configs.modul
 import { ContractPeriodsModule } from './contract-periods/contract-periods.module';
 import { LeaseTerminationsModule } from './lease-terminations/lease-terminations.module';
 import { ContractOtherFeesModule } from './contract-other-fees/contract-other-fees.module';
+import { DepositRefundsModule } from './deposit-refunds/deposit-refunds.module';
+import { InvoicesModule } from './invoices/invoices.module';
+import { InvoiceServiceDetailsModule } from './invoice-service-details/invoice-service-details.module';
+import { ReceivablesModule } from './receivables/receivables.module';
+import { ReceiptsModule } from './receipts/receipts.module';
 
 @Module({
   imports: [
@@ -40,6 +45,11 @@ import { ContractOtherFeesModule } from './contract-other-fees/contract-other-fe
     ContractPeriodsModule,
     LeaseTerminationsModule,
     ContractOtherFeesModule,
+    DepositRefundsModule,
+    InvoicesModule,
+    InvoiceServiceDetailsModule,
+    ReceivablesModule,
+    ReceiptsModule,
     RolesModule,
     MenusModule,
   ],

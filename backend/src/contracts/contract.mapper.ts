@@ -27,7 +27,7 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
   return Number(value.toString());
 }
 
-type RoomLite = Pick<Room, 'id' | 'roomCode' | 'name'> & {
+type RoomLite = Pick<Room, 'id' | 'roomCode' | 'name' | 'buildingId'> & {
   building?: Pick<Building, 'id' | 'name'> | null;
 };
 
@@ -47,6 +47,7 @@ export const contractInclude = {
       id: true,
       roomCode: true,
       name: true,
+      buildingId: true,
       building: { select: { id: true, name: true } },
     },
   },
@@ -82,6 +83,7 @@ export function toContractDto(row: ContractWithRelations) {
     roomId: row.roomId,
     roomCode: row.room?.roomCode ?? '',
     roomName: row.room?.name ?? '',
+    buildingId: row.room?.buildingId ?? row.room?.building?.id ?? null,
     buildingName: row.room?.building?.name ?? '',
     customerId: row.customerId,
     customerCode: row.customer?.customerCode ?? '',

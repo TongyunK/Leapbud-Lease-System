@@ -8,6 +8,7 @@ import {
   createContractPeriodApi,
   deleteContractPeriodApi,
   batchDeleteContractPeriodsApi,
+  fetchContractPeriod,
   fetchContractPeriods,
   importContractPeriodsApi,
   updateContractPeriodApi,
@@ -18,22 +19,18 @@ import type {
 } from '@/api/contract-periods'
 import { fetchContract, fetchContracts } from '@/api/contracts'
 import { fetchContractConfigs } from '@/api/contract-configs'
-import { fetchCustomer } from '@/api/customers'
-import { fetchRoom } from '@/api/rooms'
 import type { ContractPeriodListRecord } from '@/types/contract-period'
 import type { ContractRecord } from '@/types/contract'
 import { CONTRACT_PERIOD_UNITS } from '@/types/contract'
 import type { ContractConfigOption } from '@/types/contract-config'
-import type { CustomerRecord } from '@/types/customer'
-import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import ContractPeriodDetailDrawer from '@/components/ContractPeriodDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -90,13 +87,11 @@ const codeLayoutKey = computed(() =>
 
 const contractDrawerVisible = ref(false)
 const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
-const customerDrawerVisible = ref(false)
-const relatedCustomer = ref<CustomerRecord | null>(null)
-const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const roomDrawerVisible = ref(false)
-const relatedRoom = ref<RoomRecord | null>(null)
-const roomDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
+const drawerVisible = ref(false)
+const current = ref<ContractPeriodListRecord | null>(null)
+const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 
 const {
   filters,
@@ -115,6 +110,18 @@ const {
 const dateTypeFilterOptions = computed(() =>
   periodTypeOptions.value.map((o) => ({ value: o.label, label: o.label })),
 )
+
+const customerNameFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const c of contracts.value) {
+    const name = c.customerName?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
 
 const contractFilterOptions = computed(() =>
   contracts.value.map((c) => ({
@@ -205,6 +212,7 @@ function buildListQuery(overrides?: Partial<ContractPeriodListQuery>): ContractP
   const dateTypes = filters.dateType?.length ? [...filters.dateType] : undefined
   return {
     keyword: keyword.value.trim() || undefined,
+    customerNames: filters.customerName?.length ? [...filters.customerName] : undefined,
     dateTypes,
     sortBy: sortKey.value || undefined,
     sortDir: sortOrder.value || undefined,
@@ -416,7 +424,25 @@ async function onDelete(row: ContractPeriodListRecord) {
   }
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'rtl') {
+async function openDetail(row: ContractPeriodListRecord, direction: 'ltr' | 'rtl' = 'rtl') {
+  try {
+    const { data } = await fetchContractPeriod(row.id)
+    current.value = data
+    detailDirection.value = direction
+    drawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function onRowClick(row: ContractPeriodListRecord, column: { type?: string } | undefined, event: Event) {
+  if (column?.type === 'selection') return
+  const el = event.target as HTMLElement | null
+  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection')) return
+  void openDetail(row, 'rtl')
+}
+
+async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   if (!contractId) return
   try {
     const { data } = await fetchContract(contractId)
@@ -429,27 +455,19 @@ async function openContractSide(contractId?: string | null, direction: 'ltr' | '
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!customerId) return
-  try {
-    const { data } = await fetchCustomer(customerId)
-    relatedCustomer.value = data
-    customerDrawerDirection.value = direction
-    customerDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openCustomerSide(customerId, direction)
 }
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!roomId) return
-  try {
-    const { data } = await fetchRoom(roomId)
-    relatedRoom.value = data
-    roomDrawerDirection.value = direction
-    roomDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openRoomSide(roomId, direction)
+}
+
+async function openBuildingSide(buildingId?: string | null) {
+  await relationDrawers.value?.openBuildingSide(buildingId)
+}
+
+async function openRequirementSide(requirementId?: string | null) {
+  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
@@ -686,6 +704,7 @@ async function onImportFile(ev: Event) {
           empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
+          @row-click="onRowClick"
         >
           <el-table-column
             type="selection"
@@ -757,12 +776,20 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="dateValue"
-            :label="t('contractPeriod.fields.dateValue')"
-            :min-width="colW(t('contractPeriod.fields.dateValue'), { contentMin: 72 })"
+            :min-width="colW(t('contractPeriod.fields.dateValue'), { interactive: true, contentMin: 72 })"
             align="right"
             header-align="right"
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contractPeriod.fields.dateValue')"
+                sortable
+                :sort-order="sortOrderOf('dateValue')"
+                @update:sort-order="(v) => setSort('dateValue', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.dateValue ?? '—' }}</template>
+          </el-table-column>
           <el-table-column
             :label="t('contractPeriod.fields.duration')"
             :min-width="colW(t('contractPeriod.fields.duration'), { contentMin: 80 })"
@@ -802,19 +829,59 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.endDate || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('contractPeriod.fields.customerName')"
-            :min-width="textColW(t('contractPeriod.fields.customerName'), { kind: 'name' })"
+            :min-width="textColW(t('contractPeriod.fields.customerName'), { interactive: true, kind: 'name' })"
             show-overflow-tooltip
           >
-            <template #default="{ row }">{{ row.customerName || '—' }}</template>
+            <template #header>
+              <TableColumnHeader
+                :label="t('contractPeriod.fields.customerName')"
+                filterable
+                sortable
+                :options="customerNameFilterOptions"
+                :model-value="filters.customerName || []"
+                :sort-order="sortOrderOf('customerName')"
+                @update:model-value="(v) => setFilter('customerName', v)"
+                @update:sort-order="(v) => setSort('customerName', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <button
+                v-if="row.customerId"
+                type="button"
+                class="fk-link"
+                :title="row.customerName"
+                @click.stop="openCustomerSide(row.customerId)"
+              >
+                {{ row.customerName || '—' }}
+              </button>
+              <span v-else>{{ row.customerName || '—' }}</span>
+            </template>
           </el-table-column>
           <el-table-column
-            :label="t('contractPeriod.fields.roomCode')"
-            :min-width="codeColW(t('contractPeriod.fields.roomCode'), { samples: list.map((r) => r.roomCode) })"
+            :min-width="codeColW(t('contractPeriod.fields.roomCode'), { interactive: true, samples: list.map((r) => r.roomCode) })"
             class-name="col-code"
             label-class-name="col-code"
           >
-            <template #default="{ row }">{{ row.roomCode || '—' }}</template>
+            <template #header>
+              <TableColumnHeader
+                :label="t('contractPeriod.fields.roomCode')"
+                sortable
+                :sort-order="sortOrderOf('roomCode')"
+                @update:sort-order="(v) => setSort('roomCode', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <button
+                v-if="row.roomId"
+                type="button"
+                class="fk-link"
+                :title="row.roomCode"
+                @click.stop="openRoomSide(row.roomId)"
+              >
+                {{ row.roomCode || '—' }}
+              </button>
+              <span v-else>{{ row.roomCode || '—' }}</span>
+            </template>
           </el-table-column>
           <el-table-column
             prop="sortOrder"
@@ -914,23 +981,24 @@ async function onImportFile(ev: Event) {
       </div>
     </div>
 
+    <ContractPeriodDetailDrawer
+      v-model="drawerVisible"
+      :period="current"
+      :desktop-direction="detailDirection"
+      @open-contract="(id) => openContractSide(id, 'ltr')"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-room="(id) => openRoomSide(id, 'ltr')"
+    />
     <ContractDetailDrawer
       v-model="contractDrawerVisible"
       :contract="currentContract"
       :desktop-direction="contractDrawerDirection"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+      @open-building="openBuildingSide"
+      @open-requirement="openRequirementSide"
     />
-    <CustomerDetailDrawer
-      v-model="customerDrawerVisible"
-      :customer="relatedCustomer"
-      :desktop-direction="customerDrawerDirection"
-    />
-    <RoomDetailDrawer
-      v-model="roomDrawerVisible"
-      :room="relatedRoom"
-      :desktop-direction="roomDrawerDirection"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

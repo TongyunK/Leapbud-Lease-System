@@ -74,6 +74,7 @@ export class LeaseTerminationsService {
   async findAll(params: {
     keyword?: string;
     contractId?: string;
+    customerNames?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     terminationDateFrom?: string;
@@ -109,6 +110,7 @@ export class LeaseTerminationsService {
   private buildListWhere(params: {
     keyword?: string;
     contractId?: string;
+    customerNames?: string[];
     terminationDateFrom?: string;
     terminationDateTo?: string;
     createdAtFrom?: string;
@@ -116,6 +118,10 @@ export class LeaseTerminationsService {
   }): Prisma.LeaseTerminationWhereInput {
     const where: Prisma.LeaseTerminationWhereInput = {};
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
+    const customerNames = (params.customerNames || []).map((v) => (v ?? '').trim()).filter(Boolean);
+    if (customerNames.length) {
+      where.customer = { name: { in: customerNames } };
+    }
 
     const keyword = params.keyword?.trim();
     if (keyword) {

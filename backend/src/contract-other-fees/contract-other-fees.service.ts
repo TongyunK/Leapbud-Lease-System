@@ -62,6 +62,7 @@ export class ContractOtherFeesService {
   async findAll(params: {
     keyword?: string;
     contractId?: string;
+    customerNames?: string[];
     terminationId?: string;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
@@ -96,6 +97,7 @@ export class ContractOtherFeesService {
   private buildListWhere(params: {
     keyword?: string;
     contractId?: string;
+    customerNames?: string[];
     terminationId?: string;
     createdAtFrom?: string;
     createdAtTo?: string;
@@ -103,6 +105,10 @@ export class ContractOtherFeesService {
     const where: Prisma.ContractOtherFeeWhereInput = {};
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
     if (params.terminationId?.trim()) where.terminationId = params.terminationId.trim();
+    const customerNames = (params.customerNames || []).map((v) => (v ?? '').trim()).filter(Boolean);
+    if (customerNames.length) {
+      where.contract = { customer: { name: { in: customerNames } } };
+    }
 
     const keyword = params.keyword?.trim();
     if (keyword) {

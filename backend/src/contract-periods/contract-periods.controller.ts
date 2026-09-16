@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { BatchDeleteDto } from '../common/batch-delete';
+import { splitCsv } from '../common/pagination';
 
 @ApiTags('contract-periods')
 @Controller('contract-periods')
@@ -33,6 +34,7 @@ export class ContractPeriodsController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'dateTypes', required: false, description: 'Comma-separated dateType labels' })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
@@ -50,6 +52,7 @@ export class ContractPeriodsController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('contractId') contractId?: string,
+    @Query('customerNames') customerNames?: string,
     @Query('dateTypes') dateTypes?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
@@ -67,6 +70,7 @@ export class ContractPeriodsController {
     return this.contractPeriodsService.findAll({
       keyword,
       contractId,
+      customerNames: splitCsv(customerNames),
       dateTypes: dateTypes
         ? dateTypes
             .split(',')

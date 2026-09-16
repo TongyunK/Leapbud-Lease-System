@@ -15,6 +15,7 @@ export interface ContractRecord {
   roomId: string
   roomCode: string
   roomName: string
+  buildingId: string | null
   buildingName: string
   customerId: string
   customerCode: string

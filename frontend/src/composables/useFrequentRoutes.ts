@@ -19,6 +19,11 @@ export type FrequentRouteName =
   | 'leaseTerminations'
   | 'contractOtherFees'
   | 'depositDeductions'
+  | 'depositRefunds'
+  | 'invoices'
+  | 'invoiceServiceDetails'
+  | 'receivables'
+  | 'receipts'
   | 'users'
   | 'roles'
   | 'menus'
@@ -44,6 +49,11 @@ const TRACKABLE = new Set<FrequentRouteName>([
   'leaseTerminations',
   'contractOtherFees',
   'depositDeductions',
+  'depositRefunds',
+  'invoices',
+  'invoiceServiceDetails',
+  'receivables',
+  'receipts',
   'users',
   'roles',
   'menus',

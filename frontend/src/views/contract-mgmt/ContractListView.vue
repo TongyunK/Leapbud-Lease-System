@@ -14,9 +14,9 @@ import {
   updateContractApi,
 } from '@/api/contracts'
 import type { ContractListQuery } from '@/api/contracts'
-import { fetchCustomer, fetchCustomers } from '@/api/customers'
+import { fetchCustomers } from '@/api/customers'
 import { fetchCustomerRequirements } from '@/api/customer-requirements'
-import { fetchRoom, fetchRooms } from '@/api/rooms'
+import { fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
 import type { ContractPeriodRecord, ContractRecord } from '@/types/contract'
@@ -40,8 +40,7 @@ import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -93,12 +92,7 @@ const mailboxKeyUnitPrice = computed(() => {
 const drawerVisible = ref(false)
 const current = ref<ContractRecord | null>(null)
 const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
-const customerDrawerVisible = ref(false)
-const relatedCustomer = ref<CustomerRecord | null>(null)
-const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const roomDrawerVisible = ref(false)
-const relatedRoom = ref<RoomRecord | null>(null)
-const roomDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
   filters,
@@ -777,31 +771,19 @@ function onRowClick(row: ContractRecord, column: { type?: string } | undefined, 
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!customerId) return
-  try {
-    const { data } = await fetchCustomer(customerId)
-    relatedCustomer.value = data
-    customerDrawerDirection.value = direction
-    customerDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+  await relationDrawers.value?.openCustomerSide(customerId, direction)
 }
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!roomId) return
-  let room = rooms.value.find((r) => r.id === roomId) || null
-  if (!room) {
-    try {
-      const { data } = await fetchRoom(roomId)
-      room = data
-    } catch {
-      return
-    }
-  }
-  relatedRoom.value = room
-  roomDrawerDirection.value = direction
-  roomDrawerVisible.value = true
+  await relationDrawers.value?.openRoomSide(roomId, direction)
+}
+
+async function openBuildingSide(buildingId?: string | null) {
+  await relationDrawers.value?.openBuildingSide(buildingId)
+}
+
+async function openRequirementSide(requirementId?: string | null) {
+  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 </script>
 
@@ -1187,17 +1169,10 @@ async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = '
       :desktop-direction="contractDrawerDirection"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+      @open-building="openBuildingSide"
+      @open-requirement="openRequirementSide"
     />
-    <CustomerDetailDrawer
-      v-model="customerDrawerVisible"
-      :customer="relatedCustomer"
-      :desktop-direction="customerDrawerDirection"
-    />
-    <RoomDetailDrawer
-      v-model="roomDrawerVisible"
-      :room="relatedRoom"
-      :desktop-direction="roomDrawerDirection"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

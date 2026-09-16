@@ -23,6 +23,7 @@ import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
+import { splitCsv } from '../common/pagination';
 
 @ApiTags('contract-other-fees')
 @Controller('contract-other-fees')
@@ -35,6 +36,7 @@ export class ContractOtherFeesController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'terminationId', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
@@ -46,6 +48,7 @@ export class ContractOtherFeesController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('contractId') contractId?: string,
+    @Query('customerNames') customerNames?: string,
     @Query('terminationId') terminationId?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
@@ -57,6 +60,7 @@ export class ContractOtherFeesController {
     return this.contractOtherFeesService.findAll({
       keyword,
       contractId,
+      customerNames: splitCsv(customerNames),
       terminationId,
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
