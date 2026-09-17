@@ -23,6 +23,7 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
 type HandlerLite = Pick<User, 'id' | 'account' | 'displayName'>
 
 export type DepositRefundWithRelations = DepositRefund & {
+  _count?: { receivables: number }
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
   room?: Pick<Room, 'id' | 'roomCode' | 'name'> | null
@@ -32,6 +33,7 @@ export type DepositRefundWithRelations = DepositRefund & {
 }
 
 export const depositRefundInclude = {
+  _count: { select: { receivables: true } },
   contract: { select: { id: true, contractCode: true } },
   customer: { select: { id: true, customerCode: true, name: true } },
   room: { select: { id: true, roomCode: true, name: true } },
@@ -66,6 +68,7 @@ export function toDepositRefundDto(row: DepositRefundWithRelations) {
     voucherImage: row.voucherImage,
     voucherAttachment: row.voucherAttachment,
     remark: row.remark,
+    receivableCount: row._count?.receivables ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

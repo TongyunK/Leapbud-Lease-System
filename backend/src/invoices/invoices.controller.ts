@@ -36,6 +36,8 @@ export class InvoicesController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'customerId', required: false })
+  @ApiQuery({ name: 'roomId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
@@ -52,6 +54,8 @@ export class InvoicesController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('contractId') contractId?: string,
+    @Query('customerId') customerId?: string,
+    @Query('roomId') roomId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('status') status?: string,
     @Query('sortBy') sortBy?: string,
@@ -68,6 +72,8 @@ export class InvoicesController {
     return this.invoicesService.findAll({
       keyword,
       contractId,
+      customerId,
+      roomId,
       customerNames: splitCsv(customerNames),
       status,
       sortBy,

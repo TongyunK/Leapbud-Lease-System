@@ -64,6 +64,8 @@ export class ReceivablesService {
     keyword?: string
     invoiceId?: string
     contractId?: string
+    customerId?: string
+    depositRefundId?: string
     customerNames?: string[]
     sortBy?: string
     sortDir?: 'asc' | 'desc'
@@ -103,6 +105,8 @@ export class ReceivablesService {
     keyword?: string
     invoiceId?: string
     contractId?: string
+    customerId?: string
+    depositRefundId?: string
     customerNames?: string[]
     invoiceDateFrom?: string
     invoiceDateTo?: string
@@ -114,6 +118,8 @@ export class ReceivablesService {
     const where: Prisma.ReceivableWhereInput = {}
     if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim()
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
+    if (params.customerId?.trim()) where.customerId = params.customerId.trim()
+    if (params.depositRefundId?.trim()) where.depositRefundId = params.depositRefundId.trim()
     const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
     if (customerNames.length) {
       where.customer = { name: { in: customerNames } }
@@ -159,6 +165,7 @@ export class ReceivablesService {
     if (key === 'receivedAmount') return [{ receivedAmount: dir }]
     if (key === 'receivableAmount') return [{ receivableAmount: dir }]
     if (key === 'depositRefundCode') return [{ depositRefund: { refundCode: dir } }]
+    if (key === 'receiptCount') return [{ receipts: { _count: dir } }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
     if (key === 'createdBy') return [{ createdByUser: { account: dir } }]

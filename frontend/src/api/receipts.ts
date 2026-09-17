@@ -33,6 +33,7 @@ export type ReceiptListQuery = {
   invoiceCodes?: string[]
   receivableCodes?: string[]
   contractId?: string
+  contractIds?: string[]
   invoiceId?: string
   receivableId?: string
   sortBy?: string
@@ -55,6 +56,7 @@ export function fetchReceipts(params?: ReceiptListQuery) {
   if (params?.invoiceCodes?.length) query.invoiceCodes = params.invoiceCodes.join(',')
   if (params?.receivableCodes?.length) query.receivableCodes = params.receivableCodes.join(',')
   if (params?.contractId) query.contractId = params.contractId
+  if (params?.contractIds?.length) query.contractIds = params.contractIds.join(',')
   if (params?.invoiceId) query.invoiceId = params.invoiceId
   if (params?.receivableId) query.receivableId = params.receivableId
   if (params?.sortBy) query.sortBy = params.sortBy

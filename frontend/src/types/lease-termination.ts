@@ -21,6 +21,7 @@ export interface LeaseTerminationRecord {
   remark: string | null
   relatedDepositRefund: string | null
   otherFees: ContractOtherFeeNestedRecord[]
+  otherFeeCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

@@ -213,6 +213,7 @@ export class CustomerRequirementsService {
     if (key === 'windowConfigLabel') {
       return [{ windowConfig: { label: dir } }, { requirementDate: 'desc' }];
     }
+    if (key === 'contractCount') return [{ contracts: { _count: dir } }, { requirementDate: 'desc' }];
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'updatedAt') return [{ updatedAt: dir }];
     return [{ requirementDate: 'desc' }, { createdAt: 'desc' }];

@@ -124,6 +124,7 @@ export class ContractsService {
     statuses?: string[];
     customerId?: string;
     roomId?: string;
+    requirementId?: string;
     roomCodes?: string[];
     customerNames?: string[];
     salesManagers?: string[];
@@ -169,6 +170,7 @@ export class ContractsService {
     statuses?: string[];
     customerId?: string;
     roomId?: string;
+    requirementId?: string;
     roomCodes?: string[];
     customerNames?: string[];
     salesManagers?: string[];
@@ -186,6 +188,7 @@ export class ContractsService {
 
     if (params.customerId?.trim()) where.customerId = params.customerId.trim();
     if (params.roomId?.trim()) where.roomId = params.roomId.trim();
+    if (params.requirementId?.trim()) where.requirementId = params.requirementId.trim();
 
     const statuses = [
       ...new Set(
@@ -272,6 +275,14 @@ export class ContractsService {
     if (key === 'leaseType') return [{ leaseType: dir }];
     if (key === 'monthlyRent') return [{ monthlyRent: dir }];
     if (key === 'paymentCycle') return [{ paymentCycle: dir }];
+    if (key === 'invoiceCount') return [{ invoices: { _count: dir } }];
+    if (key === 'receivableCount') return [{ receivables: { _count: dir } }];
+    if (key === 'receiptCount') return [{ receipts: { _count: dir } }];
+    if (key === 'periodCount') return [{ periods: { _count: dir } }];
+    if (key === 'terminationCount') return [{ terminations: { _count: dir } }];
+    if (key === 'otherFeeCount') return [{ otherFees: { _count: dir } }];
+    if (key === 'depositDeductionCount') return [{ otherFees: { _count: dir } }];
+    if (key === 'depositRefundCount') return [{ depositRefunds: { _count: dir } }];
     if (key === 'createdAt') return [{ createdAt: dir }];
     return [{ startDate: 'desc' }, { createdAt: 'desc' }];
   }

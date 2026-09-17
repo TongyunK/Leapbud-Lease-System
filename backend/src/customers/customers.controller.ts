@@ -35,6 +35,8 @@ export class CustomersController {
   @ApiQuery({ name: 'statuses', required: false, description: 'Comma-separated statuses' })
   @ApiQuery({ name: 'accountManagers', required: false, description: 'Comma-separated manager labels' })
   @ApiQuery({ name: 'buildingNames', required: false, description: 'Comma-separated building names' })
+  @ApiQuery({ name: 'names', required: false, description: 'Comma-separated customer names' })
+  @ApiQuery({ name: 'primaryContacts', required: false, description: 'Comma-separated primary contact names' })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
@@ -48,6 +50,8 @@ export class CustomersController {
     @Query('statuses') statuses?: string,
     @Query('accountManagers') accountManagers?: string,
     @Query('buildingNames') buildingNames?: string,
+    @Query('names') names?: string,
+    @Query('primaryContacts') primaryContacts?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
@@ -61,6 +65,8 @@ export class CustomersController {
       statuses: splitCsv(statuses),
       accountManagers: splitCsv(accountManagers),
       buildingNames: splitCsv(buildingNames),
+      names: splitCsv(names),
+      primaryContacts: splitCsv(primaryContacts),
       sortBy,
       sortDir: parseSortDir(sortDir),
       createdAtFrom,

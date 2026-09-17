@@ -64,6 +64,8 @@ export class ContractOtherFeesService {
     contractId?: string;
     customerNames?: string[];
     terminationId?: string;
+    /** true：仅返回已关联退租的费用（按金扣除） */
+    linkedToTermination?: boolean;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     createdAtFrom?: string;
@@ -99,12 +101,14 @@ export class ContractOtherFeesService {
     contractId?: string;
     customerNames?: string[];
     terminationId?: string;
+    linkedToTermination?: boolean;
     createdAtFrom?: string;
     createdAtTo?: string;
   }): Prisma.ContractOtherFeeWhereInput {
     const where: Prisma.ContractOtherFeeWhereInput = {};
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
     if (params.terminationId?.trim()) where.terminationId = params.terminationId.trim();
+    else if (params.linkedToTermination) where.terminationId = { not: null };
     const customerNames = (params.customerNames || []).map((v) => (v ?? '').trim()).filter(Boolean);
     if (customerNames.length) {
       where.contract = { customer: { name: { in: customerNames } } };

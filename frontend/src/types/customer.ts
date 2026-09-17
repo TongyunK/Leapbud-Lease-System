@@ -37,6 +37,12 @@ export interface CustomerRecord {
   mobilePhone: string
   occupantCount: number
   requirementCount: number
+  contractCount?: number
+  invoiceCount?: number
+  receivableCount?: number
+  receiptCount?: number
+  terminationCount?: number
+  depositRefundCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

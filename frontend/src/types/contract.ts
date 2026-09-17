@@ -44,6 +44,14 @@ export interface ContractRecord {
   attachment: string
   remark: string
   periods: ContractPeriodRecord[]
+  invoiceCount?: number
+  receivableCount?: number
+  receiptCount?: number
+  periodCount?: number
+  terminationCount?: number
+  otherFeeCount?: number
+  depositDeductionCount?: number
+  depositRefundCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

@@ -37,6 +37,15 @@ export type ContractWithRelations = Contract & {
   salesManagerUser?: AuditUserRef | null;
   requirement?: Pick<CustomerRequirement, 'id' | 'requirementCode'> | null;
   periods?: ContractPeriod[];
+  _count?: {
+    invoices?: number;
+    receivables?: number;
+    receipts?: number;
+    periods?: number;
+    terminations?: number;
+    otherFees?: number;
+    depositRefunds?: number;
+  };
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
 };
@@ -59,6 +68,17 @@ export const contractInclude = {
       { sortOrder: 'asc' },
       { startDate: 'asc' },
     ] as Prisma.ContractPeriodOrderByWithRelationInput[],
+  },
+  _count: {
+    select: {
+      invoices: true,
+      receivables: true,
+      receipts: true,
+      periods: true,
+      terminations: true,
+      otherFees: true,
+      depositRefunds: true,
+    },
   },
   ...auditUserInclude,
 };
@@ -112,6 +132,15 @@ export function toContractDto(row: ContractWithRelations) {
     attachment: row.attachment,
     remark: row.remark,
     periods: (row.periods ?? []).map(toContractPeriodDto),
+    invoiceCount: row._count?.invoices ?? 0,
+    receivableCount: row._count?.receivables ?? 0,
+    receiptCount: row._count?.receipts ?? 0,
+    periodCount: row._count?.periods ?? row.periods?.length ?? 0,
+    terminationCount: row._count?.terminations ?? 0,
+    otherFeeCount: row._count?.otherFees ?? 0,
+    // 与「其他费用」同源（contract_other_fees）；退租关联为可选，导入数据常无 terminationId
+    depositDeductionCount: row._count?.otherFees ?? 0,
+    depositRefundCount: row._count?.depositRefunds ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

@@ -42,6 +42,8 @@ export type CustomerListQuery = {
   statuses?: string[]
   accountManagers?: string[]
   buildingNames?: string[]
+  names?: string[]
+  primaryContacts?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   createdAtFrom?: string
@@ -59,6 +61,8 @@ export function fetchCustomers(params?: CustomerListQuery) {
   if (params?.statuses?.length) query.statuses = params.statuses.join(',')
   if (params?.accountManagers?.length) query.accountManagers = params.accountManagers.join(',')
   if (params?.buildingNames?.length) query.buildingNames = params.buildingNames.join(',')
+  if (params?.names?.length) query.names = params.names.join(',')
+  if (params?.primaryContacts?.length) query.primaryContacts = params.primaryContacts.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom

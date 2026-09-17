@@ -28,6 +28,9 @@ export type InvoiceWritePayload = {
 export type InvoiceListQuery = {
   keyword?: string
   contractId?: string
+  contractIds?: string[]
+  customerId?: string
+  roomId?: string
   customerNames?: string[]
   status?: string
   sortBy?: string
@@ -46,6 +49,9 @@ export function fetchInvoices(params?: InvoiceListQuery) {
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.contractId) query.contractId = params.contractId
+  if (params?.contractIds?.length) query.contractIds = params.contractIds.join(',')
+  if (params?.customerId) query.customerId = params.customerId
+  if (params?.roomId) query.roomId = params.roomId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.status) query.status = params.status
   if (params?.sortBy) query.sortBy = params.sortBy

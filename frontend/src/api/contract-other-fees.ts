@@ -22,6 +22,7 @@ export type ContractOtherFeeListQuery = {
   contractId?: string
   customerNames?: string[]
   terminationId?: string
+  linkedToTermination?: boolean
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   createdAtFrom?: string
@@ -36,6 +37,7 @@ export function fetchContractOtherFees(params?: ContractOtherFeeListQuery) {
   if (params?.contractId) query.contractId = params.contractId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.terminationId) query.terminationId = params.terminationId
+  if (params?.linkedToTermination) query.linkedToTermination = 'true'
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom

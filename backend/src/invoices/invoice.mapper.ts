@@ -34,6 +34,11 @@ export type InvoiceServiceDetailRow = InvoiceServiceDetail & {
 }
 
 export type InvoiceWithRelations = Invoice & {
+  _count?: {
+    receivables: number
+    receipts: number
+    serviceDetails: number
+  }
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
   room?: Pick<Room, 'id' | 'roomCode' | 'name'> | null
@@ -44,6 +49,13 @@ export type InvoiceWithRelations = Invoice & {
 }
 
 export const invoiceInclude = {
+  _count: {
+    select: {
+      receivables: true,
+      receipts: true,
+      serviceDetails: true,
+    },
+  },
   contract: { select: { id: true, contractCode: true } },
   customer: { select: { id: true, customerCode: true, name: true } },
   room: { select: { id: true, roomCode: true, name: true } },
@@ -109,6 +121,9 @@ export function toInvoiceDto(row: InvoiceWithRelations) {
     shortTermRentalCode: row.shortTermRentalCode,
     remark: row.remark,
     serviceDetails: (row.serviceDetails ?? []).map(toInvoiceServiceDetailDto),
+    receivableCount: row._count?.receivables ?? 0,
+    receiptCount: row._count?.receipts ?? 0,
+    serviceDetailCount: row._count?.serviceDetails ?? row.serviceDetails?.length ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

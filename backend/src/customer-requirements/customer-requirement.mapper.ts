@@ -23,6 +23,7 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
 type ConfigLite = Pick<RoomConfigOption, 'id' | 'label' | 'type'>;
 
 export type CustomerRequirementWithRelations = CustomerRequirement & {
+  _count?: { contracts: number };
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null;
   salesManagerUser?: AuditUserRef | null;
   sizeConfig?: ConfigLite | null;
@@ -35,6 +36,7 @@ export type CustomerRequirementWithRelations = CustomerRequirement & {
 const configSelect = { id: true, label: true, type: true } as const;
 
 export const customerRequirementInclude = {
+  _count: { select: { contracts: true } },
   customer: { select: { id: true, customerCode: true, name: true } },
   salesManagerUser: { select: auditUserSelect },
   sizeConfig: { select: configSelect },
@@ -65,6 +67,7 @@ export function toCustomerRequirementDto(row: CustomerRequirementWithRelations) 
     acConfigLabel: row.acConfig?.label ?? '',
     windowConfigId: row.windowConfigId,
     windowConfigLabel: row.windowConfig?.label ?? '',
+    contractCount: row._count?.contracts ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

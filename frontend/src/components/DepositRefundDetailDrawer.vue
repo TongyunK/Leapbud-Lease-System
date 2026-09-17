@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { depositRefundStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -26,6 +27,7 @@ const emit = defineEmits<{
   openContract: [contractId: string]
   openCustomer: [customerId: string]
   openRoom: [roomId: string]
+  openReceivables: [row: DepositRefundRecord]
 }>()
 
 const { t } = useI18n()
@@ -152,6 +154,21 @@ function statusLabel(status: string) {
           <div class="full">
             <dt>{{ t('depositRefund.fields.remark') }}</dt>
             <dd>{{ dash(record.remark) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+            <section class="detail-section">
+        <h3>{{ t('depositRefund.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('depositRefund.fields.receivableCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="record.receivableCount ?? 0"
+                @click="() => { if (record?.receivableCount) emit('openReceivables', record) }"
+              />
+            </dd>
           </div>
         </dl>
       </section>

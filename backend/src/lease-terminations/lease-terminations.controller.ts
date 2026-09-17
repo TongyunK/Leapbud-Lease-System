@@ -36,6 +36,8 @@ export class LeaseTerminationsController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'customerId', required: false })
+  @ApiQuery({ name: 'roomId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
@@ -49,6 +51,8 @@ export class LeaseTerminationsController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('contractId') contractId?: string,
+    @Query('customerId') customerId?: string,
+    @Query('roomId') roomId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
@@ -62,6 +66,8 @@ export class LeaseTerminationsController {
     return this.leaseTerminationsService.findAll({
       keyword,
       contractId,
+      customerId,
+      roomId,
       customerNames: splitCsv(customerNames),
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,

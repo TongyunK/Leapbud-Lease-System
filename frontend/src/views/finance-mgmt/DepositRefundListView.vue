@@ -28,6 +28,10 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
+import CountListPill from '@/components/CountListPill.vue'
+import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
+import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
+import type { ReceivableRecord } from '@/types/receivable'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -72,6 +76,10 @@ const contracts = ref<ContractRecord[]>([])
 const users = ref<UserRecord[]>([])
 
 const drawerVisible = ref(false)
+const relatedReceivablesDrawer = ref(false)
+const relatedListRefund = ref<DepositRefundRecord | null>(null)
+const relatedReceivable = ref<ReceivableRecord | null>(null)
+const receivableDetailDrawer = ref(false)
 const current = ref<DepositRefundRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const contractDrawerVisible = ref(false)
@@ -377,6 +385,16 @@ async function openDetail(row: DepositRefundRecord, direction: 'ltr' | 'rtl' = '
   } catch {
     /* interceptor */
   }
+}
+
+function openReceivablesSide(row: DepositRefundRecord) {
+  if (!row.receivableCount) return
+  relatedListRefund.value = row
+  relatedReceivablesDrawer.value = true
+}
+function onOpenReceivableFromRelated(row: ReceivableRecord) {
+  relatedReceivable.value = row
+  receivableDetailDrawer.value = true
 }
 
 function onRowClick(row: DepositRefundRecord, column: { type?: string } | undefined, event: Event) {
@@ -887,6 +905,22 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.remark || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('depositRefund.fields.receivableCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('depositRefund.fields.receivableCount')"
+                sortable
+                :sort-order="sortOrderOf('receivableCount')"
+                @update:sort-order="(v) => setSort('receivableCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.receivableCount ?? 0" @click="openReceivablesSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="auditUserColWidth"
             show-overflow-tooltip
           >
@@ -980,7 +1014,17 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+    
+      @open-receivables="openReceivablesSide"
     />
+    <RelatedReceivablesDrawer
+      v-model="relatedReceivablesDrawer"
+      :deposit-refund-id="relatedListRefund?.id"
+      :title-context="relatedListRefund?.refundCode || ''"
+      desktop-direction="ltr"
+      @open-receivable="onOpenReceivableFromRelated"
+    />
+    <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
     <ContractDetailDrawer
       v-model="contractDrawerVisible"
       :contract="currentContract"

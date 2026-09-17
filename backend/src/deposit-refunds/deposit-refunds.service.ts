@@ -54,6 +54,8 @@ export class DepositRefundsService {
   async findAll(params: {
     keyword?: string
     contractId?: string
+    customerId?: string
+    roomId?: string
     customerNames?: string[]
     status?: string
     sortBy?: string
@@ -93,6 +95,8 @@ export class DepositRefundsService {
   private buildListWhere(params: {
     keyword?: string
     contractId?: string
+    customerId?: string
+    roomId?: string
     customerNames?: string[]
     status?: string
     terminationDateFrom?: string
@@ -104,6 +108,8 @@ export class DepositRefundsService {
   }): Prisma.DepositRefundWhereInput {
     const where: Prisma.DepositRefundWhereInput = {}
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
+    if (params.customerId?.trim()) where.customerId = params.customerId.trim()
+    if (params.roomId?.trim()) where.roomId = params.roomId.trim()
     if (params.status?.trim()) where.status = params.status.trim()
     const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
     if (customerNames.length) {
@@ -150,6 +156,7 @@ export class DepositRefundsService {
     if (key === 'totalDeposit') return [{ totalDeposit: dir }]
     if (key === 'actualRefundAmount') return [{ actualRefundAmount: dir }]
     if (key === 'handler') return [{ handlerUser: { account: dir } }]
+    if (key === 'receivableCount') return [{ receivables: { _count: dir } }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
     if (key === 'createdBy') return [{ createdByUser: { account: dir } }]

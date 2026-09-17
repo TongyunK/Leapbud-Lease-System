@@ -37,6 +37,7 @@ type ContractLite = Pick<Contract, 'id' | 'contractCode' | 'customerId' | 'roomI
 export type ContractOtherFeeRow = ContractOtherFee;
 
 export type LeaseTerminationWithRelations = LeaseTermination & {
+  _count?: { otherFees: number };
   contract?: ContractLite | null;
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null;
   room?: (Pick<Room, 'id' | 'roomCode' | 'name'> & {
@@ -48,6 +49,7 @@ export type LeaseTerminationWithRelations = LeaseTermination & {
 };
 
 export const leaseTerminationInclude = {
+  _count: { select: { otherFees: true } },
   contract: {
     select: {
       id: true,
@@ -121,6 +123,7 @@ export function toLeaseTerminationListDto(row: LeaseTerminationWithRelations) {
     remark: row.remark,
     relatedDepositRefund: row.relatedDepositRefund,
     otherFees: (row.otherFees ?? []).map(toContractOtherFeeDto),
+    otherFeeCount: row._count?.otherFees ?? row.otherFees?.length ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

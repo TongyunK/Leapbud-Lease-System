@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { ContractRecord } from '@/types/contract'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { contractStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -27,6 +28,14 @@ const emit = defineEmits<{
   openRoom: [roomId: string]
   openBuilding: [buildingId: string]
   openRequirement: [requirementId: string]
+  openInvoices: [contract: ContractRecord]
+  openReceivables: [contract: ContractRecord]
+  openReceipts: [contract: ContractRecord]
+  openPeriods: [contract: ContractRecord]
+  openTerminations: [contract: ContractRecord]
+  openOtherFees: [contract: ContractRecord]
+  openDepositDeductions: [contract: ContractRecord]
+  openDepositRefunds: [contract: ContractRecord]
 }>()
 
 const { t } = useI18n()
@@ -45,6 +54,23 @@ function money(v: number | null | undefined) {
 
 function statusLabel(status: string) {
   return t(`contract.status.${status}`, status)
+}
+
+function emitIfCount(
+  count: number | undefined,
+  event:
+    | 'openInvoices'
+    | 'openReceivables'
+    | 'openReceipts'
+    | 'openPeriods'
+    | 'openTerminations'
+    | 'openOtherFees'
+    | 'openDepositDeductions'
+    | 'openDepositRefunds',
+) {
+  const c = props.contract
+  if (!c || !count) return
+  emit(event, c)
 }
 </script>
 
@@ -227,6 +253,84 @@ function statusLabel(status: string) {
           <div class="full">
             <dt>{{ t('contract.fields.remark') }}</dt>
             <dd>{{ dash(contract.remark) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="detail-section">
+        <h3>{{ t('contract.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('contract.fields.invoiceCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.invoiceCount ?? 0"
+                @click="emitIfCount(contract.invoiceCount, 'openInvoices')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.receivableCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.receivableCount ?? 0"
+                @click="emitIfCount(contract.receivableCount, 'openReceivables')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.receiptCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.receiptCount ?? 0"
+                @click="emitIfCount(contract.receiptCount, 'openReceipts')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.periodCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.periodCount ?? 0"
+                @click="emitIfCount(contract.periodCount, 'openPeriods')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.terminationCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.terminationCount ?? 0"
+                @click="emitIfCount(contract.terminationCount, 'openTerminations')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.otherFeeCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.otherFeeCount ?? 0"
+                @click="emitIfCount(contract.otherFeeCount, 'openOtherFees')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.depositDeductionCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.depositDeductionCount ?? 0"
+                @click="emitIfCount(contract.depositDeductionCount, 'openDepositDeductions')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.depositRefundCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="contract.depositRefundCount ?? 0"
+                @click="emitIfCount(contract.depositRefundCount, 'openDepositRefunds')"
+              />
+            </dd>
           </div>
         </dl>
       </section>

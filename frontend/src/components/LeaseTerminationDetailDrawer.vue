@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import { formatMoney } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   openContract: [contractId: string]
   openCustomer: [customerId: string]
   openRoom: [roomId: string]
+  openOtherFees: [row: LeaseTerminationRecord]
 }>()
 
 const { t } = useI18n()
@@ -144,6 +146,21 @@ function money(v: number | null | undefined) {
             <span>{{ money(fee.subtotal ?? fee.quantity * fee.unitAmount) }}</span>
           </div>
         </div>
+      </section>
+
+            <section class="detail-section">
+        <h3>{{ t('leaseTermination.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('leaseTermination.fields.otherFeeCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="termination.otherFeeCount ?? 0"
+                @click="() => { if (termination?.otherFeeCount) emit('openOtherFees', termination) }"
+              />
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <AuditDetailSection

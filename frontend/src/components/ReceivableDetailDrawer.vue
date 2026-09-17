@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { ReceivableRecord } from '@/types/receivable'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import { formatMoney } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   openContract: [contractId: string]
   openCustomer: [customerId: string]
   openDepositRefund: [depositRefundId: string]
+  openReceipts: [row: ReceivableRecord]
 }>()
 
 const { t } = useI18n()
@@ -147,6 +149,21 @@ function money(v: number | null | undefined) {
           <div class="full">
             <dt>{{ t('receivable.fields.remark') }}</dt>
             <dd>{{ dash(record.remark) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+            <section class="detail-section">
+        <h3>{{ t('receivable.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('receivable.fields.receiptCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="record.receiptCount ?? 0"
+                @click="() => { if (record?.receiptCount) emit('openReceipts', record) }"
+              />
+            </dd>
           </div>
         </dl>
       </section>

@@ -22,7 +22,16 @@ export type PrimaryOccupantRef = Pick<
 >;
 
 export type CustomerWithRelations = Customer & {
-  _count?: { occupants: number; requirements: number };
+  _count?: {
+    occupants: number;
+    requirements: number;
+    contracts: number;
+    invoices: number;
+    receivables: number;
+    receipts: number;
+    leaseTerminations: number;
+    depositRefunds: number;
+  };
   building?: Pick<Building, 'id' | 'name'> | null;
   accountManagerUser?: AuditUserRef | null;
   primaryOccupant?: Partial<PrimaryOccupantRef> & Pick<Occupant, 'id' | 'name'> | null;
@@ -60,8 +69,20 @@ const primaryOccupantListSelect = {
   email: true,
 } as const;
 
+/** 客户关联子表计数（列表/详情共用） */
+const customerCountSelect = {
+  occupants: true,
+  requirements: true,
+  contracts: true,
+  invoices: true,
+  receivables: true,
+  receipts: true,
+  leaseTerminations: true,
+  depositRefunds: true,
+} as const;
+
 const customerInclude = {
-  _count: { select: { occupants: true, requirements: true } },
+  _count: { select: customerCountSelect },
   building: { select: { id: true, name: true } },
   accountManagerUser: { select: auditUserSelect },
   primaryOccupant: { select: primaryOccupantSelect },
@@ -69,7 +90,7 @@ const customerInclude = {
 } as const;
 
 const customerListInclude = {
-  _count: { select: { occupants: true, requirements: true } },
+  _count: { select: customerCountSelect },
   building: { select: { id: true, name: true } },
   accountManagerUser: { select: auditUserSelect },
   primaryOccupant: { select: primaryOccupantListSelect },
@@ -166,6 +187,12 @@ export function toCustomerDto(row: CustomerWithRelations) {
     mobilePhone: primaryOccupant?.mobilePhone ?? '',
     occupantCount: row._count?.occupants ?? 0,
     requirementCount: row._count?.requirements ?? 0,
+    contractCount: row._count?.contracts ?? 0,
+    invoiceCount: row._count?.invoices ?? 0,
+    receivableCount: row._count?.receivables ?? 0,
+    receiptCount: row._count?.receipts ?? 0,
+    terminationCount: row._count?.leaseTerminations ?? 0,
+    depositRefundCount: row._count?.depositRefunds ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

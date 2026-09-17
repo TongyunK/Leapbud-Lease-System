@@ -21,6 +21,7 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
 }
 
 export type ReceivableWithRelations = Receivable & {
+  _count?: { receipts: number }
   invoice?: Pick<Invoice, 'id' | 'invoiceCode'> | null
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
@@ -30,6 +31,7 @@ export type ReceivableWithRelations = Receivable & {
 }
 
 export const receivableInclude = {
+  _count: { select: { receipts: true } },
   invoice: { select: { id: true, invoiceCode: true } },
   contract: { select: { id: true, contractCode: true } },
   customer: { select: { id: true, customerCode: true, name: true } },
@@ -57,6 +59,7 @@ export function toReceivableDto(row: ReceivableWithRelations) {
     relatedReceiptRef: row.relatedReceiptRef,
     depositRefundId: row.depositRefundId,
     depositRefundCode: row.depositRefund?.refundCode ?? '',
+    receiptCount: row._count?.receipts ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

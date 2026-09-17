@@ -20,6 +20,13 @@ import { fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
 import type { ContractPeriodRecord, ContractRecord } from '@/types/contract'
+import type { InvoiceRecord } from '@/types/invoice'
+import type { ReceivableRecord } from '@/types/receivable'
+import type { ReceiptRecord } from '@/types/receipt'
+import type { ContractPeriodListRecord } from '@/types/contract-period'
+import type { LeaseTerminationRecord } from '@/types/lease-termination'
+import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
+import type { DepositRefundRecord } from '@/types/deposit-refund'
 import {
   CONTRACT_PAYMENT_CYCLES,
   CONTRACT_PERIOD_UNITS,
@@ -40,7 +47,22 @@ import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
+import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
+import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
+import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
+import ContractPeriodDetailDrawer from '@/components/ContractPeriodDetailDrawer.vue'
+import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
+import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
+import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
+import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
+import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
+import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
+import RelatedPeriodsDrawer from '@/components/RelatedPeriodsDrawer.vue'
+import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
+import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
+import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -93,6 +115,40 @@ const drawerVisible = ref(false)
 const current = ref<ContractRecord | null>(null)
 const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
+
+// 相关记录抽屉
+const invoiceDrawerVisible = ref(false)
+const receivableDrawerVisible = ref(false)
+const receiptDrawerVisible = ref(false)
+const periodDrawerVisible = ref(false)
+const terminationDrawerVisible = ref(false)
+const otherFeeDrawerVisible = ref(false)
+const depositDeductionDrawerVisible = ref(false)
+const depositRefundDrawerVisible = ref(false)
+const relatedInvoicesDrawerVisible = ref(false)
+const relatedReceivablesDrawerVisible = ref(false)
+const relatedReceiptsDrawerVisible = ref(false)
+const relatedPeriodsDrawerVisible = ref(false)
+const relatedTerminationsDrawerVisible = ref(false)
+const relatedOtherFeesDrawerVisible = ref(false)
+const relatedDepositDeductionsDrawerVisible = ref(false)
+const relatedDepositRefundsDrawerVisible = ref(false)
+const currentInvoice = ref<InvoiceRecord | null>(null)
+const currentReceivable = ref<ReceivableRecord | null>(null)
+const currentReceipt = ref<ReceiptRecord | null>(null)
+const currentPeriod = ref<ContractPeriodListRecord | null>(null)
+const currentTermination = ref<LeaseTerminationRecord | null>(null)
+const currentOtherFee = ref<ContractOtherFeeRecord | null>(null)
+const currentDepositDeduction = ref<ContractOtherFeeRecord | null>(null)
+const currentDepositRefund = ref<DepositRefundRecord | null>(null)
+const relatedInvoicesContract = ref<ContractRecord | null>(null)
+const relatedReceivablesContract = ref<ContractRecord | null>(null)
+const relatedReceiptsContract = ref<ContractRecord | null>(null)
+const relatedPeriodsContract = ref<ContractRecord | null>(null)
+const relatedTerminationsContract = ref<ContractRecord | null>(null)
+const relatedOtherFeesContract = ref<ContractRecord | null>(null)
+const relatedDepositDeductionsContract = ref<ContractRecord | null>(null)
+const relatedDepositRefundsContract = ref<ContractRecord | null>(null)
 
 const {
   filters,
@@ -785,6 +841,127 @@ async function openBuildingSide(buildingId?: string | null) {
 async function openRequirementSide(requirementId?: string | null) {
   await relationDrawers.value?.openRequirementSide(requirementId)
 }
+
+async function openInvoiceDetail(invoiceId: string) {
+  try {
+    const { fetchInvoice } = await import('@/api/invoices')
+    const { data } = await fetchInvoice(invoiceId)
+    currentInvoice.value = data
+    invoiceDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+async function openReceivableDetail(receivableId: string) {
+  try {
+    const { fetchReceivable } = await import('@/api/receivables')
+    const { data } = await fetchReceivable(receivableId)
+    currentReceivable.value = data
+    receivableDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+async function openReceiptDetail(receiptId: string) {
+  try {
+    const { fetchReceipt } = await import('@/api/receipts')
+    const { data } = await fetchReceipt(receiptId)
+    currentReceipt.value = data
+    receiptDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function openInvoicesList(row: ContractRecord) {
+  if (!row.invoiceCount) return
+  relatedInvoicesContract.value = row
+  relatedInvoicesDrawerVisible.value = true
+}
+
+function openReceivablesList(row: ContractRecord) {
+  if (!row.receivableCount) return
+  relatedReceivablesContract.value = row
+  relatedReceivablesDrawerVisible.value = true
+}
+
+function openReceiptsList(row: ContractRecord) {
+  if (!row.receiptCount) return
+  relatedReceiptsContract.value = row
+  relatedReceiptsDrawerVisible.value = true
+}
+
+function openPeriodsList(row: ContractRecord) {
+  if (!row.periodCount) return
+  relatedPeriodsContract.value = row
+  relatedPeriodsDrawerVisible.value = true
+}
+
+function openTerminationsList(row: ContractRecord) {
+  if (!row.terminationCount) return
+  relatedTerminationsContract.value = row
+  relatedTerminationsDrawerVisible.value = true
+}
+
+function openOtherFeesList(row: ContractRecord) {
+  if (!row.otherFeeCount) return
+  relatedOtherFeesContract.value = row
+  relatedOtherFeesDrawerVisible.value = true
+}
+
+function openDepositDeductionsList(row: ContractRecord) {
+  if (!row.depositDeductionCount) return
+  relatedDepositDeductionsContract.value = row
+  relatedDepositDeductionsDrawerVisible.value = true
+}
+
+function openDepositRefundsList(row: ContractRecord) {
+  if (!row.depositRefundCount) return
+  relatedDepositRefundsContract.value = row
+  relatedDepositRefundsDrawerVisible.value = true
+}
+
+function onOpenInvoiceFromList(invoice: InvoiceRecord) {
+  currentInvoice.value = invoice
+  invoiceDrawerVisible.value = true
+}
+
+function onOpenReceivableFromList(receivable: ReceivableRecord) {
+  currentReceivable.value = receivable
+  receivableDrawerVisible.value = true
+}
+
+function onOpenReceiptFromList(receipt: ReceiptRecord) {
+  currentReceipt.value = receipt
+  receiptDrawerVisible.value = true
+}
+
+function onOpenPeriodFromList(period: ContractPeriodListRecord) {
+  currentPeriod.value = period
+  periodDrawerVisible.value = true
+}
+
+function onOpenTerminationFromList(termination: LeaseTerminationRecord) {
+  currentTermination.value = termination
+  terminationDrawerVisible.value = true
+}
+
+function onOpenOtherFeeFromList(fee: ContractOtherFeeRecord) {
+  currentOtherFee.value = fee
+  otherFeeDrawerVisible.value = true
+}
+
+function onOpenDepositDeductionFromList(fee: ContractOtherFeeRecord) {
+  currentDepositDeduction.value = fee
+  depositDeductionDrawerVisible.value = true
+}
+
+function onOpenDepositRefundFromList(record: DepositRefundRecord) {
+  currentDepositRefund.value = record
+  depositRefundDrawerVisible.value = true
+}
 </script>
 
 <template>
@@ -1085,6 +1262,149 @@ async function openRequirementSide(requirementId?: string | null) {
             <template #default="{ row }">{{ row.paymentCycle || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('contract.fields.invoiceCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.invoiceCount')"
+                sortable
+                :sort-order="sortOrderOf('invoiceCount')"
+                @update:sort-order="(v) => setSort('invoiceCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.invoiceCount ?? 0"
+                @click="openInvoicesList(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.receivableCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.receivableCount')"
+                sortable
+                :sort-order="sortOrderOf('receivableCount')"
+                @update:sort-order="(v) => setSort('receivableCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.receivableCount ?? 0"
+                @click="openReceivablesList(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.receiptCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.receiptCount')"
+                sortable
+                :sort-order="sortOrderOf('receiptCount')"
+                @update:sort-order="(v) => setSort('receiptCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.receiptCount ?? 0"
+                @click="openReceiptsList(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.periodCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.periodCount')"
+                sortable
+                :sort-order="sortOrderOf('periodCount')"
+                @update:sort-order="(v) => setSort('periodCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.periodCount ?? 0" @click="openPeriodsList(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.terminationCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.terminationCount')"
+                sortable
+                :sort-order="sortOrderOf('terminationCount')"
+                @update:sort-order="(v) => setSort('terminationCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.terminationCount ?? 0" @click="openTerminationsList(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.otherFeeCount'), { interactive: true, contentMin: 88 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.otherFeeCount')"
+                sortable
+                :sort-order="sortOrderOf('otherFeeCount')"
+                @update:sort-order="(v) => setSort('otherFeeCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.otherFeeCount ?? 0" @click="openOtherFeesList(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.depositDeductionCount'), { interactive: true, contentMin: 88 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.depositDeductionCount')"
+                sortable
+                :sort-order="sortOrderOf('depositDeductionCount')"
+                @update:sort-order="(v) => setSort('depositDeductionCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.depositDeductionCount ?? 0"
+                @click="openDepositDeductionsList(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.depositRefundCount'), { interactive: true, contentMin: 88 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.depositRefundCount')"
+                sortable
+                :sort-order="sortOrderOf('depositRefundCount')"
+                @update:sort-order="(v) => setSort('depositRefundCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.depositRefundCount ?? 0"
+                @click="openDepositRefundsList(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             prop="createdBy"
             :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
@@ -1171,8 +1491,109 @@ async function openRequirementSide(requirementId?: string | null) {
       @open-room="(id) => openRoomSide(id, 'ltr')"
       @open-building="openBuildingSide"
       @open-requirement="openRequirementSide"
+      @open-invoices="openInvoicesList"
+      @open-receivables="openReceivablesList"
+      @open-receipts="openReceiptsList"
+      @open-periods="openPeriodsList"
+      @open-terminations="openTerminationsList"
+      @open-other-fees="openOtherFeesList"
+      @open-deposit-deductions="openDepositDeductionsList"
+      @open-deposit-refunds="openDepositRefundsList"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
+
+    <RelatedInvoicesDrawer
+      v-model="relatedInvoicesDrawerVisible"
+      :contract="relatedInvoicesContract"
+      desktop-direction="ltr"
+      @open-invoice="onOpenInvoiceFromList"
+    />
+    <RelatedReceivablesDrawer
+      v-model="relatedReceivablesDrawerVisible"
+      :contract="relatedReceivablesContract"
+      desktop-direction="ltr"
+      @open-receivable="onOpenReceivableFromList"
+    />
+    <RelatedReceiptsDrawer
+      v-model="relatedReceiptsDrawerVisible"
+      :contract="relatedReceiptsContract"
+      desktop-direction="ltr"
+      @open-receipt="onOpenReceiptFromList"
+    />
+    <RelatedPeriodsDrawer
+      v-model="relatedPeriodsDrawerVisible"
+      :contract="relatedPeriodsContract"
+      desktop-direction="ltr"
+      @open-period="onOpenPeriodFromList"
+    />
+    <RelatedTerminationsDrawer
+      v-model="relatedTerminationsDrawerVisible"
+      :contract="relatedTerminationsContract"
+      desktop-direction="ltr"
+      @open-termination="onOpenTerminationFromList"
+    />
+    <RelatedOtherFeesDrawer
+      v-model="relatedOtherFeesDrawerVisible"
+      :contract="relatedOtherFeesContract"
+      desktop-direction="ltr"
+      @open-fee="onOpenOtherFeeFromList"
+    />
+    <RelatedOtherFeesDrawer
+      v-model="relatedDepositDeductionsDrawerVisible"
+      :contract="relatedDepositDeductionsContract"
+      mode="depositDeduction"
+      desktop-direction="ltr"
+      @open-fee="onOpenDepositDeductionFromList"
+    />
+    <RelatedDepositRefundsDrawer
+      v-model="relatedDepositRefundsDrawerVisible"
+      :contract="relatedDepositRefundsContract"
+      desktop-direction="ltr"
+      @open-deposit-refund="onOpenDepositRefundFromList"
+    />
+
+    <InvoiceDetailDrawer
+      v-model="invoiceDrawerVisible"
+      :invoice="currentInvoice"
+      desktop-direction="ltr"
+    />
+    <ReceivableDetailDrawer
+      v-model="receivableDrawerVisible"
+      :receivable="currentReceivable"
+      desktop-direction="ltr"
+    />
+    <ReceiptDetailDrawer
+      v-model="receiptDrawerVisible"
+      :receipt="currentReceipt"
+      desktop-direction="ltr"
+    />
+    <ContractPeriodDetailDrawer
+      v-model="periodDrawerVisible"
+      :period="currentPeriod"
+      desktop-direction="ltr"
+    />
+    <LeaseTerminationDetailDrawer
+      v-model="terminationDrawerVisible"
+      :termination="currentTermination"
+      desktop-direction="ltr"
+    />
+    <ContractOtherFeeDetailDrawer
+      v-model="otherFeeDrawerVisible"
+      :fee="currentOtherFee"
+      i18n-ns="contractOtherFee"
+      desktop-direction="ltr"
+    />
+    <ContractOtherFeeDetailDrawer
+      v-model="depositDeductionDrawerVisible"
+      :fee="currentDepositDeduction"
+      i18n-ns="depositDeduction"
+      desktop-direction="ltr"
+    />
+    <DepositRefundDetailDrawer
+      v-model="depositRefundDrawerVisible"
+      :record="currentDepositRefund"
+      desktop-direction="ltr"
+    />
 
     <el-dialog
       v-model="formVisible"

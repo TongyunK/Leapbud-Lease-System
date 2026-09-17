@@ -115,6 +115,8 @@ export class CustomersService {
     statuses?: string[];
     accountManagers?: string[];
     buildingNames?: string[];
+    names?: string[];
+    primaryContacts?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     createdAtFrom?: string;
@@ -150,6 +152,8 @@ export class CustomersService {
     statuses?: string[];
     accountManagers?: string[];
     buildingNames?: string[];
+    names?: string[];
+    primaryContacts?: string[];
     createdAtFrom?: string;
     createdAtTo?: string;
   }): Prisma.CustomerWhereInput {
@@ -174,6 +178,18 @@ export class CustomersService {
     const buildingNames = (params.buildingNames || []).map((v) => s(v)).filter(Boolean);
     if (buildingNames.length) {
       and.push({ building: { name: { in: buildingNames } } });
+    }
+
+    const names = (params.names || []).map((v) => s(v)).filter(Boolean);
+    if (names.length === 1) {
+      and.push({ name: names[0] });
+    } else if (names.length > 1) {
+      and.push({ name: { in: names } });
+    }
+
+    const primaryContacts = (params.primaryContacts || []).map((v) => s(v)).filter(Boolean);
+    if (primaryContacts.length) {
+      and.push({ primaryOccupant: { name: { in: primaryContacts } } });
     }
 
     const keyword = params.keyword?.trim();
@@ -223,9 +239,24 @@ export class CustomersService {
     if (key === 'buildingName') {
       return [{ building: { name: dir } }, { customerCode: 'asc' }];
     }
+    if (key === 'primaryContact') {
+      return [{ primaryOccupant: { name: dir } }, { customerCode: 'asc' }];
+    }
     if (key === 'occupantCount') return [{ occupants: { _count: dir } }, { customerCode: 'asc' }];
     if (key === 'requirementCount') {
       return [{ requirements: { _count: dir } }, { customerCode: 'asc' }];
+    }
+    if (key === 'contractCount') return [{ contracts: { _count: dir } }, { customerCode: 'asc' }];
+    if (key === 'invoiceCount') return [{ invoices: { _count: dir } }, { customerCode: 'asc' }];
+    if (key === 'receivableCount') {
+      return [{ receivables: { _count: dir } }, { customerCode: 'asc' }];
+    }
+    if (key === 'receiptCount') return [{ receipts: { _count: dir } }, { customerCode: 'asc' }];
+    if (key === 'terminationCount') {
+      return [{ leaseTerminations: { _count: dir } }, { customerCode: 'asc' }];
+    }
+    if (key === 'depositRefundCount') {
+      return [{ depositRefunds: { _count: dir } }, { customerCode: 'asc' }];
     }
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'updatedAt') return [{ updatedAt: dir }];

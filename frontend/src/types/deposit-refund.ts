@@ -19,6 +19,7 @@ export interface DepositRefundRecord {
   voucherImage: string | null
   voucherAttachment: string | null
   remark: string | null
+  receivableCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

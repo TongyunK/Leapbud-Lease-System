@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { InvoiceRecord } from '@/types/invoice'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { invoiceStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -26,6 +27,8 @@ const emit = defineEmits<{
   openContract: [contractId: string]
   openCustomer: [customerId: string]
   openRoom: [roomId: string]
+  openReceivables: [row: InvoiceRecord]
+  openReceipts: [row: InvoiceRecord]
 }>()
 
 const { t } = useI18n()
@@ -200,6 +203,30 @@ function typeLabel(type: string) {
             <span>{{ money(fee.subtotal ?? (Number(fee.quantity) || 0) * (Number(fee.unitAmount) || 0)) }}</span>
           </div>
         </div>
+      </section>
+
+            <section class="detail-section">
+        <h3>{{ t('invoice.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('invoice.fields.receivableCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="record.receivableCount ?? 0"
+                @click="() => { if (record?.receivableCount) emit('openReceivables', record) }"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('invoice.fields.receiptCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="record.receiptCount ?? 0"
+                @click="() => { if (record?.receiptCount) emit('openReceipts', record) }"
+              />
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <AuditDetailSection

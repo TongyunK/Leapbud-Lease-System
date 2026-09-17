@@ -25,6 +25,12 @@ const props = withDefaults(
 const emit = defineEmits<{
   openOccupants: [customer: CustomerRecord]
   openRequirements: [customer: CustomerRecord]
+  openContracts: [customer: CustomerRecord]
+  openInvoices: [customer: CustomerRecord]
+  openReceivables: [customer: CustomerRecord]
+  openReceipts: [customer: CustomerRecord]
+  openTerminations: [customer: CustomerRecord]
+  openDepositRefunds: [customer: CustomerRecord]
   openBuilding: [buildingId: string]
 }>()
 
@@ -44,16 +50,21 @@ function dash(v?: string | null) {
   return v?.trim() ? v : '—'
 }
 
-function onOccupantCountClick() {
+function emitIfCount(
+  count: number | undefined | null,
+  event:
+    | 'openOccupants'
+    | 'openRequirements'
+    | 'openContracts'
+    | 'openInvoices'
+    | 'openReceivables'
+    | 'openReceipts'
+    | 'openTerminations'
+    | 'openDepositRefunds',
+) {
   const c = props.customer
-  if (!c?.occupantCount) return
-  emit('openOccupants', c)
-}
-
-function onRequirementCountClick() {
-  const c = props.customer
-  if (!c?.requirementCount) return
-  emit('openRequirements', c)
+  if (!c || !count) return
+  emit(event, c)
 }
 </script>
 
@@ -108,12 +119,18 @@ function onRequirementCountClick() {
               <template v-else>{{ dash(customer.buildingName) }}</template>
             </dd>
           </div>
+        </dl>
+      </section>
+
+      <section class="detail-section">
+        <h3>{{ t('customer.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
           <div>
             <dt>{{ t('customer.fields.occupantCount') }}</dt>
             <dd>
               <CountListPill
                 :count="customer.occupantCount ?? 0"
-                @click="onOccupantCountClick"
+                @click="emitIfCount(customer.occupantCount, 'openOccupants')"
               />
             </dd>
           </div>
@@ -122,7 +139,61 @@ function onRequirementCountClick() {
             <dd>
               <CountListPill
                 :count="customer.requirementCount ?? 0"
-                @click="onRequirementCountClick"
+                @click="emitIfCount(customer.requirementCount, 'openRequirements')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.contractCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.contractCount ?? 0"
+                @click="emitIfCount(customer.contractCount, 'openContracts')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.invoiceCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.invoiceCount ?? 0"
+                @click="emitIfCount(customer.invoiceCount, 'openInvoices')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.receivableCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.receivableCount ?? 0"
+                @click="emitIfCount(customer.receivableCount, 'openReceivables')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.receiptCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.receiptCount ?? 0"
+                @click="emitIfCount(customer.receiptCount, 'openReceipts')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.terminationCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.terminationCount ?? 0"
+                @click="emitIfCount(customer.terminationCount, 'openTerminations')"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('customer.fields.depositRefundCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="customer.depositRefundCount ?? 0"
+                @click="emitIfCount(customer.depositRefundCount, 'openDepositRefunds')"
               />
             </dd>
           </div>

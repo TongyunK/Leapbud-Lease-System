@@ -19,6 +19,7 @@ export interface CustomerRequirementRecord {
   acConfigLabel: string
   windowConfigId: string | null
   windowConfigLabel: string
+  contractCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

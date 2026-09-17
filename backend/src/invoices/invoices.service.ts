@@ -66,6 +66,8 @@ export class InvoicesService {
   async findAll(params: {
     keyword?: string
     contractId?: string
+    customerId?: string
+    roomId?: string
     customerNames?: string[]
     status?: string
     sortBy?: string
@@ -105,6 +107,8 @@ export class InvoicesService {
   private buildListWhere(params: {
     keyword?: string
     contractId?: string
+    customerId?: string
+    roomId?: string
     customerNames?: string[]
     status?: string
     invoiceDateFrom?: string
@@ -116,6 +120,8 @@ export class InvoicesService {
   }): Prisma.InvoiceWhereInput {
     const where: Prisma.InvoiceWhereInput = {}
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
+    if (params.customerId?.trim()) where.customerId = params.customerId.trim()
+    if (params.roomId?.trim()) where.roomId = params.roomId.trim()
     if (params.status?.trim()) where.status = params.status.trim()
     const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
     if (customerNames.length) {
@@ -169,6 +175,9 @@ export class InvoicesService {
     if (key === 'invoiceDate') return [{ invoiceDate: dir }, { invoiceCode: 'desc' }]
     if (key === 'paymentDueDate') return [{ paymentDueDate: dir }, { invoiceCode: 'desc' }]
     if (key === 'salesManager') return [{ salesManagerUser: { account: dir } }]
+    if (key === 'receivableCount') return [{ receivables: { _count: dir } }]
+    if (key === 'receiptCount') return [{ receipts: { _count: dir } }]
+    if (key === 'serviceDetailCount') return [{ serviceDetails: { _count: dir } }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
     if (key === 'createdBy') return [{ createdByUser: { account: dir } }]

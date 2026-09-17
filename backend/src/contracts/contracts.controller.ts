@@ -35,6 +35,7 @@ export class ContractsController {
   @ApiQuery({ name: 'statuses', required: false, description: 'Comma-separated statuses' })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'roomId', required: false })
+  @ApiQuery({ name: 'requirementId', required: false })
   @ApiQuery({ name: 'roomCodes', required: false, description: 'Comma-separated room codes' })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'salesManagers', required: false, description: 'Comma-separated sales manager labels' })
@@ -57,6 +58,7 @@ export class ContractsController {
     @Query('statuses') statuses?: string,
     @Query('customerId') customerId?: string,
     @Query('roomId') roomId?: string,
+    @Query('requirementId') requirementId?: string,
     @Query('roomCodes') roomCodes?: string,
     @Query('customerNames') customerNames?: string,
     @Query('salesManagers') salesManagers?: string,
@@ -79,6 +81,7 @@ export class ContractsController {
       statuses: splitCsv(statuses),
       customerId,
       roomId,
+      requirementId,
       roomCodes: splitCsv(roomCodes),
       customerNames: splitCsv(customerNames),
       salesManagers: splitCsv(salesManagers),

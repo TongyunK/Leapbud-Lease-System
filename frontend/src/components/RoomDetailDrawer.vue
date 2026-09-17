@@ -5,6 +5,7 @@ import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import { roomStatusTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
 
@@ -24,6 +25,10 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openBuilding: [buildingId: string]
+  openContracts: [room: RoomRecord]
+  openInvoices: [room: RoomRecord]
+  openTerminations: [room: RoomRecord]
+  openDepositRefunds: [room: RoomRecord]
 }>()
 
 const { t } = useI18n()
@@ -34,6 +39,15 @@ const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '560p
 
 function dash(v?: string | null) {
   return v?.trim() ? v : '—'
+}
+
+function emitIfCount(
+  count: number | null | undefined,
+  event: 'openContracts' | 'openInvoices' | 'openTerminations' | 'openDepositRefunds',
+) {
+  const r = props.room
+  if (!r || !count) return
+  emit(event, r)
 }
 </script>
 
@@ -166,6 +180,36 @@ function dash(v?: string | null) {
           <div>
             <dt>{{ t('room.fields.contractRecords') }}</dt>
             <dd>{{ room.contractRecords?.join(', ') || '—' }}</dd>
+          </div>
+        </dl>
+      </section>
+
+            <section class="detail-section">
+        <h3>{{ t('room.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('room.fields.contractCount') }}</dt>
+            <dd>
+              <CountListPill :count="room.contractCount ?? 0" @click="emitIfCount(room.contractCount, 'openContracts')" />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('room.fields.invoiceCount') }}</dt>
+            <dd>
+              <CountListPill :count="room.invoiceCount ?? 0" @click="emitIfCount(room.invoiceCount, 'openInvoices')" />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('room.fields.terminationCount') }}</dt>
+            <dd>
+              <CountListPill :count="room.terminationCount ?? 0" @click="emitIfCount(room.terminationCount, 'openTerminations')" />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('room.fields.depositRefundCount') }}</dt>
+            <dd>
+              <CountListPill :count="room.depositRefundCount ?? 0" @click="emitIfCount(room.depositRefundCount, 'openDepositRefunds')" />
+            </dd>
           </div>
         </dl>
       </section>

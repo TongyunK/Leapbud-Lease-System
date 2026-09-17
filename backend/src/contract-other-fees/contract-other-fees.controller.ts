@@ -38,6 +38,11 @@ export class ContractOtherFeesController {
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'terminationId', required: false })
+  @ApiQuery({
+    name: 'linkedToTermination',
+    required: false,
+    description: 'true = only fees linked to a lease termination (deposit deductions)',
+  })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
@@ -50,6 +55,7 @@ export class ContractOtherFeesController {
     @Query('contractId') contractId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('terminationId') terminationId?: string,
+    @Query('linkedToTermination') linkedToTermination?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('createdAtFrom') createdAtFrom?: string,
@@ -62,6 +68,10 @@ export class ContractOtherFeesController {
       contractId,
       customerNames: splitCsv(customerNames),
       terminationId,
+      linkedToTermination:
+        linkedToTermination === '1' ||
+        linkedToTermination === 'true' ||
+        linkedToTermination === 'yes',
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
       createdAtFrom,

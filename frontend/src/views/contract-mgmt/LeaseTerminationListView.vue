@@ -26,6 +26,10 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
+import CountListPill from '@/components/CountListPill.vue'
+import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
+import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
+import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
@@ -59,6 +63,10 @@ const editing = ref<LeaseTerminationRecord | null>(null)
 const contracts = ref<ContractRecord[]>([])
 
 const drawerVisible = ref(false)
+const relatedOtherFeesDrawer = ref(false)
+const relatedListTermination = ref<LeaseTerminationRecord | null>(null)
+const relatedOtherFee = ref<ContractOtherFeeRecord | null>(null)
+const otherFeeDetailDrawer = ref(false)
 const current = ref<LeaseTerminationRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const contractDrawerVisible = ref(false)
@@ -365,6 +373,16 @@ async function openDetail(row: LeaseTerminationRecord, direction: 'ltr' | 'rtl' 
   } catch {
     /* interceptor */
   }
+}
+
+function openOtherFeesSide(row: LeaseTerminationRecord) {
+  if (!row.otherFeeCount) return
+  relatedListTermination.value = row
+  relatedOtherFeesDrawer.value = true
+}
+function onOpenOtherFeeFromRelated(row: ContractOtherFeeRecord) {
+  relatedOtherFee.value = row
+  otherFeeDetailDrawer.value = true
 }
 
 function onRowClick(row: LeaseTerminationRecord, column: { type?: string } | undefined, event: Event) {
@@ -813,6 +831,22 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.relatedDepositRefund || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('leaseTermination.fields.otherFeeCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('leaseTermination.fields.otherFeeCount')"
+                sortable
+                :sort-order="sortOrderOf('otherFeeCount')"
+                @update:sort-order="(v) => setSort('otherFeeCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.otherFeeCount ?? 0" @click="openOtherFeesSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="auditUserColWidth"
             show-overflow-tooltip
           >
@@ -906,7 +940,18 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+    
+      @open-other-fees="openOtherFeesSide"
     />
+    <RelatedOtherFeesDrawer
+      v-model="relatedOtherFeesDrawer"
+      :termination-id="relatedListTermination?.id"
+      :title-context="relatedListTermination?.terminationCode || ''"
+      mode="depositDeduction"
+      desktop-direction="ltr"
+      @open-fee="onOpenOtherFeeFromRelated"
+    />
+    <ContractOtherFeeDetailDrawer v-model="otherFeeDetailDrawer" :fee="relatedOtherFee" desktop-direction="ltr" />
     <ContractDetailDrawer
       v-model="contractDrawerVisible"
       :contract="currentContract"

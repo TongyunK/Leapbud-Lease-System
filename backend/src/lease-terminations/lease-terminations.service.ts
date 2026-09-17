@@ -74,6 +74,8 @@ export class LeaseTerminationsService {
   async findAll(params: {
     keyword?: string;
     contractId?: string;
+    customerId?: string;
+    roomId?: string;
     customerNames?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
@@ -110,6 +112,8 @@ export class LeaseTerminationsService {
   private buildListWhere(params: {
     keyword?: string;
     contractId?: string;
+    customerId?: string;
+    roomId?: string;
     customerNames?: string[];
     terminationDateFrom?: string;
     terminationDateTo?: string;
@@ -118,6 +122,8 @@ export class LeaseTerminationsService {
   }): Prisma.LeaseTerminationWhereInput {
     const where: Prisma.LeaseTerminationWhereInput = {};
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
+    if (params.customerId?.trim()) where.customerId = params.customerId.trim();
+    if (params.roomId?.trim()) where.roomId = params.roomId.trim();
     const customerNames = (params.customerNames || []).map((v) => (v ?? '').trim()).filter(Boolean);
     if (customerNames.length) {
       where.customer = { name: { in: customerNames } };
@@ -167,6 +173,7 @@ export class LeaseTerminationsService {
     if (key === 'doorKeyReturnedQty') return [{ doorKeyReturnedQty: dir }];
     if (key === 'smartCardReturnedQty') return [{ smartCardReturnedQty: dir }];
     if (key === 'relatedDepositRefund') return [{ relatedDepositRefund: dir }];
+    if (key === 'otherFeeCount') return [{ otherFees: { _count: dir } }];
     if (key === 'createdBy') {
       return [{ createdByUser: { displayName: dir } }, { createdByUser: { account: dir } }];
     }

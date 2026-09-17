@@ -34,6 +34,10 @@ import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
+import CountListPill from '@/components/CountListPill.vue'
+import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
+import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
+import type { ContractRecord } from '@/types/contract'
 import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
 import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
 import RelatedCustomerRequirementsDrawer from '@/components/RelatedCustomerRequirementsDrawer.vue'
@@ -77,6 +81,10 @@ const windowOptions = ref<RoomConfigOption[]>([])
 const keyword = ref('')
 
 const drawerVisible = ref(false)
+const relatedContractsDrawer = ref(false)
+const relatedListRequirement = ref<CustomerRequirementRecord | null>(null)
+const relatedContract = ref<ContractRecord | null>(null)
+const contractDetailDrawer = ref(false)
 const current = ref<CustomerRequirementRecord | null>(null)
 const customerDrawerVisible = ref(false)
 const relatedCustomer = ref<CustomerRecord | null>(null)
@@ -419,6 +427,16 @@ async function openDetail(row: CustomerRequirementRecord, direction: 'ltr' | 'rt
   } catch {
     /* interceptor */
   }
+}
+
+function openContractsSide(row: CustomerRequirementRecord) {
+  if (!row.contractCount) return
+  relatedListRequirement.value = row
+  relatedContractsDrawer.value = true
+}
+function onOpenContractFromRelated(row: ContractRecord) {
+  relatedContract.value = row
+  contractDetailDrawer.value = true
 }
 
 function onRowClick(row: CustomerRequirementRecord, column: { type?: string } | undefined, event: Event) {
@@ -952,6 +970,22 @@ async function onImportFile(ev: Event) {
             show-overflow-tooltip
           />
           <el-table-column
+            :min-width="colW(t('customerRequirement.fields.contractCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customerRequirement.fields.contractCount')"
+                sortable
+                :sort-order="sortOrderOf('contractCount')"
+                @update:sort-order="(v) => setSort('contractCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.contractCount ?? 0" @click="openContractsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             prop="createdBy"
             :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
@@ -1035,7 +1069,17 @@ async function onImportFile(ev: Event) {
       :requirement="current"
       :desktop-direction="requirementDrawerDirection"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
+    
+      @open-contracts="openContractsSide"
     />
+    <RelatedContractsDrawer
+      v-model="relatedContractsDrawer"
+      :requirement-id="relatedListRequirement?.id"
+      :title-context="relatedListRequirement?.requirementCode || ''"
+      desktop-direction="ltr"
+      @open-contract="onOpenContractFromRelated"
+    />
+    <ContractDetailDrawer v-model="contractDetailDrawer" :contract="relatedContract" desktop-direction="ltr" />
     <CustomerDetailDrawer
       v-model="customerDrawerVisible"
       :customer="relatedCustomer"

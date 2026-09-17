@@ -29,6 +29,19 @@ import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
 import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
 import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import CountListPill from '@/components/CountListPill.vue'
+import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
+import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
+import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
+import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
+import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
+import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
+import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
+import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
+import type { ContractRecord } from '@/types/contract'
+import type { InvoiceRecord } from '@/types/invoice'
+import type { LeaseTerminationRecord } from '@/types/lease-termination'
+import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { roomStatusTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
 import {
@@ -60,6 +73,19 @@ const useCards = computed(() => isMobile.value)
 
 const keyword = ref('')
 const drawerVisible = ref(false)
+const relatedContractsDrawer = ref(false)
+const relatedInvoicesDrawer = ref(false)
+const relatedTerminationsDrawer = ref(false)
+const relatedDepositRefundsDrawer = ref(false)
+const relatedListRoom = ref<RoomRecord | null>(null)
+const relatedContract = ref<ContractRecord | null>(null)
+const relatedInvoice = ref<InvoiceRecord | null>(null)
+const relatedTermination = ref<LeaseTerminationRecord | null>(null)
+const relatedDepositRefund = ref<DepositRefundRecord | null>(null)
+const contractDetailDrawer = ref(false)
+const invoiceDetailDrawer = ref(false)
+const terminationDetailDrawer = ref(false)
+const depositRefundDetailDrawer = ref(false)
 const formVisible = ref(false)
 const current = ref<RoomRecord | null>(null)
 const editing = ref<RoomRecord | null>(null)
@@ -377,6 +403,43 @@ function number2(n: number) {
 function openDetail(row: RoomRecord) {
   current.value = row
   drawerVisible.value = true
+}
+
+function openContractsSide(row: RoomRecord) {
+  if (!row.contractCount) return
+  relatedListRoom.value = row
+  relatedContractsDrawer.value = true
+}
+function openInvoicesSide(row: RoomRecord) {
+  if (!row.invoiceCount) return
+  relatedListRoom.value = row
+  relatedInvoicesDrawer.value = true
+}
+function openTerminationsSide(row: RoomRecord) {
+  if (!row.terminationCount) return
+  relatedListRoom.value = row
+  relatedTerminationsDrawer.value = true
+}
+function openDepositRefundsSide(row: RoomRecord) {
+  if (!row.depositRefundCount) return
+  relatedListRoom.value = row
+  relatedDepositRefundsDrawer.value = true
+}
+function onOpenContractFromRelated(row: ContractRecord) {
+  relatedContract.value = row
+  contractDetailDrawer.value = true
+}
+function onOpenInvoiceFromRelated(row: InvoiceRecord) {
+  relatedInvoice.value = row
+  invoiceDetailDrawer.value = true
+}
+function onOpenTerminationFromRelated(row: LeaseTerminationRecord) {
+  relatedTermination.value = row
+  terminationDetailDrawer.value = true
+}
+function onOpenDepositRefundFromRelated(row: DepositRefundRecord) {
+  relatedDepositRefund.value = row
+  depositRefundDetailDrawer.value = true
 }
 
 async function openBuildingDetail(buildingId: string) {
@@ -1019,6 +1082,70 @@ async function saveForm() {
             <template #default="{ row }">{{ row.acConfig || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('room.fields.contractCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('room.fields.contractCount')"
+                sortable
+                :sort-order="sortOrderOf('contractCount')"
+                @update:sort-order="(v) => setSort('contractCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.contractCount ?? 0" @click="openContractsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('room.fields.invoiceCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('room.fields.invoiceCount')"
+                sortable
+                :sort-order="sortOrderOf('invoiceCount')"
+                @update:sort-order="(v) => setSort('invoiceCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.invoiceCount ?? 0" @click="openInvoicesSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('room.fields.terminationCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('room.fields.terminationCount')"
+                sortable
+                :sort-order="sortOrderOf('terminationCount')"
+                @update:sort-order="(v) => setSort('terminationCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.terminationCount ?? 0" @click="openTerminationsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('room.fields.depositRefundCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('room.fields.depositRefundCount')"
+                sortable
+                :sort-order="sortOrderOf('depositRefundCount')"
+                @update:sort-order="(v) => setSort('depositRefundCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.depositRefundCount ?? 0" @click="openDepositRefundsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             prop="createdBy"
             :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
@@ -1235,6 +1362,48 @@ async function saveForm() {
           </dl>
         </section>
 
+        <section class="detail-section">
+          <h3>{{ t('room.sections.relatedRecords') }}</h3>
+          <dl class="detail-grid two">
+            <div>
+              <dt>{{ t('room.fields.contractCount') }}</dt>
+              <dd>
+                <CountListPill
+                  :count="current.contractCount ?? 0"
+                  @click="openContractsSide(current)"
+                />
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('room.fields.invoiceCount') }}</dt>
+              <dd>
+                <CountListPill
+                  :count="current.invoiceCount ?? 0"
+                  @click="openInvoicesSide(current)"
+                />
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('room.fields.terminationCount') }}</dt>
+              <dd>
+                <CountListPill
+                  :count="current.terminationCount ?? 0"
+                  @click="openTerminationsSide(current)"
+                />
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('room.fields.depositRefundCount') }}</dt>
+              <dd>
+                <CountListPill
+                  :count="current.depositRefundCount ?? 0"
+                  @click="openDepositRefundsSide(current)"
+                />
+              </dd>
+            </div>
+          </dl>
+        </section>
+
         <AuditDetailSection
           :created-by="current.createdBy"
           :created-at="current.createdAt"
@@ -1261,7 +1430,43 @@ async function saveForm() {
       :room="relatedRoom"
       desktop-direction="ltr"
       @open-building="openBuildingDetail"
+      @open-contracts="openContractsSide"
+      @open-invoices="openInvoicesSide"
+      @open-terminations="openTerminationsSide"
+      @open-deposit-refunds="openDepositRefundsSide"
     />
+    <RelatedContractsDrawer
+      v-model="relatedContractsDrawer"
+      :room-id="relatedListRoom?.id"
+      :title-context="relatedListRoom?.roomCode || ''"
+      desktop-direction="ltr"
+      @open-contract="onOpenContractFromRelated"
+    />
+    <RelatedInvoicesDrawer
+      v-model="relatedInvoicesDrawer"
+      :room-id="relatedListRoom?.id"
+      :title-context="relatedListRoom?.roomCode || ''"
+      desktop-direction="ltr"
+      @open-invoice="onOpenInvoiceFromRelated"
+    />
+    <RelatedTerminationsDrawer
+      v-model="relatedTerminationsDrawer"
+      :room-id="relatedListRoom?.id"
+      :title-context="relatedListRoom?.roomCode || ''"
+      desktop-direction="ltr"
+      @open-termination="onOpenTerminationFromRelated"
+    />
+    <RelatedDepositRefundsDrawer
+      v-model="relatedDepositRefundsDrawer"
+      :room-id="relatedListRoom?.id"
+      :title-context="relatedListRoom?.roomCode || ''"
+      desktop-direction="ltr"
+      @open-deposit-refund="onOpenDepositRefundFromRelated"
+    />
+    <ContractDetailDrawer v-model="contractDetailDrawer" :contract="relatedContract" desktop-direction="ltr" />
+    <InvoiceDetailDrawer v-model="invoiceDetailDrawer" :record="relatedInvoice" desktop-direction="ltr" />
+    <LeaseTerminationDetailDrawer v-model="terminationDetailDrawer" :termination="relatedTermination" desktop-direction="ltr" />
+    <DepositRefundDetailDrawer v-model="depositRefundDetailDrawer" :record="relatedDepositRefund" desktop-direction="ltr" />
 
     <el-dialog
       v-model="formVisible"

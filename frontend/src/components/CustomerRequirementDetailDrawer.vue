@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { customerRequirementStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -24,6 +25,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openCustomer: [customerId: string]
+  openContracts: [row: CustomerRequirementRecord]
 }>()
 
 const { t } = useI18n()
@@ -130,6 +132,21 @@ function onCustomerClick() {
           <div class="full">
             <dt>{{ t('customerRequirement.fields.attachment') }}</dt>
             <dd class="path-text">{{ dash(requirement.attachment) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+            <section class="detail-section">
+        <h3>{{ t('customerRequirement.sections.relatedRecords') }}</h3>
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('customerRequirement.fields.contractCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="requirement.contractCount ?? 0"
+                @click="() => { if (requirement?.contractCount) emit('openContracts', requirement) }"
+              />
+            </dd>
           </div>
         </dl>
       </section>

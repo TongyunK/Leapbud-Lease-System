@@ -44,6 +44,7 @@ export type ContractListQuery = {
   statuses?: string[]
   customerId?: string
   roomId?: string
+  requirementId?: string
   roomCodes?: string[]
   customerNames?: string[]
   salesManagers?: string[]
@@ -70,6 +71,7 @@ export function fetchContracts(params?: ContractListQuery) {
   if (params?.statuses?.length) query.statuses = params.statuses.join(',')
   if (params?.customerId) query.customerId = params.customerId
   if (params?.roomId) query.roomId = params.roomId
+  if (params?.requirementId) query.requirementId = params.requirementId
   if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')

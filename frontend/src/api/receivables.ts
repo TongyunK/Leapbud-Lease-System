@@ -26,6 +26,9 @@ export type ReceivableListQuery = {
   keyword?: string
   invoiceId?: string
   contractId?: string
+  contractIds?: string[]
+  customerId?: string
+  depositRefundId?: string
   customerNames?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
@@ -44,6 +47,9 @@ export function fetchReceivables(params?: ReceivableListQuery) {
   if (params?.keyword) query.keyword = params.keyword
   if (params?.invoiceId) query.invoiceId = params.invoiceId
   if (params?.contractId) query.contractId = params.contractId
+  if (params?.contractIds?.length) query.contractIds = params.contractIds.join(',')
+  if (params?.customerId) query.customerId = params.customerId
+  if (params?.depositRefundId) query.depositRefundId = params.depositRefundId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir

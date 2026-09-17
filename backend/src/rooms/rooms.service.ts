@@ -214,6 +214,14 @@ export class RoomsService {
     if (key === 'sizeSqft' || key === 'sizeRange') return [{ sizeSqft: dir }];
     if (key === 'windowConfig') return [{ windowConfig: dir }, { roomCode: 'asc' }];
     if (key === 'acConfig') return [{ acConfig: dir }, { roomCode: 'asc' }];
+    if (key === 'contractCount') return [{ contracts: { _count: dir } }, { roomCode: 'asc' }];
+    if (key === 'invoiceCount') return [{ invoices: { _count: dir } }, { roomCode: 'asc' }];
+    if (key === 'terminationCount') {
+      return [{ leaseTerminations: { _count: dir } }, { roomCode: 'asc' }];
+    }
+    if (key === 'depositRefundCount') {
+      return [{ depositRefunds: { _count: dir } }, { roomCode: 'asc' }];
+    }
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'updatedAt') return [{ updatedAt: dir }];
     return [{ roomCode: 'asc' }];

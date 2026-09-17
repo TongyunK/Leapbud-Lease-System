@@ -17,6 +17,7 @@ export interface ReceivableRecord {
   relatedReceiptRef: string | null
   depositRefundId: string | null
   depositRefundCode: string
+  receiptCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

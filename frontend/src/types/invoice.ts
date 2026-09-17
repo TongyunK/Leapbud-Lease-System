@@ -39,6 +39,9 @@ export interface InvoiceRecord {
   shortTermRentalCode: string | null
   remark: string | null
   serviceDetails: InvoiceServiceDetailRecord[]
+  receivableCount?: number
+  receiptCount?: number
+  serviceDetailCount?: number
   createdBy: string
   updatedBy: string
   createdAt: string

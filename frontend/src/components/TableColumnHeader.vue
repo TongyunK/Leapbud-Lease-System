@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowDown, ArrowUp, Calendar, Close, Filter, Sort } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Calendar, Close, Filter, Search, Sort } from '@element-plus/icons-vue'
 import type { ColumnOption, DateRangeValue, SortOrder } from '@/composables/useTableSortFilter'
 
 const props = withDefaults(
@@ -35,6 +35,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const visible = ref(false)
+const filterSearch = ref('')
 /** 本地草稿：选完起止日再回写，避免选一半时父级重渲染关掉弹层 */
 const draftRange = ref<DateRangeValue>(props.dateRangeValue)
 
@@ -51,7 +52,10 @@ watch(
 )
 
 watch(visible, (open) => {
-  if (open) draftRange.value = props.dateRangeValue
+  if (open) {
+    draftRange.value = props.dateRangeValue
+    filterSearch.value = ''
+  }
 })
 
 function onDraftRangeUpdate(v: DateRangeValue | '' | null) {
@@ -96,6 +100,12 @@ const activeHint = computed(() => {
 const allSelected = computed(
   () => props.options.length > 0 && selected.value.length === props.options.length,
 )
+
+const filteredOptions = computed(() => {
+  if (!filterSearch.value.trim()) return props.options
+  const search = filterSearch.value.toLowerCase().trim()
+  return props.options.filter((opt) => opt.label.toLowerCase().includes(search))
+})
 
 const popoverWidth = computed(() => (props.dateRange ? 300 : 248))
 
@@ -209,6 +219,19 @@ function toggleOption(value: string) {
             <el-icon :size="14"><Filter /></el-icon>
             <span>{{ t('tableColumn.filter') }}</span>
           </div>
+          <div class="lb-col-panel__filter-search">
+            <el-input
+              v-model="filterSearch"
+              size="small"
+              :placeholder="t('tableColumn.searchPlaceholder')"
+              clearable
+              class="filter-search-input"
+            >
+              <template #prefix>
+                <el-icon :size="14"><Search /></el-icon>
+              </template>
+            </el-input>
+          </div>
           <div class="lb-col-panel__filter-actions">
             <button type="button" class="lb-col-link" :disabled="allSelected" @click="selectAll">
               {{ t('tableColumn.selectAll') }}
@@ -218,7 +241,7 @@ function toggleOption(value: string) {
             </button>
           </div>
           <div class="lb-col-panel__options">
-            <label v-for="opt in options" :key="opt.value" class="lb-col-option">
+            <label v-for="opt in filteredOptions" :key="opt.value" class="lb-col-option">
               <el-checkbox
                 :model-value="selected.includes(opt.value)"
                 @update:model-value="() => toggleOption(opt.value)"
@@ -256,3 +279,80 @@ function toggleOption(value: string) {
     <span v-else class="lb-col-head__label">{{ label }}</span>
   </div>
 </template>
+
+<style scoped>
+.lb-col-panel__filter-search {
+  padding: 8px 12px 12px;
+  background: linear-gradient(to bottom, #fafbfc 0%, #f5f7f9 100%);
+  border-bottom: 1px solid #e8ecf0;
+  margin: 0;
+}
+
+.lb-col-panel__filter-search :deep(.el-input) {
+  width: 100%;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__wrapper) {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px #e0e3e8 inset;
+  background-color: #ffffff;
+  border-radius: 6px;
+  padding: 2px 12px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lb-col-panel__filter-search :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 0 0 1px #c5c9d0 inset;
+  background-color: #ffffff;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 3px 8px rgba(64, 158, 255, 0.12), 0 0 0 1px var(--el-color-primary) inset;
+  background-color: #ffffff;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__inner) {
+  font-size: 13px;
+  height: 30px;
+  line-height: 30px;
+  color: #303133;
+  font-weight: 400;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__inner::placeholder) {
+  color: #b4b8c0;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__prefix) {
+  color: #909399;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__wrapper.is-focus .el-input__prefix) {
+  color: var(--el-color-primary);
+}
+
+.lb-col-panel__filter-search :deep(.el-input__suffix) {
+  display: flex;
+  align-items: center;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__clear) {
+  font-size: 14px;
+  color: #c0c4cc;
+  transition: color 0.2s;
+}
+
+.lb-col-panel__filter-search :deep(.el-input__clear:hover) {
+  color: #909399;
+}
+
+.lb-col-panel__filter-search :deep(.el-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+</style>

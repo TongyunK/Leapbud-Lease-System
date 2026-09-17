@@ -61,12 +61,26 @@ export function toBuildingDto(row: BuildingWithRooms) {
 }
 
 export type RoomWithBuilding = Room & {
+  _count?: {
+    contracts: number;
+    invoices: number;
+    leaseTerminations: number;
+    depositRefunds: number;
+  };
   building?: Pick<Building, 'name'> | null;
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
 };
 
 export const roomListInclude = {
+  _count: {
+    select: {
+      contracts: true,
+      invoices: true,
+      leaseTerminations: true,
+      depositRefunds: true,
+    },
+  },
   building: { select: { name: true } },
   ...auditUserInclude,
 } as const;
@@ -95,6 +109,10 @@ export function toRoomDto(row: RoomWithBuilding) {
     acConfig: row.acConfig ?? undefined,
     latestContract: row.latestContract ?? undefined,
     contractRecords: row.contractRecords ?? [],
+    contractCount: row._count?.contracts ?? 0,
+    invoiceCount: row._count?.invoices ?? 0,
+    terminationCount: row._count?.leaseTerminations ?? 0,
+    depositRefundCount: row._count?.depositRefunds ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),
     updatedBy: auditActorLabel(row.updatedByUser),

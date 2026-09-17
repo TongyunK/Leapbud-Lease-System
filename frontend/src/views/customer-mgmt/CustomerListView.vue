@@ -33,7 +33,25 @@ import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
 import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
 import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
+import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
+import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
+import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
+import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
+import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
+import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
+import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
+import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
+import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
+import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
+import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
+import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import type { ContractRecord } from '@/types/contract'
+import type { InvoiceRecord } from '@/types/invoice'
+import type { ReceivableRecord } from '@/types/receivable'
+import type { ReceiptRecord } from '@/types/receipt'
+import type { LeaseTerminationRecord } from '@/types/lease-termination'
+import type { DepositRefundRecord } from '@/types/deposit-refund'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -88,6 +106,25 @@ const relatedRequirement = ref<CustomerRequirementRecord | null>(null)
 const relatedBuilding = ref<BuildingRecord | null>(null)
 const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
 const relatedRoom = ref<RoomRecord | null>(null)
+const relatedContractsDrawer = ref(false)
+const relatedInvoicesDrawer = ref(false)
+const relatedReceivablesDrawer = ref(false)
+const relatedReceiptsDrawer = ref(false)
+const relatedTerminationsDrawer = ref(false)
+const relatedDepositRefundsDrawer = ref(false)
+const relatedListCustomer = ref<CustomerRecord | null>(null)
+const relatedContract = ref<ContractRecord | null>(null)
+const relatedInvoice = ref<InvoiceRecord | null>(null)
+const relatedReceivable = ref<ReceivableRecord | null>(null)
+const relatedReceipt = ref<ReceiptRecord | null>(null)
+const relatedTermination = ref<LeaseTerminationRecord | null>(null)
+const relatedDepositRefund = ref<DepositRefundRecord | null>(null)
+const contractDetailDrawer = ref(false)
+const invoiceDetailDrawer = ref(false)
+const receivableDetailDrawer = ref(false)
+const receiptDetailDrawer = ref(false)
+const terminationDetailDrawer = ref(false)
+const depositRefundDetailDrawer = ref(false)
 const buildings = ref<BuildingRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sourceOptions = ref<CustomerSourceOption[]>([])
@@ -153,6 +190,8 @@ const {
     statuses: f.status?.length ? [...f.status] : undefined,
     accountManagers: f.accountManager?.length ? [...f.accountManager] : undefined,
     buildingNames: f.buildingName?.length ? [...f.buildingName] : undefined,
+    names: f.name?.length ? [...f.name] : undefined,
+    primaryContacts: f.primaryContact?.length ? [...f.primaryContact] : undefined,
     sortBy,
     sortDir,
     createdAtFrom: range('createdAt').from,
@@ -250,6 +289,30 @@ const buildingFilterOptions = computed(() => {
     if (!name || seen.has(name)) continue
     seen.add(name)
     opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
+
+const customerNameFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const c of list.value) {
+    const name = c.name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
+
+const primaryContactFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const c of list.value) {
+    const contact = c.primaryContact?.trim()
+    if (!contact || seen.has(contact)) continue
+    seen.add(contact)
+    opts.push({ value: contact, label: contact })
   }
   return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
@@ -630,6 +693,66 @@ function openRequirementsSide(row: CustomerRecord) {
   relatedRequirementsListDrawer.value = true
 }
 
+function relatedTitle(row: CustomerRecord) {
+  return row.customerCode || row.name || ''
+}
+
+function openContractsSide(row: CustomerRecord) {
+  if (!row.contractCount) return
+  relatedListCustomer.value = row
+  relatedContractsDrawer.value = true
+}
+function openInvoicesSide(row: CustomerRecord) {
+  if (!row.invoiceCount) return
+  relatedListCustomer.value = row
+  relatedInvoicesDrawer.value = true
+}
+function openReceivablesSide(row: CustomerRecord) {
+  if (!row.receivableCount) return
+  relatedListCustomer.value = row
+  relatedReceivablesDrawer.value = true
+}
+function openReceiptsSide(row: CustomerRecord) {
+  if (!row.receiptCount) return
+  relatedListCustomer.value = row
+  relatedReceiptsDrawer.value = true
+}
+function openTerminationsSide(row: CustomerRecord) {
+  if (!row.terminationCount) return
+  relatedListCustomer.value = row
+  relatedTerminationsDrawer.value = true
+}
+function openDepositRefundsSide(row: CustomerRecord) {
+  if (!row.depositRefundCount) return
+  relatedListCustomer.value = row
+  relatedDepositRefundsDrawer.value = true
+}
+
+function onOpenContractFromRelated(row: ContractRecord) {
+  relatedContract.value = row
+  contractDetailDrawer.value = true
+}
+function onOpenInvoiceFromRelated(row: InvoiceRecord) {
+  relatedInvoice.value = row
+  invoiceDetailDrawer.value = true
+}
+function onOpenReceivableFromRelated(row: ReceivableRecord) {
+  relatedReceivable.value = row
+  receivableDetailDrawer.value = true
+}
+function onOpenReceiptFromRelated(row: ReceiptRecord) {
+  relatedReceipt.value = row
+  receiptDetailDrawer.value = true
+}
+function onOpenTerminationFromRelated(row: LeaseTerminationRecord) {
+  relatedTermination.value = row
+  terminationDetailDrawer.value = true
+}
+function onOpenDepositRefundFromRelated(row: DepositRefundRecord) {
+  relatedDepositRefund.value = row
+  depositRefundDetailDrawer.value = true
+}
+
 function onOpenRequirementFromCustomer(requirement: CustomerRequirementRecord) {
   relatedRequirement.value = requirement
   relatedRequirementDrawer.value = true
@@ -1005,8 +1128,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('customer.fields.name')"
+                filterable
                 sortable
+                :options="customerNameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -1054,10 +1181,22 @@ async function onImportFile(ev: Event) {
           </el-table-column>
           <el-table-column
             prop="primaryContact"
-            :label="t('customer.fields.primaryContact')"
-            :min-width="colW(t('customer.fields.primaryContact'), { contentMin: 140 })"
+            :min-width="colW(t('customer.fields.primaryContact'), { interactive: true, contentMin: 140 })"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.primaryContact')"
+                filterable
+                sortable
+                :options="primaryContactFilterOptions"
+                :model-value="filters.primaryContact || []"
+                :sort-order="sortOrderOf('primaryContact')"
+                @update:model-value="(v) => setFilter('primaryContact', v)"
+                @update:sort-order="(v) => setSort('primaryContact', v)"
+              />
+            </template>
+          </el-table-column>
           <el-table-column
             prop="mobilePhone"
             :label="t('customer.fields.mobilePhone')"
@@ -1127,6 +1266,120 @@ async function onImportFile(ev: Event) {
               <CountListPill
                 :count="row.requirementCount ?? 0"
                 @click="openRequirementsSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.contractCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.contractCount')"
+                sortable
+                :sort-order="sortOrderOf('contractCount')"
+                @update:sort-order="(v) => setSort('contractCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.contractCount ?? 0"
+                @click="openContractsSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.invoiceCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.invoiceCount')"
+                sortable
+                :sort-order="sortOrderOf('invoiceCount')"
+                @update:sort-order="(v) => setSort('invoiceCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.invoiceCount ?? 0"
+                @click="openInvoicesSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.receivableCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.receivableCount')"
+                sortable
+                :sort-order="sortOrderOf('receivableCount')"
+                @update:sort-order="(v) => setSort('receivableCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.receivableCount ?? 0"
+                @click="openReceivablesSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.receiptCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.receiptCount')"
+                sortable
+                :sort-order="sortOrderOf('receiptCount')"
+                @update:sort-order="(v) => setSort('receiptCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.receiptCount ?? 0"
+                @click="openReceiptsSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.terminationCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.terminationCount')"
+                sortable
+                :sort-order="sortOrderOf('terminationCount')"
+                @update:sort-order="(v) => setSort('terminationCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.terminationCount ?? 0"
+                @click="openTerminationsSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('customer.fields.depositRefundCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customer.fields.depositRefundCount')"
+                sortable
+                :sort-order="sortOrderOf('depositRefundCount')"
+                @update:sort-order="(v) => setSort('depositRefundCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.depositRefundCount ?? 0"
+                @click="openDepositRefundsSide(row)"
               />
             </template>
           </el-table-column>
@@ -1216,6 +1469,12 @@ async function onImportFile(ev: Event) {
       :desktop-direction="customerDrawerDirection"
       @open-occupants="openOccupantsSide"
       @open-requirements="openRequirementsSide"
+      @open-contracts="openContractsSide"
+      @open-invoices="openInvoicesSide"
+      @open-receivables="openReceivablesSide"
+      @open-receipts="openReceiptsSide"
+      @open-terminations="openTerminationsSide"
+      @open-deposit-refunds="openDepositRefundsSide"
       @open-building="openBuildingSide"
     />
     <RelatedOccupantsDrawer
@@ -1230,6 +1489,54 @@ async function onImportFile(ev: Event) {
       desktop-direction="ltr"
       @open-requirement="onOpenRequirementFromCustomer"
     />
+    <RelatedContractsDrawer
+      v-model="relatedContractsDrawer"
+      :customer-id="relatedListCustomer?.id"
+      :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
+      desktop-direction="ltr"
+      @open-contract="onOpenContractFromRelated"
+    />
+    <RelatedInvoicesDrawer
+      v-model="relatedInvoicesDrawer"
+      :customer-id="relatedListCustomer?.id"
+      :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
+      desktop-direction="ltr"
+      @open-invoice="onOpenInvoiceFromRelated"
+    />
+    <RelatedReceivablesDrawer
+      v-model="relatedReceivablesDrawer"
+      :customer-id="relatedListCustomer?.id"
+      :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
+      desktop-direction="ltr"
+      @open-receivable="onOpenReceivableFromRelated"
+    />
+    <RelatedReceiptsDrawer
+      v-model="relatedReceiptsDrawer"
+      :customer-id="relatedListCustomer?.id"
+      :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
+      desktop-direction="ltr"
+      @open-receipt="onOpenReceiptFromRelated"
+    />
+    <RelatedTerminationsDrawer
+      v-model="relatedTerminationsDrawer"
+      :customer-id="relatedListCustomer?.id"
+      :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
+      desktop-direction="ltr"
+      @open-termination="onOpenTerminationFromRelated"
+    />
+    <RelatedDepositRefundsDrawer
+      v-model="relatedDepositRefundsDrawer"
+      :customer-id="relatedListCustomer?.id"
+      :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
+      desktop-direction="ltr"
+      @open-deposit-refund="onOpenDepositRefundFromRelated"
+    />
+    <ContractDetailDrawer v-model="contractDetailDrawer" :contract="relatedContract" desktop-direction="ltr" />
+    <InvoiceDetailDrawer v-model="invoiceDetailDrawer" :record="relatedInvoice" desktop-direction="ltr" />
+    <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
+    <ReceiptDetailDrawer v-model="receiptDetailDrawer" :record="relatedReceipt" desktop-direction="ltr" />
+    <LeaseTerminationDetailDrawer v-model="terminationDetailDrawer" :termination="relatedTermination" desktop-direction="ltr" />
+    <DepositRefundDetailDrawer v-model="depositRefundDetailDrawer" :record="relatedDepositRefund" desktop-direction="ltr" />
     <CustomerRequirementDetailDrawer
       v-model="relatedRequirementDrawer"
       :requirement="relatedRequirement"

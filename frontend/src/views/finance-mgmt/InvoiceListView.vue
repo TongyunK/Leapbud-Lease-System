@@ -28,6 +28,13 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
+import CountListPill from '@/components/CountListPill.vue'
+import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
+import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
+import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
+import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
+import type { ReceivableRecord } from '@/types/receivable'
+import type { ReceiptRecord } from '@/types/receipt'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -82,6 +89,13 @@ const contracts = ref<ContractRecord[]>([])
 const users = ref<UserRecord[]>([])
 
 const drawerVisible = ref(false)
+const relatedReceivablesDrawer = ref(false)
+const relatedReceiptsDrawer = ref(false)
+const relatedListInvoice = ref<InvoiceRecord | null>(null)
+const relatedReceivable = ref<ReceivableRecord | null>(null)
+const relatedReceipt = ref<ReceiptRecord | null>(null)
+const receivableDetailDrawer = ref(false)
+const receiptDetailDrawer = ref(false)
 const current = ref<InvoiceRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const contractDrawerVisible = ref(false)
@@ -466,6 +480,25 @@ async function openDetail(row: InvoiceRecord, direction: 'ltr' | 'rtl' = 'rtl') 
   } catch {
     /* interceptor */
   }
+}
+
+function openReceivablesSide(row: InvoiceRecord) {
+  if (!row.receivableCount) return
+  relatedListInvoice.value = row
+  relatedReceivablesDrawer.value = true
+}
+function openReceiptsSide(row: InvoiceRecord) {
+  if (!row.receiptCount) return
+  relatedListInvoice.value = row
+  relatedReceiptsDrawer.value = true
+}
+function onOpenReceivableFromRelated(row: ReceivableRecord) {
+  relatedReceivable.value = row
+  receivableDetailDrawer.value = true
+}
+function onOpenReceiptFromRelated(row: ReceiptRecord) {
+  relatedReceipt.value = row
+  receiptDetailDrawer.value = true
 }
 
 function onRowClick(row: InvoiceRecord, column: { type?: string } | undefined, event: Event) {
@@ -968,6 +1001,38 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.remark || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('invoice.fields.receivableCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.receivableCount')"
+                sortable
+                :sort-order="sortOrderOf('receivableCount')"
+                @update:sort-order="(v) => setSort('receivableCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.receivableCount ?? 0" @click="openReceivablesSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('invoice.fields.receiptCount'), { interactive: true, contentMin: 80 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.receiptCount')"
+                sortable
+                :sort-order="sortOrderOf('receiptCount')"
+                @update:sort-order="(v) => setSort('receiptCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.receiptCount ?? 0" @click="openReceiptsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="auditUserColWidth"
             show-overflow-tooltip
           >
@@ -1061,7 +1126,26 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
+    
+      @open-receivables="openReceivablesSide"
+      @open-receipts="openReceiptsSide"
     />
+    <RelatedReceivablesDrawer
+      v-model="relatedReceivablesDrawer"
+      :invoice-id="relatedListInvoice?.id"
+      :title-context="relatedListInvoice?.invoiceCode || ''"
+      desktop-direction="ltr"
+      @open-receivable="onOpenReceivableFromRelated"
+    />
+    <RelatedReceiptsDrawer
+      v-model="relatedReceiptsDrawer"
+      :invoice-id="relatedListInvoice?.id"
+      :title-context="relatedListInvoice?.invoiceCode || ''"
+      desktop-direction="ltr"
+      @open-receipt="onOpenReceiptFromRelated"
+    />
+    <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
+    <ReceiptDetailDrawer v-model="receiptDetailDrawer" :record="relatedReceipt" desktop-direction="ltr" />
     <ContractDetailDrawer
       v-model="contractDrawerVisible"
       :contract="currentContract"
