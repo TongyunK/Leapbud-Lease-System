@@ -234,6 +234,17 @@ const router = createRouter({
             subtitleKey: 'customerSource.subtitle',
           },
         },
+        {
+          path: 'system/document-templates',
+          name: 'documentTemplates',
+          component: () => import('@/views/system/DocumentTemplateListView.vue'),
+          meta: {
+            requiresAuth: true,
+            requiresAdmin: true,
+            titleKey: 'menu.documentTemplates',
+            subtitleKey: 'documentTemplate.subtitle',
+          },
+        },
         // 旧路径兼容跳转
         { path: 'system/room-configs', redirect: { name: 'roomConfigs' } },
         { path: 'system/room-types', redirect: { name: 'roomTypes' } },

@@ -31,8 +31,11 @@ const isMobile = useIsMobile()
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '520px'))
 
-function fileLabel(name?: string) {
-  return name || t('common.none')
+function templateLabel(name?: string, fileName?: string) {
+  const n = (name || '').trim()
+  const f = (fileName || '').trim()
+  if (n && f) return `${n}（${f}）`
+  return n || f || t('common.none')
 }
 
 const roomCount = computed(() => props.building?.roomIds?.length ?? 0)
@@ -149,15 +152,15 @@ const logoItems = computed(() => {
         <dl class="detail-grid">
           <div>
             <dt>{{ t('building.fields.agreementTemplate') }}</dt>
-            <dd>{{ fileLabel(building.agreementTemplate) }}</dd>
+            <dd>{{ templateLabel(building.agreementTemplateName, building.agreementTemplateFileName) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.invoiceTemplate') }}</dt>
-            <dd>{{ fileLabel(building.invoiceTemplate) }}</dd>
+            <dd>{{ templateLabel(building.invoiceTemplateName, building.invoiceTemplateFileName) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.receiptTemplate') }}</dt>
-            <dd>{{ fileLabel(building.receiptTemplate) }}</dd>
+            <dd>{{ templateLabel(building.receiptTemplateName, building.receiptTemplateFileName) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.apiTemplateSuffix') }}</dt>

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DocumentTemplateType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildingListInclude, toBuildingDto } from '../common/dto-mappers';
 import {
@@ -27,9 +27,34 @@ function s(v?: string | null) {
   return (v ?? '').trim();
 }
 
+/** 空字符串 → null（清除绑定）；undefined → 不改 */
+function optionalTemplateId(v: string | null | undefined): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const id = s(v);
+  return id || null;
+}
+
 @Injectable()
 export class BuildingsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async assertTemplateId(
+    id: string | null | undefined,
+    expectedType: DocumentTemplateType,
+  ): Promise<string | null | undefined> {
+    const resolved = optionalTemplateId(id as string | null | undefined);
+    if (resolved === undefined) return undefined;
+    if (resolved === null) return null;
+    const row = await this.prisma.documentTemplate.findUnique({ where: { id: resolved } });
+    if (!row) throw new BadRequestException(`单据模板不存在：${resolved}`);
+    if (row.type !== expectedType) {
+      throw new BadRequestException(
+        `模板「${row.name}」类型为 ${row.type}，不能用作 ${expectedType}`,
+      );
+    }
+    return resolved;
+  }
 
   async findAll(params: {
     keyword?: string;
@@ -140,6 +165,18 @@ export class BuildingsService {
     const name = s(dto.name);
     if (!name) throw new BadRequestException('name is required');
     const actorId = actor || null;
+    const agreementTemplateId = await this.assertTemplateId(
+      dto.agreementTemplateId,
+      DocumentTemplateType.agreement,
+    );
+    const invoiceTemplateId = await this.assertTemplateId(
+      dto.invoiceTemplateId,
+      DocumentTemplateType.invoice,
+    );
+    const receiptTemplateId = await this.assertTemplateId(
+      dto.receiptTemplateId,
+      DocumentTemplateType.receipt,
+    );
 
     const row = await this.prisma.building.create({
       data: {
@@ -158,6 +195,9 @@ export class BuildingsService {
         buildingConfig: s(dto.buildingConfig) || null,
         chequePaymentBy: s(dto.chequePaymentBy) || null,
         paymentAdvice: s(dto.paymentAdvice) || null,
+        agreementTemplateId: agreementTemplateId ?? null,
+        invoiceTemplateId: invoiceTemplateId ?? null,
+        receiptTemplateId: receiptTemplateId ?? null,
         active: dto.active !== undefined ? !!dto.active : true,
         createdById: actorId,
         updatedById: actorId,
@@ -170,6 +210,19 @@ export class BuildingsService {
   async update(id: string, dto: UpdateBuildingDto, actor = '') {
     const existing = await this.prisma.building.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Building ${id} not found`);
+
+    const agreementTemplateId = await this.assertTemplateId(
+      dto.agreementTemplateId,
+      DocumentTemplateType.agreement,
+    );
+    const invoiceTemplateId = await this.assertTemplateId(
+      dto.invoiceTemplateId,
+      DocumentTemplateType.invoice,
+    );
+    const receiptTemplateId = await this.assertTemplateId(
+      dto.receiptTemplateId,
+      DocumentTemplateType.receipt,
+    );
 
     const row = await this.prisma.building.update({
       where: { id },
@@ -193,6 +246,9 @@ export class BuildingsService {
         chequePaymentBy:
           dto.chequePaymentBy !== undefined ? s(dto.chequePaymentBy) || null : undefined,
         paymentAdvice: dto.paymentAdvice !== undefined ? s(dto.paymentAdvice) || null : undefined,
+        ...(agreementTemplateId !== undefined ? { agreementTemplateId } : {}),
+        ...(invoiceTemplateId !== undefined ? { invoiceTemplateId } : {}),
+        ...(receiptTemplateId !== undefined ? { receiptTemplateId } : {}),
         active: dto.active,
         ...(actor ? { updatedById: actor } : {}),
       },

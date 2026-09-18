@@ -1,4 +1,4 @@
-import type { Building, Customer, Occupant } from '@prisma/client';
+import type { Building, Customer, DocumentTemplate, Occupant } from '@prisma/client';
 import { auditActorLabel, auditUserInclude, auditUserSelect, type AuditUserRef } from '../common/audit';
 
 function iso(d: Date) {
@@ -33,6 +33,7 @@ export type CustomerWithRelations = Customer & {
     depositRefunds: number;
   };
   building?: Pick<Building, 'id' | 'name'> | null;
+  agreementTemplate?: Pick<DocumentTemplate, 'id' | 'name'> | null;
   accountManagerUser?: AuditUserRef | null;
   primaryOccupant?: Partial<PrimaryOccupantRef> & Pick<Occupant, 'id' | 'name'> | null;
   createdByUser?: AuditUserRef | null;
@@ -84,6 +85,7 @@ const customerCountSelect = {
 const customerInclude = {
   _count: { select: customerCountSelect },
   building: { select: { id: true, name: true } },
+  agreementTemplate: { select: { id: true, name: true } },
   accountManagerUser: { select: auditUserSelect },
   primaryOccupant: { select: primaryOccupantSelect },
   ...auditUserInclude,
@@ -92,6 +94,7 @@ const customerInclude = {
 const customerListInclude = {
   _count: { select: customerCountSelect },
   building: { select: { id: true, name: true } },
+  agreementTemplate: { select: { id: true, name: true } },
   accountManagerUser: { select: auditUserSelect },
   primaryOccupant: { select: primaryOccupantListSelect },
   ...auditUserInclude,
@@ -180,6 +183,8 @@ export function toCustomerDto(row: CustomerWithRelations) {
     rentedRooms: row.rentedRooms,
     buildingId: row.buildingId,
     buildingName: row.building?.name ?? '',
+    agreementTemplateId: row.agreementTemplateId,
+    agreementTemplateName: row.agreementTemplate?.name ?? '',
     primaryOccupantId: row.primaryOccupantId,
     primaryOccupant,
     /** 列表展示：主要联络人姓名（来自主要使用者） */

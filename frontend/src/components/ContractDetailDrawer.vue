@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import type { ContractRecord } from '@/types/contract'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
@@ -8,6 +9,7 @@ import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { contractStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
+import { previewAgreementPdfApi, prefetchAgreementPdfApi } from '@/api/document-templates'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -40,6 +42,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const printing = ref(false)
+
+watch(
+  () => [visible.value, props.contract?.id] as const,
+  ([open, id]) => {
+    if (open && id) prefetchAgreementPdfApi(id)
+  },
+)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '640px'))
@@ -54,6 +64,21 @@ function money(v: number | null | undefined) {
 
 function statusLabel(status: string) {
   return t(`contract.status.${status}`, status)
+}
+
+async function onPrintAgreement() {
+  const c = props.contract
+  if (!c?.id || printing.value) return
+  printing.value = true
+  try {
+    await previewAgreementPdfApi(c.id, { autoPrint: false })
+    ElMessage.success(t('contract.printAgreementPreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('contract.printAgreementFailed')
+    ElMessage.error(msg)
+  } finally {
+    printing.value = false
+  }
 }
 
 function emitIfCount(
@@ -83,6 +108,18 @@ function emitIfCount(
     class="responsive-drawer"
   >
     <template v-if="contract">
+      <div class="detail-toolbar">
+        <el-button
+          type="primary"
+          class="lb-btn-primary"
+          :loading="printing"
+          @mouseenter="contract?.id && prefetchAgreementPdfApi(contract.id)"
+          @focus="contract?.id && prefetchAgreementPdfApi(contract.id)"
+          @click="onPrintAgreement"
+        >
+          {{ t('contract.printAgreement') }}
+        </el-button>
+      </div>
       <section class="detail-section">
         <h3>{{ t('contract.sections.basic') }}</h3>
         <dl class="detail-grid two">
@@ -346,6 +383,11 @@ function emitIfCount(
 </template>
 
 <style scoped>
+.detail-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
 .period-list {
   display: flex;
   flex-direction: column;

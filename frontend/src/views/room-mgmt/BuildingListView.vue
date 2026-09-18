@@ -8,6 +8,11 @@ import {
   importBuildingsApi,
 } from '@/api/buildings'
 import type { BuildingListQuery, BuildingWritePayload } from '@/api/buildings'
+import {
+  fetchDocumentTemplates,
+  previewDocumentTemplateApi,
+} from '@/api/document-templates'
+import type { DocumentTemplateRecord, DocumentTemplateType } from '@/types/document-template'
 import type { BuildingRecord } from '@/types/building'
 import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -211,6 +216,7 @@ async function loadManagerOptions() {
 onMounted(() => {
   void loadList()
   void loadManagerOptions()
+  void loadTemplateOptions()
 })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
@@ -231,8 +237,56 @@ const form = reactive({
   buildingConfig: '',
   chequePaymentBy: '',
   paymentAdvice: '',
+  agreementTemplateId: '' as string,
+  invoiceTemplateId: '' as string,
+  receiptTemplateId: '' as string,
   active: true,
 })
+
+const TEMPLATE_SLOTS: {
+  type: DocumentTemplateType
+  label: string
+  formKey: 'agreementTemplateId' | 'invoiceTemplateId' | 'receiptTemplateId'
+}[] = [
+  { type: 'agreement', label: 'building.fields.agreementTemplate', formKey: 'agreementTemplateId' },
+  { type: 'invoice', label: 'building.fields.invoiceTemplate', formKey: 'invoiceTemplateId' },
+  { type: 'receipt', label: 'building.fields.receiptTemplate', formKey: 'receiptTemplateId' },
+]
+
+const templateOptions = ref<DocumentTemplateRecord[]>([])
+
+async function loadTemplateOptions() {
+  try {
+    const res = await fetchDocumentTemplates({ enabledOnly: true })
+    templateOptions.value = res.data
+  } catch {
+    templateOptions.value = []
+  }
+}
+
+function templatesOf(type: DocumentTemplateType) {
+  return templateOptions.value.filter((row) => row.type === type)
+}
+
+function selectedTemplateId(type: DocumentTemplateType) {
+  const slot = TEMPLATE_SLOTS.find((s) => s.type === type)
+  return slot ? form[slot.formKey] : ''
+}
+
+async function onPreviewSelectedTemplate(type: DocumentTemplateType) {
+  const id = selectedTemplateId(type)
+  if (!id) {
+    ElMessage.info(t('building.templatePreviewUnavailable'))
+    return
+  }
+  try {
+    await previewDocumentTemplateApi(id)
+  } catch (e) {
+    const msg =
+      e instanceof Error && e.message ? e.message : t('building.templatePreviewFailed')
+    ElMessage.error(msg)
+  }
+}
 
 function openDetail(row: BuildingRecord) {
   current.value = row
@@ -396,6 +450,7 @@ async function runImportFile(ev: Event) {
 
 function openCreate() {
   editing.value = null
+  void loadTemplateOptions()
   Object.assign(form, {
     name: '',
     address: '',
@@ -412,6 +467,9 @@ function openCreate() {
     buildingConfig: '',
     chequePaymentBy: '',
     paymentAdvice: '',
+    agreementTemplateId: '',
+    invoiceTemplateId: '',
+    receiptTemplateId: '',
     active: true,
   })
   formVisible.value = true
@@ -419,6 +477,7 @@ function openCreate() {
 
 function openEdit(row: BuildingRecord) {
   editing.value = row
+  void loadTemplateOptions()
   Object.assign(form, {
     name: row.name,
     address: row.address,
@@ -435,6 +494,9 @@ function openEdit(row: BuildingRecord) {
     buildingConfig: row.buildingConfig || '',
     chequePaymentBy: row.chequePaymentBy || '',
     paymentAdvice: row.paymentAdvice || '',
+    agreementTemplateId: row.agreementTemplateId || '',
+    invoiceTemplateId: row.invoiceTemplateId || '',
+    receiptTemplateId: row.receiptTemplateId || '',
     active: row.active,
   })
   formVisible.value = true
@@ -452,23 +514,22 @@ async function toggleActive(row: BuildingRecord) {
 
 async function saveForm() {
   if (!form.name.trim()) return
-  if (editing.value) {
-    try {
-      await updateBuildingApi(editing.value.id, { ...form })
-      await loadList()
-      void loadManagerOptions()
-      formVisible.value = false
-    } catch {
-      /* interceptor */
-    }
-    return
-  }
-  if (!isAdmin.value) {
+  if (!editing.value && !isAdmin.value) {
     ElMessage.warning(t('building.importAdminOnly'))
     return
   }
   try {
-    await createBuildingApi({ ...form })
+    const payload: BuildingWritePayload = {
+      ...form,
+      agreementTemplateId: form.agreementTemplateId || null,
+      invoiceTemplateId: form.invoiceTemplateId || null,
+      receiptTemplateId: form.receiptTemplateId || null,
+    }
+    if (editing.value) {
+      await updateBuildingApi(editing.value.id, payload)
+    } else {
+      await createBuildingApi(payload)
+    }
     await loadList()
     void loadManagerOptions()
     formVisible.value = false
@@ -890,6 +951,40 @@ async function saveForm() {
           <el-form-item label="Payment Advice" class="span-2">
             <el-input v-model="form.paymentAdvice" type="textarea" :rows="2" />
           </el-form-item>
+
+          <div class="form-section form-section--with-hint">
+            <h3>{{ t('building.sections.templates') }}</h3>
+            <p class="form-section-side-hint">{{ t('building.templateBindHint') }}</p>
+          </div>
+          <el-form-item
+            v-for="slot in TEMPLATE_SLOTS"
+            :key="slot.type"
+            :label="t(slot.label)"
+            class="span-2"
+          >
+            <div class="template-bind-row">
+              <el-select
+                v-model="form[slot.formKey]"
+                clearable
+                filterable
+                class="template-bind-select"
+                :placeholder="t('building.chooseTemplate')"
+              >
+                <el-option
+                  v-for="opt in templatesOf(slot.type)"
+                  :key="opt.id"
+                  :label="`${opt.name}（${opt.fileName}）`"
+                  :value="opt.id"
+                />
+              </el-select>
+              <el-button
+                :disabled="!form[slot.formKey]"
+                @click="onPreviewSelectedTemplate(slot.type)"
+              >
+                {{ t('building.templatePreviewHint') }}
+              </el-button>
+            </div>
+          </el-form-item>
         </div>
       </el-form>
       <template #footer>
@@ -940,5 +1035,37 @@ async function saveForm() {
 .building-form :deep(.el-form-item__label) {
   margin-bottom: 4px !important;
   line-height: 1.2;
+}
+
+.form-section--with-hint {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.form-section--with-hint h3 {
+  margin-bottom: 8px;
+}
+
+.form-section-side-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-placeholder);
+  text-align: right;
+}
+
+.template-bind-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.template-bind-select {
+  flex: 1;
+  min-width: 0;
 }
 </style>

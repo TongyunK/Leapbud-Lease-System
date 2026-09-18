@@ -163,6 +163,10 @@ model User {
   createdReceipts              Receipt[]              @relation("ReceiptCreatedBy")
   /// 作为更新人：收据
   updatedReceipts              Receipt[]              @relation("ReceiptUpdatedBy")
+  /// 作为创建人：单据打印模板
+  createdDocumentTemplates     DocumentTemplate[]     @relation("DocumentTemplateCreatedBy")
+  /// 作为更新人：单据打印模板
+  updatedDocumentTemplates     DocumentTemplate[]     @relation("DocumentTemplateUpdatedBy")
 
   @@index([status])
   @@index([role])
@@ -294,8 +298,10 @@ model Building {
   manager           String   @default("")
   /// 负责人电话
   managerPhone      String   @default("") @map("manager_phone")
+  /// 协议书模板 ID（绑定单据模板库）
+  agreementTemplateId String? @map("agreement_template_id")
   /// 协议书模板
-  agreementTemplate String?  @map("agreement_template")
+  agreementTemplateRef DocumentTemplate? @relation("BuildingAgreementTemplate", fields: [agreementTemplateId], references: [id], onDelete: SetNull)
   /// 协议书 Logo
   agreementLogo     String?  @map("agreement_logo")
   /// API 模板名称后缀
@@ -306,8 +312,10 @@ model Building {
   email             String   @default("")
   /// 工作时间
   workingHours      String   @default("") @map("working_hours")
+  /// 发票模板 ID（绑定单据模板库）
+  invoiceTemplateId String?  @map("invoice_template_id")
   /// 发票模板
-  invoiceTemplate   String?  @map("invoice_template")
+  invoiceTemplateRef DocumentTemplate? @relation("BuildingInvoiceTemplate", fields: [invoiceTemplateId], references: [id], onDelete: SetNull)
   /// 发票 Logo
   invoiceLogo       String?  @map("invoice_logo")
   /// FPS 收款标识
@@ -320,8 +328,10 @@ model Building {
   chequePaymentBy   String?  @map("cheque_payment_by")
   /// 付款提示 / Payment Advice
   paymentAdvice     String?  @map("payment_advice")
+  /// 收据模板 ID（绑定单据模板库）
+  receiptTemplateId String?  @map("receipt_template_id")
   /// 收据模板
-  receiptTemplate   String?  @map("receipt_template")
+  receiptTemplateRef DocumentTemplate? @relation("BuildingReceiptTemplate", fields: [receiptTemplateId], references: [id], onDelete: SetNull)
   /// 收据顶部 Logo
   receiptTopLogo    String?  @map("receipt_top_logo")
   /// 收据左侧 Logo
@@ -354,6 +364,9 @@ model Building {
   @@index([active])
   @@index([createdById])
   @@index([updatedById])
+  @@index([agreementTemplateId])
+  @@index([invoiceTemplateId])
+  @@index([receiptTemplateId])
   @@map("buildings")
 }
 
@@ -469,6 +482,10 @@ model Customer {
   primaryOccupantId String?   @map("primary_occupant_id")
   /// 主要使用者（联络人）
   primaryOccupant  Occupant?  @relation("CustomerPrimaryOccupant", fields: [primaryOccupantId], references: [id], onDelete: SetNull)
+  /// 协议打印模板覆盖 ID（空则用所属大厦绑定的协议模板）
+  agreementTemplateId String? @map("agreement_template_id")
+  /// 协议打印模板覆盖
+  agreementTemplate DocumentTemplate? @relation("CustomerAgreementTemplate", fields: [agreementTemplateId], references: [id], onDelete: SetNull)
   /// 创建人用户 ID
   createdById      String?    @map("created_by")
   /// 创建人用户
@@ -503,6 +520,7 @@ model Customer {
   @@index([accountManagerId])
   @@index([buildingId])
   @@index([primaryOccupantId])
+  @@index([agreementTemplateId])
   @@index([createdById])
   @@index([updatedById])
   @@map("customers")
@@ -1322,5 +1340,58 @@ model RoleMenu {
   @@id([roleId, menuId])
   @@index([menuId])
   @@map("role_menus")
+}
+
+/// 单据打印模板类型
+enum DocumentTemplateType {
+  /// 办公室服务协议（多页 Word）
+  agreement
+  /// 发票
+  invoice
+  /// 收据
+  receipt
+}
+
+/// 单据打印模板（Word .docx；按 type 区分协议/发票/收据等）
+model DocumentTemplate {
+  /// 主键
+  id          String               @id @default(cuid())
+  /// 模板名称（展示用）
+  name        String
+  /// 单据类型：agreement / invoice / receipt
+  type        DocumentTemplateType
+  /// 原始文件名
+  fileName    String               @map("file_name")
+  /// 存储相对路径（相对 uploads 根目录）
+  storageKey  String               @map("storage_key")
+  /// 是否启用
+  enabled     Boolean              @default(true)
+  /// 备注
+  remark      String               @default("")
+  /// 创建人用户 ID
+  createdById String?              @map("created_by")
+  /// 创建人用户
+  createdByUser User?              @relation("DocumentTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?              @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?              @relation("DocumentTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime             @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  /// 作为协议覆盖模板的客户
+  agreementCustomers Customer[]    @relation("CustomerAgreementTemplate")
+  /// 选用本模板作为协议模板的大厦
+  buildingsAsAgreement Building[]  @relation("BuildingAgreementTemplate")
+  /// 选用本模板作为发票模板的大厦
+  buildingsAsInvoice   Building[]  @relation("BuildingInvoiceTemplate")
+  /// 选用本模板作为收据模板的大厦
+  buildingsAsReceipt   Building[]  @relation("BuildingReceiptTemplate")
+
+  @@index([type, enabled])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("document_templates")
 }
 

@@ -86,6 +86,21 @@ export class CreateBuildingDto {
   @IsString()
   paymentAdvice?: string;
 
+  @ApiPropertyOptional({ description: '协议模板 ID；空字符串清除' })
+  @IsOptional()
+  @IsString()
+  agreementTemplateId?: string | null;
+
+  @ApiPropertyOptional({ description: '发票模板 ID；空字符串清除' })
+  @IsOptional()
+  @IsString()
+  invoiceTemplateId?: string | null;
+
+  @ApiPropertyOptional({ description: '收据模板 ID；空字符串清除' })
+  @IsOptional()
+  @IsString()
+  receiptTemplateId?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
@@ -168,6 +183,21 @@ export class UpdateBuildingDto {
   @IsOptional()
   @IsString()
   paymentAdvice?: string;
+
+  @ApiPropertyOptional({ description: '协议模板 ID；空字符串清除' })
+  @IsOptional()
+  @IsString()
+  agreementTemplateId?: string | null;
+
+  @ApiPropertyOptional({ description: '发票模板 ID；空字符串清除' })
+  @IsOptional()
+  @IsString()
+  invoiceTemplateId?: string | null;
+
+  @ApiPropertyOptional({ description: '收据模板 ID；空字符串清除' })
+  @IsOptional()
+  @IsString()
+  receiptTemplateId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()

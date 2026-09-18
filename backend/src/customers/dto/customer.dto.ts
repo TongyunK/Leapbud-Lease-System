@@ -137,6 +137,12 @@ export class CreateCustomerDto {
   @IsString()
   buildingId?: string | null;
 
+  @ApiPropertyOptional({ description: '协议打印模板覆盖 ID；传 null/空 表示未指定' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  agreementTemplateId?: string | null;
+
   @ApiPropertyOptional({ description: '关联已有使用者作为主要联络人' })
   @IsOptional()
   @IsString()
@@ -218,6 +224,12 @@ export class UpdateCustomerDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsString()
   buildingId?: string | null;
+
+  @ApiPropertyOptional({ description: '协议打印模板覆盖 ID；传 null/空 表示清除' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  agreementTemplateId?: string | null;
 
   @ApiPropertyOptional({ description: '主要使用者 ID' })
   @IsOptional()

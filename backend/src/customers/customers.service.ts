@@ -54,6 +54,17 @@ export class CustomersService {
     return id;
   }
 
+  private async assertAgreementTemplate(templateId: string | null | undefined) {
+    const id = s(templateId);
+    if (!id) return null;
+    const tpl = await this.prisma.documentTemplate.findUnique({ where: { id } });
+    if (!tpl) throw new NotFoundException(`DocumentTemplate ${id} not found`);
+    if (tpl.type !== 'agreement') {
+      throw new BadRequestException('agreementTemplateId 必须是协议（agreement）类型模板');
+    }
+    return id;
+  }
+
   private async assertAccountManager(userId: string | null | undefined) {
     const id = s(userId);
     if (!id) return null;
@@ -303,6 +314,7 @@ export class CustomersService {
     const linkOccupantId = s(dto.linkOccupantId);
     let nestedOcc = this.occupantFromNested(dto.occupant);
     const buildingId = await this.assertBuilding(dto.buildingId);
+    const agreementTemplateId = await this.assertAgreementTemplate(dto.agreementTemplateId);
     const accountManagerId = await this.assertAccountManager(dto.accountManagerId);
     const actorId = actor || null;
 
@@ -330,6 +342,7 @@ export class CustomersService {
             source: s(dto.source),
             rentedRooms: s(dto.rentedRooms),
             buildingId,
+            agreementTemplateId,
             createdById: actorId,
             updatedById: actorId,
           },
@@ -411,6 +424,11 @@ export class CustomersService {
     let buildingId: string | null | undefined = undefined;
     if (dto.buildingId !== undefined) {
       buildingId = (await this.assertBuilding(dto.buildingId)) ?? null;
+    }
+
+    let agreementTemplateId: string | null | undefined = undefined;
+    if (dto.agreementTemplateId !== undefined) {
+      agreementTemplateId = (await this.assertAgreementTemplate(dto.agreementTemplateId)) ?? null;
     }
 
     let accountManagerId: string | null | undefined = undefined;
@@ -533,6 +551,7 @@ export class CustomersService {
             source: dto.source !== undefined ? s(dto.source) : undefined,
             rentedRooms: dto.rentedRooms !== undefined ? s(dto.rentedRooms) : undefined,
             buildingId,
+            agreementTemplateId,
             primaryOccupantId: nextPrimaryId,
             ...(actorId ? { updatedById: actorId } : {}),
           },

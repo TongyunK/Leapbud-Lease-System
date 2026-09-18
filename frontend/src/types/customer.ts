@@ -29,6 +29,9 @@ export interface CustomerRecord {
   rentedRooms: string
   buildingId: string | null
   buildingName: string
+  /** 协议打印模板覆盖（空则用所属大厦默认协议模板） */
+  agreementTemplateId: string | null
+  agreementTemplateName?: string
   primaryOccupantId: string | null
   primaryOccupant: OccupantContactFields & { id: string } | null
   /** 列表展示：主要联络人姓名 */

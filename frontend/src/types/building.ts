@@ -5,20 +5,26 @@ export interface BuildingRecord {
   addressEn: string
   manager: string
   managerPhone: string
-  agreementTemplate?: string
+  agreementTemplateId?: string | null
+  agreementTemplateName?: string
+  agreementTemplateFileName?: string
   agreementLogo?: string
   apiTemplateSuffix?: string
   logo2?: string
   email: string
   workingHours: string
-  invoiceTemplate?: string
+  invoiceTemplateId?: string | null
+  invoiceTemplateName?: string
+  invoiceTemplateFileName?: string
   invoiceLogo?: string
   fpsId?: string
   bankAccountHolder?: string
   bankAccount?: string
   chequePaymentBy?: string
   paymentAdvice?: string
-  receiptTemplate?: string
+  receiptTemplateId?: string | null
+  receiptTemplateName?: string
+  receiptTemplateFileName?: string
   receiptTopLogo?: string
   receiptLeftLogo?: string
   receiptRightLogo?: string

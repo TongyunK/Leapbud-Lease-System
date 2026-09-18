@@ -69,12 +69,14 @@ import {
 import { fetchBuildings } from '@/api/buildings'
 import { fetchUsers } from '@/api/users'
 import { fetchCustomerSources } from '@/api/customer-sources'
+import { fetchDocumentTemplates } from '@/api/document-templates'
 import { fetchOccupants, createOccupantApi } from '@/api/occupants'
 import { fetchRooms } from '@/api/rooms'
 import type { BuildingRecord } from '@/types/building'
 import type { UserRecord } from '@/types/user'
 import type { RoomRecord } from '@/types/room'
 import type { CustomerSourceOption } from '@/types/customer-source'
+import type { DocumentTemplateRecord } from '@/types/document-template'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
@@ -128,6 +130,7 @@ const depositRefundDetailDrawer = ref(false)
 const buildings = ref<BuildingRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sourceOptions = ref<CustomerSourceOption[]>([])
+const agreementTemplates = ref<DocumentTemplateRecord[]>([])
 const rooms = ref<RoomRecord[]>([])
 /** 表单内租用房间多选（存 roomCode，序列化进 rentedRooms） */
 const rentedRoomCodes = ref<string[]>([])
@@ -333,6 +336,7 @@ const emptyForm = () => ({
   source: '',
   rentedRooms: '',
   buildingId: '' as string,
+  agreementTemplateId: '' as string,
 })
 
 const emptyOccupantForm = () => ({
@@ -358,6 +362,31 @@ const sourceSelectOptions = computed(() => {
   const current = form.source.trim()
   if (current && !labels.includes(current)) return [current, ...labels]
   return labels
+})
+
+/** 启用协议模板 + 当前客户已绑但未在列表中的项（停用后仍可回显） */
+const agreementTemplateSelectOptions = computed(() => {
+  const opts = [...agreementTemplates.value]
+  const currentId = form.agreementTemplateId.trim()
+  if (currentId && !opts.some((o) => o.id === currentId)) {
+    const name =
+      editing.value?.agreementTemplateName?.trim() ||
+      t('customer.fields.agreementTemplate')
+    opts.unshift({
+      id: currentId,
+      name,
+      type: 'agreement',
+      fileName: '',
+      storageKey: '',
+      enabled: false,
+      remark: '',
+      createdBy: '',
+      updatedBy: '',
+      createdAt: '',
+      updatedAt: '',
+    })
+  }
+  return opts
 })
 
 const occupantSelectOptions = ref<OccupantRecord[]>([])
@@ -426,16 +455,18 @@ watch(useExistingOccupant, (yes) => {
 })
 
 async function loadOptions() {
-  const [buildingsRes, usersRes, sourcesRes, roomsRes] = await Promise.all([
+  const [buildingsRes, usersRes, sourcesRes, roomsRes, templatesRes] = await Promise.all([
     fetchBuildings({ activeOnly: false }),
     fetchUsers(),
     fetchCustomerSources({ activeOnly: true }),
     fetchRooms(),
+    fetchDocumentTemplates({ type: 'agreement', enabledOnly: true }),
   ])
   buildings.value = buildingsRes.data.items
   users.value = usersRes.data
   sourceOptions.value = sourcesRes.data
   rooms.value = roomsRes.data.items
+  agreementTemplates.value = templatesRes.data
 }
 
 onMounted(() => {
@@ -534,6 +565,7 @@ async function openEdit(row: CustomerRecord) {
       source: data.source || '',
       rentedRooms: data.rentedRooms || '',
       buildingId: data.buildingId || '',
+      agreementTemplateId: data.agreementTemplateId || '',
     })
     rentedRoomCodes.value = parseRentedRoomCodes(data.rentedRooms)
     useExistingOccupant.value = false
@@ -602,6 +634,7 @@ function payloadFromForm(opts?: { includeOccupant?: boolean }) {
     source: form.source.trim(),
     rentedRooms: rentedRoomCodes.value.join('、'),
     buildingId: form.buildingId.trim() || null,
+    agreementTemplateId: form.agreementTemplateId.trim() || null,
     ...(includeOccupant ? { occupant: buildOccupantPayload() } : {}),
     ...(editing.value
       ? {
@@ -1641,6 +1674,22 @@ async function onImportFile(ev: Event) {
                   :key="b.id"
                   :label="b.name"
                   :value="b.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('customer.fields.agreementTemplate')">
+              <el-select
+                v-model="form.agreementTemplateId"
+                clearable
+                filterable
+                style="width: 100%"
+                :placeholder="t('common.pleaseSelect')"
+              >
+                <el-option
+                  v-for="tpl in agreementTemplateSelectOptions"
+                  :key="tpl.id"
+                  :label="tpl.fileName ? `${tpl.name}（${tpl.fileName}）` : tpl.name"
+                  :value="tpl.id"
                 />
               </el-select>
             </el-form-item>

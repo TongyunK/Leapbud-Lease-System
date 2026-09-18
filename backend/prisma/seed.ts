@@ -755,6 +755,17 @@ async function seedRolesAndMenus(actorId: string) {
       icon: 'Menu',
       sortOrder: 43,
     },
+    {
+      id: 'menu_document_templates',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '單據模板',
+      nameKey: 'menu.documentTemplates',
+      routeName: 'documentTemplates',
+      path: 'system/document-templates',
+      icon: 'Document',
+      sortOrder: 95,
+    },
   ];
 
   for (const m of menuSeeds) {
@@ -795,6 +806,7 @@ async function seedRolesAndMenus(actorId: string) {
     'menu_users',
     'menu_roles',
     'menu_menus',
+    'menu_document_templates',
     'menu_room_configs',
     'menu_room_types',
     'menu_customer_sources',

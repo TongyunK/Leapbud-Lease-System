@@ -31,6 +31,7 @@ export type CustomerWritePayload = {
   source?: string
   rentedRooms?: string
   buildingId?: string | null
+  agreementTemplateId?: string | null
   linkOccupantId?: string
   primaryOccupantId?: string | null
   occupant?: CustomerOccupantPayload

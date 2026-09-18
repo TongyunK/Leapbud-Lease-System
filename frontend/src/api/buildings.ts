@@ -19,6 +19,9 @@ export type BuildingWritePayload = {
   buildingConfig?: string
   chequePaymentBy?: string
   paymentAdvice?: string
+  agreementTemplateId?: string | null
+  invoiceTemplateId?: string | null
+  receiptTemplateId?: string | null
   active?: boolean
 }
 

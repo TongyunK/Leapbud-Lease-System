@@ -14,12 +14,20 @@ function formatDateTime(date: Date): string {
 
 export type BuildingWithRooms = Building & {
   rooms?: Pick<Room, 'id'>[];
+  agreementTemplateRef?: { id: string; name: string; fileName: string } | null;
+  invoiceTemplateRef?: { id: string; name: string; fileName: string } | null;
+  receiptTemplateRef?: { id: string; name: string; fileName: string } | null;
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
 };
 
+const templateRefSelect = { id: true, name: true, fileName: true } as const;
+
 export const buildingListInclude = {
   rooms: { select: { id: true } },
+  agreementTemplateRef: { select: templateRefSelect },
+  invoiceTemplateRef: { select: templateRefSelect },
+  receiptTemplateRef: { select: templateRefSelect },
   ...auditUserInclude,
 } as const;
 
@@ -32,20 +40,26 @@ export function toBuildingDto(row: BuildingWithRooms) {
     addressEn: row.addressEn,
     manager: row.manager,
     managerPhone: row.managerPhone,
-    agreementTemplate: row.agreementTemplate ?? undefined,
+    agreementTemplateId: row.agreementTemplateId ?? null,
+    agreementTemplateName: row.agreementTemplateRef?.name ?? '',
+    agreementTemplateFileName: row.agreementTemplateRef?.fileName ?? '',
     agreementLogo: row.agreementLogo ?? undefined,
     apiTemplateSuffix: row.apiTemplateSuffix ?? undefined,
     logo2: row.logo2 ?? undefined,
     email: row.email,
     workingHours: row.workingHours,
-    invoiceTemplate: row.invoiceTemplate ?? undefined,
+    invoiceTemplateId: row.invoiceTemplateId ?? null,
+    invoiceTemplateName: row.invoiceTemplateRef?.name ?? '',
+    invoiceTemplateFileName: row.invoiceTemplateRef?.fileName ?? '',
     invoiceLogo: row.invoiceLogo ?? undefined,
     fpsId: row.fpsId ?? undefined,
     bankAccountHolder: row.bankAccountHolder ?? undefined,
     bankAccount: row.bankAccount ?? undefined,
     chequePaymentBy: row.chequePaymentBy ?? undefined,
     paymentAdvice: row.paymentAdvice ?? undefined,
-    receiptTemplate: row.receiptTemplate ?? undefined,
+    receiptTemplateId: row.receiptTemplateId ?? null,
+    receiptTemplateName: row.receiptTemplateRef?.name ?? '',
+    receiptTemplateFileName: row.receiptTemplateRef?.fileName ?? '',
     receiptTopLogo: row.receiptTopLogo ?? undefined,
     receiptLeftLogo: row.receiptLeftLogo ?? undefined,
     receiptRightLogo: row.receiptRightLogo ?? undefined,

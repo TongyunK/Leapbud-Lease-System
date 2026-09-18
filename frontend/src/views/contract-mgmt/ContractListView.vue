@@ -67,7 +67,7 @@ import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { contractStatusTone } from '@/constants/statusBadges'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { useUserStore } from '@/stores/user'
@@ -82,14 +82,49 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
+import { previewAgreementPdfApi, prefetchAgreementPdfApi } from '@/api/document-templates'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
   useTableColWidth()
+
+const contractActionColWidth = computed(() => {
+  void locale.value
+  if (isAdmin.value) {
+    return Math.max(
+      actionColWidth.value.three,
+      measureActionColWidth([
+        t('contract.printAgreement'),
+        t('common.edit'),
+        t('common.delete'),
+      ]),
+    )
+  }
+  return Math.max(
+    actionColWidth.value.one,
+    measureActionColWidth([t('contract.printAgreement')]),
+  )
+})
+
+const printingAgreementId = ref<string | null>(null)
+
+async function onPrintAgreement(row: ContractRecord) {
+  if (!row?.id || printingAgreementId.value) return
+  printingAgreementId.value = row.id
+  try {
+    await previewAgreementPdfApi(row.id, { autoPrint: false })
+    ElMessage.success(t('contract.printAgreementPreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('contract.printAgreementFailed')
+    ElMessage.error(msg)
+  } finally {
+    printingAgreementId.value = null
+  }
+}
 
 const formVisible = ref(false)
 const editing = ref<ContractRecord | null>(null)
@@ -1429,9 +1464,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="isAdmin"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="contractActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -1441,11 +1475,23 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 <button
                   type="button"
                   class="action-pill action-pill--edit"
+                  :disabled="printingAgreementId === (row as ContractRecord).id"
+                  @mouseenter="prefetchAgreementPdfApi((row as ContractRecord).id)"
+                  @focus="prefetchAgreementPdfApi((row as ContractRecord).id)"
+                  @click="onPrintAgreement(row as ContractRecord)"
+                >
+                  {{ t('contract.printAgreement') }}
+                </button>
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="action-pill action-pill--edit"
                   @click="openEdit(row as ContractRecord)"
                 >
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="isAdmin"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click="onDelete(row as ContractRecord)"
