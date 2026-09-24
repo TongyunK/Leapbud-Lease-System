@@ -214,7 +214,9 @@ export class InvoiceServiceDetailsService {
           })
         : [];
     const invoiceByCode = new Map(
-      invoices.map((inv) => [inv.invoiceCode.toLowerCase(), inv]),
+      invoices
+        .filter((inv): inv is { id: string; invoiceCode: string } => Boolean(inv.invoiceCode))
+        .map((inv) => [inv.invoiceCode.toLowerCase(), inv]),
     );
     const invoiceById = new Map(invoices.map((inv) => [inv.id, inv]));
 
@@ -253,7 +255,7 @@ export class InvoiceServiceDetailsService {
         continue;
       }
 
-      let invoice: { id: string; invoiceCode: string } | null = null;
+      let invoice: { id: string; invoiceCode: string | null } | null = null;
       if (invoiceIdHint) {
         invoice =
           invoiceById.get(invoiceIdHint) ||
@@ -282,14 +284,15 @@ export class InvoiceServiceDetailsService {
       const unitAmount = decimalField(numOrZero(item.unitAmount), 'unitAmount');
       const subtotal = feeSubtotal(quantity, unitAmount, item.subtotal);
 
-      const dupKey = `${invoice.invoiceCode.toLowerCase()}|${description.toLowerCase()}|${quantity.toString()}|${unitAmount.toString()}`;
+      const invoiceLabel = invoice.invoiceCode || invoice.id;
+      const dupKey = `${invoiceLabel.toLowerCase()}|${description.toLowerCase()}|${quantity.toString()}|${unitAmount.toString()}`;
       if (seen.has(dupKey)) {
         skipped += 1;
         pushImportIssue(
           issues,
           'skipped',
-          `發票「${invoice.invoiceCode}」已存在相同服務細節記錄`,
-          { ...keys, 發票編號: invoice.invoiceCode },
+          `發票「${invoiceLabel}」已存在相同服務細節記錄`,
+          { ...keys, 發票編號: invoiceLabel },
         );
         continue;
       }
@@ -313,7 +316,7 @@ export class InvoiceServiceDetailsService {
       } catch (e) {
         failed += 1;
         const msg = e instanceof Error ? e.message : '建立服務細節失敗';
-        pushImportIssue(issues, 'failed', msg, { ...keys, 發票編號: invoice.invoiceCode });
+        pushImportIssue(issues, 'failed', msg, { ...keys, 發票編號: invoice.invoiceCode || invoice.id });
       }
     }
 

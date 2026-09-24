@@ -452,7 +452,7 @@ export class InvoicesService {
               where: { invoiceCode: { in: codeHints } },
               select: { invoiceCode: true },
             })
-          ).map((r) => r.invoiceCode.toLowerCase())
+          ).flatMap((r) => (r.invoiceCode ? [r.invoiceCode.toLowerCase()] : []))
         : [],
     )
 
@@ -472,7 +472,7 @@ export class InvoicesService {
           continue
         }
         const row = await this.create(item, actorId)
-        existingCodes.add(row.invoiceCode.toLowerCase())
+        if (row.invoiceCode) existingCodes.add(row.invoiceCode.toLowerCase())
         created += 1
       } catch (e) {
         failed += 1

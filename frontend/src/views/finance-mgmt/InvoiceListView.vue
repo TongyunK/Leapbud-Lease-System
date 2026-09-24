@@ -31,10 +31,13 @@ import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
+import RelatedServiceDetailsDrawer from '@/components/RelatedServiceDetailsDrawer.vue'
 import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
 import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
 import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
+import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
+import InvoiceServiceDetailDrawer from '@/components/InvoiceServiceDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -44,7 +47,7 @@ import { invoiceStatusTone } from '@/constants/statusBadges'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   invoiceIoTemplateExampleRow,
@@ -56,6 +59,7 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
+import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
 
 type FeeFormRow = {
   uid: string
@@ -67,7 +71,7 @@ type FeeFormRow = {
   sortOrder: number
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const isAdmin = computed(() => userStore.isAdmin)
@@ -82,6 +86,40 @@ const {
   tableLayoutKey,
 } = useTableColWidth()
 
+const invoiceActionColWidth = computed(() => {
+  void locale.value
+  if (isAdmin.value) {
+    return Math.max(
+      actionColWidth.value.three,
+      measureActionColWidth([
+        t('invoice.printInvoice'),
+        t('common.edit'),
+        t('common.delete'),
+      ]),
+    )
+  }
+  return Math.max(
+    actionColWidth.value.one,
+    measureActionColWidth([t('invoice.printInvoice')]),
+  )
+})
+
+const printingInvoiceId = ref<string | null>(null)
+
+async function onPrintInvoice(row: InvoiceRecord) {
+  if (!row?.id || printingInvoiceId.value) return
+  printingInvoiceId.value = row.id
+  try {
+    await previewInvoicePdfApi(row.id, { autoPrint: false })
+    ElMessage.success(t('invoice.printInvoicePreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('invoice.printInvoiceFailed')
+    ElMessage.error(msg)
+  } finally {
+    printingInvoiceId.value = null
+  }
+}
+
 const keyword = ref('')
 const formVisible = ref(false)
 const editing = ref<InvoiceRecord | null>(null)
@@ -91,11 +129,14 @@ const users = ref<UserRecord[]>([])
 const drawerVisible = ref(false)
 const relatedReceivablesDrawer = ref(false)
 const relatedReceiptsDrawer = ref(false)
+const relatedServiceDetailsDrawer = ref(false)
 const relatedListInvoice = ref<InvoiceRecord | null>(null)
 const relatedReceivable = ref<ReceivableRecord | null>(null)
 const relatedReceipt = ref<ReceiptRecord | null>(null)
+const relatedServiceDetail = ref<InvoiceServiceDetailListRecord | null>(null)
 const receivableDetailDrawer = ref(false)
 const receiptDetailDrawer = ref(false)
+const serviceDetailDrawer = ref(false)
 const current = ref<InvoiceRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const contractDrawerVisible = ref(false)
@@ -492,6 +533,11 @@ function openReceiptsSide(row: InvoiceRecord) {
   relatedListInvoice.value = row
   relatedReceiptsDrawer.value = true
 }
+function openServiceDetailsSide(row: InvoiceRecord) {
+  if (!row.serviceDetailCount) return
+  relatedListInvoice.value = row
+  relatedServiceDetailsDrawer.value = true
+}
 function onOpenReceivableFromRelated(row: ReceivableRecord) {
   relatedReceivable.value = row
   receivableDetailDrawer.value = true
@@ -499,6 +545,10 @@ function onOpenReceivableFromRelated(row: ReceivableRecord) {
 function onOpenReceiptFromRelated(row: ReceiptRecord) {
   relatedReceipt.value = row
   receiptDetailDrawer.value = true
+}
+function onOpenServiceDetailFromRelated(row: InvoiceServiceDetailListRecord) {
+  relatedServiceDetail.value = row
+  serviceDetailDrawer.value = true
 }
 
 function onRowClick(row: InvoiceRecord, column: { type?: string } | undefined, event: Event) {
@@ -1001,6 +1051,25 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.remark || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('invoice.fields.serviceDetailCount'), { interactive: true, contentMin: 96 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.serviceDetailCount')"
+                sortable
+                :sort-order="sortOrderOf('serviceDetailCount')"
+                @update:sort-order="(v) => setSort('serviceDetailCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.serviceDetailCount ?? 0"
+                @click="openServiceDetailsSide(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="colW(t('invoice.fields.receivableCount'), { interactive: true, contentMin: 80 })"
             align="center"
           >
@@ -1065,9 +1134,8 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="isAdmin"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="invoiceActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -1077,11 +1145,23 @@ async function onImportFile(ev: Event) {
                 <button
                   type="button"
                   class="action-pill action-pill--edit"
+                  :disabled="printingInvoiceId === row.id"
+                  @mouseenter="prefetchInvoicePdfApi(row.id)"
+                  @focus="prefetchInvoicePdfApi(row.id)"
+                  @click.stop="onPrintInvoice(row)"
+                >
+                  {{ t('invoice.printInvoice') }}
+                </button>
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
                 >
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="isAdmin"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"
@@ -1129,6 +1209,14 @@ async function onImportFile(ev: Event) {
     
       @open-receivables="openReceivablesSide"
       @open-receipts="openReceiptsSide"
+      @open-service-details="openServiceDetailsSide"
+    />
+    <RelatedServiceDetailsDrawer
+      v-model="relatedServiceDetailsDrawer"
+      :invoice-id="relatedListInvoice?.id"
+      :title-context="relatedListInvoice?.invoiceCode || ''"
+      desktop-direction="ltr"
+      @open-service-detail="onOpenServiceDetailFromRelated"
     />
     <RelatedReceivablesDrawer
       v-model="relatedReceivablesDrawer"
@@ -1143,6 +1231,11 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListInvoice?.invoiceCode || ''"
       desktop-direction="ltr"
       @open-receipt="onOpenReceiptFromRelated"
+    />
+    <InvoiceServiceDetailDrawer
+      v-model="serviceDetailDrawer"
+      :detail="relatedServiceDetail"
+      desktop-direction="ltr"
     />
     <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
     <ReceiptDetailDrawer v-model="receiptDetailDrawer" :record="relatedReceipt" desktop-direction="ltr" />
@@ -1337,7 +1430,7 @@ async function onImportFile(ev: Event) {
               >
                 <div class="fee-table__cell fee-table__cell--index" role="cell">{{ idx + 1 }}</div>
                 <div class="fee-table__cell fee-table__cell--desc" role="cell">
-                  <el-input v-model="fee.description" />
+                  <el-input v-model="fee.description" type="textarea" :rows="2" />
                 </div>
                 <div class="fee-table__cell fee-table__cell--qty" role="cell">
                   <el-input-number

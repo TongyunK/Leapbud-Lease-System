@@ -80,6 +80,7 @@ declare module 'vue' {
     RelatedReceiptsDrawer: typeof import('./components/RelatedReceiptsDrawer.vue')['default']
     RelatedReceivablesDrawer: typeof import('./components/RelatedReceivablesDrawer.vue')['default']
     RelatedRoomsDrawer: typeof import('./components/RelatedRoomsDrawer.vue')['default']
+    RelatedServiceDetailsDrawer: typeof import('./components/RelatedServiceDetailsDrawer.vue')['default']
     RelatedTerminationsDrawer: typeof import('./components/RelatedTerminationsDrawer.vue')['default']
     RoomDetailDrawer: typeof import('./components/RoomDetailDrawer.vue')['default']
     RoomTypeBadge: typeof import('./components/RoomTypeBadge.vue')['default']

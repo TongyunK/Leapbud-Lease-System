@@ -108,7 +108,73 @@ export const AGREEMENT_FIELD_DICTIONARY: DocumentFieldDef[] = [
   { key: 'periodsSummary', label: '合约期摘要（多段用分号拼接）', loop: false },
 ];
 
+/** 发票（invoice）可填充字段说明；兼容旧系统 ${inv_*} 键名（模板内写 {inv_No}） */
+export const INVOICE_FIELD_DICTIONARY: DocumentFieldDef[] = [
+  { key: 'inv_No', label: '发票编号（旧键；等同 invoiceCode）', loop: false },
+  { key: 'invoiceCode', label: '发票编号', loop: false },
+  { key: 'inv_date', label: '发票日期 DD/MM/YYYY（旧键；等同 invoiceDate）', loop: false },
+  { key: 'invoiceDate', label: '发票日期（DD/MM/YYYY）', loop: false },
+  { key: 'inv_dueDate', label: '收款期限 DD/MM/YYYY（旧键；等同 paymentDueDate）', loop: false },
+  { key: 'paymentDueDate', label: '收款期限（DD/MM/YYYY）', loop: false },
+  { key: 'customerName', label: '客户名称', loop: false },
+  { key: 'clientname', label: '客户名称（旧键别名，Payment Advice 区常用）', loop: false },
+  { key: 'customerCode', label: '客户编号', loop: false },
+  { key: 'roomName', label: '房间名称（不含末尾「室」）', loop: false },
+  { key: 'roomNo', label: '房间编号（旧键；等同 roomCode）', loop: false },
+  { key: 'roomCode', label: '房间编号', loop: false },
+  { key: 'address', label: '大厦地址（优先英文 addressEn）', loop: false },
+  { key: 'buildingName', label: '大厦名称', loop: false },
+  { key: 'buildingAddress', label: '大厦地址（中文）', loop: false },
+  { key: 'buildingAddressEn', label: '大厦地址（英文）', loop: false },
+  { key: 'contractCode', label: '合约编号', loop: false },
+  { key: 'invoiceType', label: '发票类型', loop: false },
+  { key: 'description', label: '发票描述', loop: false },
+  {
+    key: 'inv_subtotal',
+    label: '小计（千分位；有明细则明细合计，否则发票金额）',
+    loop: false,
+  },
+  { key: 'inv_total', label: '发票合计 HKD（千分位；等同 amount）', loop: false },
+  { key: 'inv_amountDue', label: '应付金额（千分位；等同 inv_total）', loop: false },
+  { key: 'amount', label: '开票金额（千分位）', loop: false },
+  { key: 'subtotal', label: '小计（千分位）', loop: false },
+  { key: 'FPSID', label: 'FPS 收款标识（旧键；等同 fpsId）', loop: false },
+  { key: 'fpsId', label: 'FPS 收款标识（取自大厦）', loop: false },
+  {
+    key: 'accountName',
+    label: '银行户名（旧键；等同 bankAccountHolder，取自大厦）',
+    loop: false,
+  },
+  { key: 'bankAccountHolder', label: '银行户名（取自大厦）', loop: false },
+  { key: 'account', label: '银行账户（旧键；等同 bankAccount，取自大厦）', loop: false },
+  { key: 'bankAccount', label: '银行账户（取自大厦）', loop: false },
+  {
+    key: 'post',
+    label: '支票付款说明/寄送（旧键；等同 chequePaymentBy，取自大厦）',
+    loop: false,
+  },
+  { key: 'chequePaymentBy', label: '支票付款说明（取自大厦）', loop: false },
+  {
+    key: 'payment_advice',
+    label: 'Payment Advice 收款地址块（旧键；等同 paymentAdvice，取自大厦）',
+    loop: false,
+  },
+  { key: 'paymentAdvice', label: 'Payment Advice（取自大厦）', loop: false },
+  {
+    key: 'items',
+    label:
+      '明细循环（来自发票「服务细节」；无细节时回退为 1 行开票金额）。表内同一行：首格 {#items}{description}，次格 {quantity}，再次 {unitPrice}，末格 {amount}{/items}',
+    loop: true,
+  },
+  { key: 'itemCount', label: '明细行数（含无细节时的回退行）', loop: false },
+  { key: 'notes', label: '发票备注（业务说明）', loop: false },
+  { key: 'remark', label: '备注', loop: false },
+  { key: 'whatsappNumber', label: 'WhatsApp 号码', loop: false },
+  { key: 'status', label: '发票状态', loop: false },
+];
+
 export function getFieldDictionary(type: string): DocumentFieldDef[] {
   if (type === 'agreement') return AGREEMENT_FIELD_DICTIONARY;
+  if (type === 'invoice') return INVOICE_FIELD_DICTIONARY;
   return [];
 }

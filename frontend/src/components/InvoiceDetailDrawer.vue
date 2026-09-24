@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import type { InvoiceRecord } from '@/types/invoice'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
@@ -8,6 +9,7 @@ import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { invoiceStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
+import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -29,10 +31,19 @@ const emit = defineEmits<{
   openRoom: [roomId: string]
   openReceivables: [row: InvoiceRecord]
   openReceipts: [row: InvoiceRecord]
+  openServiceDetails: [row: InvoiceRecord]
 }>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const printing = ref(false)
+
+watch(
+  () => [visible.value, props.record?.id] as const,
+  ([open, id]) => {
+    if (open && id) prefetchInvoicePdfApi(id)
+  },
+)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '560px'))
@@ -59,6 +70,21 @@ function typeLabel(type: string) {
   }
   return map[type] || type
 }
+
+async function onPrintInvoice() {
+  const row = props.record
+  if (!row?.id || printing.value) return
+  printing.value = true
+  try {
+    await previewInvoicePdfApi(row.id, { autoPrint: false })
+    ElMessage.success(t('invoice.printInvoicePreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('invoice.printInvoiceFailed')
+    ElMessage.error(msg)
+  } finally {
+    printing.value = false
+  }
+}
 </script>
 
 <template>
@@ -70,6 +96,18 @@ function typeLabel(type: string) {
     class="responsive-drawer"
   >
     <template v-if="record">
+      <div class="detail-toolbar">
+        <el-button
+          type="primary"
+          class="lb-btn-primary"
+          :loading="printing"
+          @mouseenter="record?.id && prefetchInvoicePdfApi(record.id)"
+          @focus="record?.id && prefetchInvoicePdfApi(record.id)"
+          @click="onPrintInvoice"
+        >
+          {{ t('invoice.printInvoice') }}
+        </el-button>
+      </div>
       <section class="detail-section">
         <h3>{{ t('invoice.sections.basic') }}</h3>
         <dl class="detail-grid two">
@@ -209,6 +247,18 @@ function typeLabel(type: string) {
         <h3>{{ t('invoice.sections.relatedRecords') }}</h3>
         <dl class="detail-grid two">
           <div>
+            <dt>{{ t('invoice.fields.serviceDetailCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="record.serviceDetailCount ?? record.serviceDetails?.length ?? 0"
+                @click="() => {
+                  const n = record?.serviceDetailCount ?? record?.serviceDetails?.length ?? 0
+                  if (n) emit('openServiceDetails', record)
+                }"
+              />
+            </dd>
+          </div>
+          <div>
             <dt>{{ t('invoice.fields.receivableCount') }}</dt>
             <dd>
               <CountListPill
@@ -240,6 +290,13 @@ function typeLabel(type: string) {
 </template>
 
 <style scoped>
+.detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 .fee-list {
   display: flex;
   flex-direction: column;

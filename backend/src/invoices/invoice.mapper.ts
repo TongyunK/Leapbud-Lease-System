@@ -96,7 +96,7 @@ export function toInvoiceServiceDetailDto(row: InvoiceServiceDetailRow) {
 export function toInvoiceDto(row: InvoiceWithRelations) {
   return {
     id: row.id,
-    invoiceCode: row.invoiceCode,
+    invoiceCode: row.invoiceCode ?? '',
     contractId: row.contractId,
     contractCode: row.contract?.contractCode ?? '',
     customerId: row.customerId,

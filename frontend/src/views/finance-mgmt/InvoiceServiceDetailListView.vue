@@ -63,7 +63,6 @@ const { colW, textColW, codeColW, datetimeColWidth, auditUserColWidth, tableLayo
 const keyword = ref('')
 const formVisible = ref(false)
 const editing = ref<InvoiceServiceDetailListRecord | null>(null)
-const invoices = ref<InvoiceRecord[]>([])
 
 const drawerVisible = ref(false)
 const current = ref<InvoiceServiceDetailListRecord | null>(null)
@@ -191,12 +190,33 @@ async function onBatchDelete() {
   }
 }
 
-const invoiceFilterOptions = computed(() =>
-  invoices.value.map((inv) => ({
-    value: inv.id,
-    label: `${inv.invoiceCode} · ${inv.customerName} · ${inv.contractCode}`,
-  })),
-)
+type InvoiceSelectOpt = { value: string; label: string }
+
+const invoiceSelectOptions = ref<InvoiceSelectOpt[]>([])
+const invoiceSelectLoading = ref(false)
+
+function invoiceOptionLabel(inv: Pick<InvoiceRecord, 'invoiceCode' | 'customerName' | 'contractCode'>) {
+  return `${inv.invoiceCode} · ${inv.customerName} · ${inv.contractCode}`
+}
+
+async function searchInvoicesRemote(query: string) {
+  invoiceSelectLoading.value = true
+  try {
+    const { data } = await fetchInvoices({
+      keyword: query.trim() || undefined,
+      page: 1,
+      pageSize: 40,
+    })
+    invoiceSelectOptions.value = data.items.map((inv) => ({
+      value: inv.id,
+      label: invoiceOptionLabel(inv),
+    }))
+  } catch {
+    invoiceSelectOptions.value = []
+  } finally {
+    invoiceSelectLoading.value = false
+  }
+}
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
 
@@ -214,22 +234,19 @@ const computedSubtotal = computed(
   () => (Number(form.quantity) || 0) * (Number(form.unitAmount) || 0),
 )
 
-async function loadInvoices() {
-  const { data } = await fetchInvoices()
-  invoices.value = data.items
-}
-
-onMounted(async () => {
-  await Promise.all([loadInvoices(), loadList()])
+onMounted(() => {
+  void loadList()
 })
 
 function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
+  invoiceSelectOptions.value = []
   formVisible.value = true
+  void searchInvoicesRemote('')
 }
 
-async function openEdit(row: InvoiceServiceDetailListRecord) {
+function openEdit(row: InvoiceServiceDetailListRecord) {
   editing.value = row
   Object.assign(form, {
     invoiceId: row.invoiceId || '',
@@ -238,6 +255,19 @@ async function openEdit(row: InvoiceServiceDetailListRecord) {
     unitAmount: row.unitAmount ?? 0,
     remark: row.remark || '',
   })
+  // 编辑时发票不可改：只挂当前一项，避免全量 el-option 拖垮开合
+  invoiceSelectOptions.value = row.invoiceId
+    ? [
+        {
+          value: row.invoiceId,
+          label: invoiceOptionLabel({
+            invoiceCode: row.invoiceCode,
+            customerName: row.customerName,
+            contractCode: row.contractCode,
+          }),
+        },
+      ]
+    : []
   formVisible.value = true
 }
 
@@ -841,13 +871,18 @@ async function onImportFile(ev: Event) {
             <el-select
               v-model="form.invoiceId"
               filterable
+              remote
+              reserve-keyword
               fit-input-width
               style="width: 100%"
               :placeholder="t('invoiceServiceDetail.fields.invoiceCode')"
               :disabled="!!editing"
+              :remote-method="searchInvoicesRemote"
+              :loading="invoiceSelectLoading"
+              @visible-change="(open: boolean) => open && !editing && searchInvoicesRemote('')"
             >
               <el-option
-                v-for="opt in invoiceFilterOptions"
+                v-for="opt in invoiceSelectOptions"
                 :key="opt.value"
                 :label="opt.label"
                 :value="opt.value"
@@ -858,7 +893,7 @@ async function onImportFile(ev: Event) {
             </el-select>
           </el-form-item>
           <el-form-item :label="t('invoiceServiceDetail.fields.description')" class="span-2">
-            <el-input v-model="form.description" />
+            <el-input v-model="form.description" type="textarea" :rows="3" />
           </el-form-item>
           <el-form-item :label="t('invoiceServiceDetail.fields.quantity')">
             <el-input-number

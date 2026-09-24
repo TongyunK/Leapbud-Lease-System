@@ -77,6 +77,18 @@ export class PrintAgreementDto {
   format?: 'docx' | 'pdf';
 }
 
+export class PrintInvoiceDto {
+  @ApiProperty({ description: '发票 ID' })
+  @IsString()
+  @MinLength(1)
+  invoiceId!: string;
+
+  @ApiPropertyOptional({ enum: ['docx', 'pdf'], default: 'docx' })
+  @IsOptional()
+  @IsIn(['docx', 'pdf'])
+  format?: 'docx' | 'pdf';
+}
+
 export class DocumentTemplateDto {
   @ApiProperty()
   id!: string;

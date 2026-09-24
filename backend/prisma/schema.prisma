@@ -45,6 +45,8 @@ enum ContractConfigType {
 model User {
   /// 主键
   id           String     @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId     String?    @unique @map("legacy_id")
   /// 登录账号（手机号或系统账号）
   account      String     @unique
   /// 密码哈希（不可明文存储）
@@ -179,6 +181,8 @@ model User {
 model RoomConfigOption {
   /// 主键
   id        String         @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId  String?        @unique @map("legacy_id")
   /// 配置类型：size / window / ac
   type      RoomConfigType
   /// 配置描述（展示用标签）
@@ -288,6 +292,8 @@ model CustomerSourceOption {
 model Building {
   /// 主键
   id                String   @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId          String?  @unique @map("legacy_id")
   /// 大厦名称
   name              String
   /// 地址（中文）
@@ -374,6 +380,8 @@ model Building {
 model Room {
   /// 主键
   id              String     @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId        String?    @unique @map("legacy_id")
   /// 房间编号（业务唯一）
   roomCode        String     @unique @map("room_code")
   /// 房间名称
@@ -448,6 +456,8 @@ model Room {
 model Customer {
   /// 主键
   id               String     @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId         String?    @unique @map("legacy_id")
   /// 客户编号（业务唯一，如 CSM260485）
   customerCode     String     @unique @map("customer_code")
   /// 客户名称
@@ -530,6 +540,8 @@ model Customer {
 model CustomerRequirement {
   /// 主键
   id               String    @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId         String?   @unique @map("legacy_id")
   /// 需求编号（业务唯一，如 REQ2609100001）
   requirementCode  String    @unique @map("requirement_code")
   /// 所属客户 ID
@@ -597,9 +609,10 @@ model CustomerRequirement {
 model Contract {
   /// 主键
   id                  String    @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId            String?   @unique @map("legacy_id")
   /// 合约编号（业务唯一，如 CTR2609110001）
-  contractCode        String    @unique @map("contract_code")
-  /// 所属房间 ID
+  contractCode        String    @unique @map("contract_code")  /// 所属房间 ID
   roomId              String    @map("room_id")
   /// 所属房间
   room                Room      @relation("ContractBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
@@ -732,6 +745,8 @@ model ContractConfigOption {
 model ContractPeriod {
   /// 主键
   id          String   @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId    String?  @unique @map("legacy_id")
   /// 所属合约 ID
   contractId  String   @map("contract_id")
   /// 所属合约
@@ -764,6 +779,8 @@ model ContractPeriod {
 model LeaseTermination {
   /// 主键
   id                    String   @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId              String?  @unique @map("legacy_id")
   /// 退租编号（业务唯一，如 TRM2609110001）
   terminationCode       String   @unique @map("termination_code")
   /// 所属合约 ID
@@ -822,6 +839,8 @@ model LeaseTermination {
 model ContractOtherFee {
   /// 主键
   id              String   @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId        String?  @unique @map("legacy_id")
   /// 所属合约 ID
   contractId      String   @map("contract_id")
   /// 所属合约
@@ -866,6 +885,8 @@ model ContractOtherFee {
 model DepositRefund {
   /// 主键
   id                  String    @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId            String?   @unique @map("legacy_id")
   /// 退还编号（业务唯一，如 DRF2609160001）
   refundCode          String    @unique @map("refund_code")
   /// 所属合约 ID
@@ -931,8 +952,10 @@ model DepositRefund {
 model Invoice {
   /// 主键
   id                    String                 @id @default(cuid())
-  /// 发票编号（业务唯一，如 INV2609160001）
-  invoiceCode           String                 @unique @map("invoice_code")
+  /// 发票编号（可空；待开票尚未赋号时为空；有值时业务唯一，如 INV2609160001 / W250242-KT9A18）
+  invoiceCode           String?                @unique @map("invoice_code")
+  /// 旧系统记录 ID（简道云 _id；服务细节 JSON 按此关联所属发票）
+  legacyId              String?                @unique @map("legacy_id")
   /// 所属合约 ID
   contractId            String                 @map("contract_id")
   /// 所属合约
@@ -1011,6 +1034,8 @@ model Invoice {
 model InvoiceServiceDetail {
   /// 主键
   id          String   @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId    String?  @unique @map("legacy_id")
   /// 所属发票 ID
   invoiceId   String   @map("invoice_id")
   /// 所属发票
@@ -1050,6 +1075,8 @@ model InvoiceServiceDetail {
 model Receivable {
   /// 主键
   id                 String         @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId           String?        @unique @map("legacy_id")
   /// 应收编号（业务唯一，如 AR2609160001）
   receivableCode     String         @unique @map("receivable_code")
   /// 所属发票 ID
@@ -1112,6 +1139,8 @@ model Receivable {
 model Receipt {
   /// 主键
   id                String      @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId          String?     @unique @map("legacy_id")
   /// 收据编号（业务唯一，如 RCP2609160001）
   receiptCode       String      @unique @map("receipt_code")
   /// 所属客户 ID
@@ -1172,6 +1201,8 @@ model Receipt {
 model Occupant {
   /// 主键
   id                  String    @id @default(cuid())
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  legacyId            String?   @unique @map("legacy_id")
   /// 姓名
   name                String
   /// 所属客户 ID（导入时若客户编号缺失可为空）

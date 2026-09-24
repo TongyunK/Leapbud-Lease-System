@@ -487,7 +487,11 @@ export class ReceivablesService {
             },
           })
         : []
-    const invoiceByCode = new Map(invoices.map((inv) => [inv.invoiceCode.toLowerCase(), inv]))
+    const invoiceByCode = new Map(
+      invoices
+        .filter((inv): inv is typeof inv & { invoiceCode: string } => Boolean(inv.invoiceCode))
+        .map((inv) => [inv.invoiceCode.toLowerCase(), inv]),
+    )
     const invoiceById = new Map(invoices.map((inv) => [inv.id, inv]))
 
     const existingAmountRows = await this.prisma.receivable.findMany({
@@ -559,8 +563,8 @@ export class ReceivablesService {
           pushImportIssue(
             issues,
             'skipped',
-            `发票「${invoice.invoiceCode}」已存在相同金额应收记录`,
-            { ...keys, 發票編號: invoice.invoiceCode },
+            `发票「${invoice.invoiceCode || invoice.id}」已存在相同金额应收记录`,
+            { ...keys, 發票編號: invoice.invoiceCode || invoice.id },
           )
           continue
         }
@@ -569,7 +573,7 @@ export class ReceivablesService {
           {
             ...item,
             invoiceId: invoice.id,
-            invoiceCode: invoice.invoiceCode,
+            invoiceCode: invoice.invoiceCode ?? undefined,
             invoiceAmount: Number(invAmt.toString()),
             receivedAmount: Number(recvAmt.toString()),
             receivableAmount: Number(arAmt.toString()),

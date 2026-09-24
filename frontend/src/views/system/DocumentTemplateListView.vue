@@ -8,6 +8,7 @@ import {
   createDocumentTemplateApi,
   deleteDocumentTemplateApi,
   downloadAgreementSampleApi,
+  downloadInvoiceSampleApi,
   downloadDocumentTemplateApi,
   fetchDocumentFieldDictionary,
   fetchDocumentTemplates,
@@ -351,13 +352,24 @@ async function openFieldGuide() {
 
 async function onDownloadSample() {
   try {
-    await downloadAgreementSampleApi()
+    const type = (filterType.value || fieldGuideType.value || 'agreement') as DocumentTemplateType
+    if (type === 'invoice') {
+      await downloadInvoiceSampleApi()
+    } else {
+      await downloadAgreementSampleApi()
+    }
     ElMessage.success(t('documentTemplate.sampleDownloaded'))
   } catch (e) {
     const msg = e instanceof Error && e.message ? e.message : t('documentTemplate.downloadFailed')
     ElMessage.error(msg)
   }
 }
+
+const sampleDownloadLabel = computed(() => {
+  if (filterType.value === 'invoice') return t('documentTemplate.actions.downloadInvoiceSample')
+  if (filterType.value === 'agreement') return t('documentTemplate.actions.downloadAgreementSample')
+  return t('documentTemplate.actions.downloadSample')
+})
 
 async function loadFieldGuide() {
   fieldGuideLoading.value = true
@@ -444,7 +456,7 @@ function onClearFilters() {
         </el-select>
         <ClearTableFiltersButton :count="clearFilterCount" @clear="onClearFilters" />
         <el-button @click="onDownloadSample">
-          {{ t('documentTemplate.actions.downloadSample') }}
+          {{ sampleDownloadLabel }}
         </el-button>
         <el-button :icon="Document" @click="openFieldGuide">
           {{ t('documentTemplate.actions.fieldGuide') }}
