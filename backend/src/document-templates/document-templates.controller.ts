@@ -34,14 +34,17 @@ import { BatchDeleteDto } from '../common/batch-delete';
 import { DocumentTemplatesService } from './document-templates.service';
 import { AgreementPrintService } from './agreement-print.service';
 import { InvoicePrintService } from './invoice-print.service';
+import { ReceiptPrintService } from './receipt-print.service';
 import { getFieldDictionary } from './field-dictionary';
 import { buildAgreementSampleDocx } from './sample-agreement-docx.util';
 import { buildInvoiceSampleDocx } from './sample-invoice-docx.util';
+import { buildReceiptSampleDocx } from './sample-receipt-docx.util';
 import { createPdfPreviewTicket } from './pdf-preview-ticket.util';
 import {
   CreateDocumentTemplateDto,
   PrintAgreementDto,
   PrintInvoiceDto,
+  PrintReceiptDto,
   UpdateDocumentTemplateDto,
 } from './dto/document-template.dto';
 
@@ -67,6 +70,7 @@ export class DocumentTemplatesController {
     private readonly documentTemplatesService: DocumentTemplatesService,
     private readonly agreementPrintService: AgreementPrintService,
     private readonly invoicePrintService: InvoicePrintService,
+    private readonly receiptPrintService: ReceiptPrintService,
   ) {}
 
   @Get()
@@ -118,6 +122,18 @@ export class DocumentTemplatesController {
     return new StreamableFile(buffer);
   }
 
+  @Get('samples/receipt')
+  @ApiOkResponse({ description: '下载收据样例 docx（旧系统键名占位符，可改版后上传）' })
+  sampleReceipt(@Res({ passthrough: true }) res: Response) {
+    const buffer = buildReceiptSampleDocx();
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': attachmentDisposition('receipt-sample.docx'),
+    });
+    return new StreamableFile(buffer);
+  }
+
   @Post('prints/agreement')
   @ApiOkResponse({ description: '按合约填充协议模板并下载（docx 或 pdf）' })
   async printAgreement(
@@ -127,6 +143,7 @@ export class DocumentTemplatesController {
     const result = await this.agreementPrintService.print({
       contractId: dto.contractId,
       format: dto.format,
+      draft: dto.draft,
     });
     res.set({
       'Content-Type': result.contentType,
@@ -146,6 +163,7 @@ export class DocumentTemplatesController {
     const result = await this.agreementPrintService.print({
       contractId: dto.contractId,
       format: 'pdf',
+      draft: dto.draft,
     });
     if (result.format !== 'pdf') {
       throw new BadRequestException(
@@ -186,6 +204,47 @@ export class DocumentTemplatesController {
   async createInvoicePreviewTicket(@Body() dto: PrintInvoiceDto) {
     const result = await this.invoicePrintService.print({
       invoiceId: dto.invoiceId,
+      format: 'pdf',
+    });
+    if (result.format !== 'pdf') {
+      throw new BadRequestException(
+        '未能生成 PDF（请确认服务器已安装 LibreOffice）。可改用导出 Word。',
+      );
+    }
+    const ticket = createPdfPreviewTicket({
+      buffer: result.buffer,
+      fileName: result.fileName,
+      contentType: result.contentType,
+    });
+    return { ticket, fileName: result.fileName };
+  }
+
+  @Post('prints/receipt')
+  @ApiOkResponse({ description: '按收据填充收据模板并下载（docx 或 pdf）' })
+  async printReceipt(
+    @Body() dto: PrintReceiptDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.receiptPrintService.print({
+      receiptId: dto.receiptId,
+      format: dto.format,
+    });
+    res.set({
+      'Content-Type': result.contentType,
+      'Content-Disposition': result.contentType.includes('pdf')
+        ? inlineDisposition(result.fileName)
+        : attachmentDisposition(result.fileName),
+    });
+    return new StreamableFile(result.buffer);
+  }
+
+  @Post('prints/receipt/preview-ticket')
+  @ApiOkResponse({
+    description: '生成收据 PDF 预览票据；前端用 /view/:ticket 打开以保留正确文件名',
+  })
+  async createReceiptPreviewTicket(@Body() dto: PrintReceiptDto) {
+    const result = await this.receiptPrintService.print({
+      receiptId: dto.receiptId,
       format: 'pdf',
     });
     if (result.format !== 'pdf') {

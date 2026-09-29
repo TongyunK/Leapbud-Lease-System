@@ -15,9 +15,9 @@ import {
 } from '@/api/receipts'
 import type { ReceiptWritePayload, ReceiptListQuery } from '@/api/receipts'
 import { fetchCustomers } from '@/api/customers'
-import { fetchContract, fetchContracts } from '@/api/contracts'
-import { fetchInvoice, fetchInvoices } from '@/api/invoices'
-import { fetchReceivable, fetchReceivables } from '@/api/receivables'
+import { fetchContracts } from '@/api/contracts'
+import { fetchInvoices } from '@/api/invoices'
+import { fetchReceivables } from '@/api/receivables'
 import type { ReceiptRecord } from '@/types/receipt'
 import { RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
 import type { CustomerRecord } from '@/types/customer'
@@ -30,9 +30,6 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
-import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
 import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -41,7 +38,8 @@ import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
+import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   receiptIoTemplateExampleRow,
@@ -54,11 +52,45 @@ import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const isAdmin = computed(() => userStore.isAdmin)
 const { actionColWidth } = useActionColWidth()
+
+const receiptActionColWidth = computed(() => {
+  void locale.value
+  if (isAdmin.value) {
+    return Math.max(
+      actionColWidth.value.three,
+      measureActionColWidth([
+        t('receipt.printReceipt'),
+        t('common.edit'),
+        t('common.delete'),
+      ]),
+    )
+  }
+  return Math.max(
+    actionColWidth.value.one,
+    measureActionColWidth([t('receipt.printReceipt')]),
+  )
+})
+
+const printingReceiptId = ref<string | null>(null)
+
+async function onPrintReceipt(row: ReceiptRecord) {
+  if (!row?.id || printingReceiptId.value) return
+  printingReceiptId.value = row.id
+  try {
+    await previewReceiptPdfApi(row.id, { autoPrint: false })
+    ElMessage.success(t('receipt.printReceiptPreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('receipt.printReceiptFailed')
+    ElMessage.error(msg)
+  } finally {
+    printingReceiptId.value = null
+  }
+}
 const {
   colW,
   textColW,
@@ -79,15 +111,6 @@ const receivables = ref<ReceivableRecord[]>([])
 const drawerVisible = ref(false)
 const current = ref<ReceiptRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const invoiceDrawerVisible = ref(false)
-const currentInvoice = ref<InvoiceRecord | null>(null)
-const invoiceDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const receivableDrawerVisible = ref(false)
-const currentReceivable = ref<ReceivableRecord | null>(null)
-const receivableDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
@@ -466,59 +489,20 @@ function onRowClick(row: ReceiptRecord, column: { type?: string } | undefined, e
   void openDetail(row, 'rtl')
 }
 
-async function openInvoiceSide(invoiceId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!invoiceId) return
-  try {
-    const { data } = await fetchInvoice(invoiceId)
-    currentInvoice.value = data
-    invoiceDrawerDirection.value = direction
-    invoiceDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openInvoiceSide(invoiceId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openInvoiceSide(invoiceId)
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
-async function openReceivableSide(
-  receivableId?: string | null,
-  direction: 'ltr' | 'rtl' = 'ltr',
-) {
-  if (!receivableId) return
-  try {
-    const { data } = await fetchReceivable(receivableId)
-    currentReceivable.value = data
-    receivableDrawerDirection.value = direction
-    receivableDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openReceivableSide(receivableId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openReceivableSide(receivableId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openCustomerSide(customerId, direction)
-}
-
-async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 function moneyOrDash(v: number | null | undefined): string {
@@ -1068,9 +1052,8 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="isAdmin"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="receiptActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -1080,11 +1063,23 @@ async function onImportFile(ev: Event) {
                 <button
                   type="button"
                   class="action-pill action-pill--edit"
+                  :disabled="printingReceiptId === row.id"
+                  @mouseenter="prefetchReceiptPdfApi(row.id)"
+                  @focus="prefetchReceiptPdfApi(row.id)"
+                  @click.stop="onPrintReceipt(row)"
+                >
+                  {{ t('receipt.printReceipt') }}
+                </button>
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
                 >
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="isAdmin"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"
@@ -1130,31 +1125,6 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-invoice="(id) => openInvoiceSide(id, 'ltr')"
       @open-receivable="(id) => openReceivableSide(id, 'ltr')"
-    />
-    <InvoiceDetailDrawer
-      v-model="invoiceDrawerVisible"
-      :record="currentInvoice"
-      :desktop-direction="invoiceDrawerDirection"
-      @open-contract="(id) => openContractSide(id, 'ltr')"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-    />
-    <ReceivableDetailDrawer
-      v-model="receivableDrawerVisible"
-      :record="currentReceivable"
-      :desktop-direction="receivableDrawerDirection"
-      @open-invoice="(id) => openInvoiceSide(id, 'ltr')"
-      @open-contract="(id) => openContractSide(id, 'ltr')"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-    />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 

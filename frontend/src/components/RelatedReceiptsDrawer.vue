@@ -36,6 +36,9 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openReceipt: [receipt: ReceiptRecord]
+  openInvoice: [invoiceId: string]
+  openContract: [contractId: string]
+  openReceivable: [receivableId: string]
 }>()
 
 const { t } = useI18n()
@@ -189,6 +192,28 @@ function onRowClick(row: ReceiptRecord, column?: { type?: string }, event?: Even
             show-overflow-tooltip
           />
           <el-table-column
+            :label="t('receipt.fields.contractCode')"
+            :min-width="
+              codeColW(t('receipt.fields.contractCode'), {
+                samples: paged.map((r) => r.contractCode),
+              })
+            "
+            class-name="col-code"
+            label-class-name="col-code"
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.contractId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openContract', row.contractId)"
+              >
+                {{ row.contractCode || '—' }}
+              </button>
+              <template v-else>{{ row.contractCode || '—' }}</template>
+            </template>
+          </el-table-column>
+          <el-table-column
             :label="t('receipt.fields.paymentDate')"
             :min-width="colW(t('receipt.fields.paymentDate'), { contentMin: 110 })"
           >
@@ -219,9 +244,18 @@ function onRowClick(row: ReceiptRecord, column?: { type?: string }, event?: Even
             "
             class-name="col-code"
             label-class-name="col-code"
-            show-overflow-tooltip
           >
-            <template #default="{ row }">{{ row.invoiceCode || '—' }}</template>
+            <template #default="{ row }">
+              <button
+                v-if="row.invoiceId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openInvoice', row.invoiceId)"
+              >
+                {{ row.invoiceCode || '—' }}
+              </button>
+              <template v-else>{{ row.invoiceCode || '—' }}</template>
+            </template>
           </el-table-column>
           <el-table-column
             :label="t('receipt.fields.receivableCode')"
@@ -232,9 +266,18 @@ function onRowClick(row: ReceiptRecord, column?: { type?: string }, event?: Even
             "
             class-name="col-code"
             label-class-name="col-code"
-            show-overflow-tooltip
           >
-            <template #default="{ row }">{{ row.receivableCode || '—' }}</template>
+            <template #default="{ row }">
+              <button
+                v-if="row.receivableId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openReceivable', row.receivableId)"
+              >
+                {{ row.receivableCode || '—' }}
+              </button>
+              <template v-else>{{ row.receivableCode || '—' }}</template>
+            </template>
           </el-table-column>
         </el-table>
       </div>

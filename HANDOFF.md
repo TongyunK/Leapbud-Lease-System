@@ -165,3 +165,148 @@
 ## 7. 一句话状态
 
 **协议 PDF 列印主链路已可用且偏快；大厦↔模板绑定已改完。当前未完成：① 合约通用模板「第 2 页后空白页」根因；② 合约列表大厦筛选胶囊。**
+
+---
+
+# HANDOFF — 关联字段点击打开详情抽屉（全链路下钻）
+
+> **日期**：2026-09-29  
+> **对话窗口**：[`关联字段详情抽屉`](95396268-2481-4424-9dd2-57b6ab6cfe80)（agent transcript：`95396268-2481-4424-9dd2-57b6ab6cfe80`）  
+> **写给**：完全没有上下文的新会话。仓库：`Leapbud-Lease-System`。  
+> **说明**：本文档追加在既有「单据模板 / 协议列印」交接之后；两段任务独立，勿混。
+
+---
+
+## A. 我们在做什么任务
+
+用户要求：
+
+> 检查所有关联字段，都需要实现点击左侧弹出详情抽屉页；**包括抽屉页中显示的内容里的关联字段**，也要可以继续点击查看详情抽屉。
+
+即：列表列 FK、详情抽屉内 FK、数量胶囊（CountListPill）、Related 列表抽屉里的主行与**次级**关联列，全部应可下钻到对应实体的详情抽屉（通常从左侧 / LTR 弹出）。
+
+本会话还叠加了此前同窗口未提交的周边改动（发票/收据列印、表头筛选 UX、侧栏宽度等），但**本交接聚焦关联下钻**。
+
+---
+
+## B. 已经完成了什么
+
+### B.1 统一枢纽：`RelatedEntityDrawers.vue`
+
+路径：`frontend/src/components/RelatedEntityDrawers.vue`
+
+- 集中托管客户 / 房间 / 楼宇 / 需求 / 入住人 / 合约 / 发票 / 应收 / 收据 / 合约期 / 退租 / 其他费用（含按金扣除 ns）/ 按金退还 / 发票服务明细 的详情抽屉 + 各类 `Related*` 列表抽屉。
+- 详情抽屉内 `@open-*`（FK + 数量胶囊）全部接到 hub 内方法，可继续下钻。
+- Related 列表打开详情时改为走 `openXxxSide(id)` **重新 fetch**，保证有完整 count 等字段（不要只塞列表行对象）。
+- `defineExpose` 已包含：  
+  `openCustomerSide` / `openRoomSide` / `openBuildingSide` / `openRequirementSide` /  
+  `openContractSide` / `openInvoiceSide` / `openReceivableSide` / `openReceiptSide` /  
+  `openPeriodSide` / `openTerminationSide` / `openOtherFeeSide` / `openDepositRefundSide` /  
+  `openServiceDetailSide`
+
+### B.2 业务 ListView 接线模式
+
+业务列表页保留**本页主实体**的 DetailDrawer；嵌套实体打开改为：
+
+```ts
+await relationDrawers.value?.openContractSide(id) // 及其它 open*Side
+```
+
+并挂 `<RelatedEntityDrawers ref="relationDrawers" />`。
+
+已按此处理（或已对齐）的页面包括但不限于：
+
+- 客户 / 入住人 / 需求 / 楼宇 / 房间  
+- 合约 / 合约期 / 退租 / 其他费用 / 按金扣除  
+- 发票 / 应收 / 收据 / 按金退还 / 发票服务明细  
+
+示例已落地：
+
+- `ContractOtherFeeListView` / `DepositDeductionListView`：列表 `terminationCode` 可点 → `openTerminationSide`
+- `ContractListView` / `CustomerListView` / `InvoiceListView` 等：Related 列表里点开明细走 hub
+
+### B.3 Related 列表「次级 FK 列」可点（本会话后半段补齐）
+
+| 组件 | 可点次级列 | emit |
+|------|------------|------|
+| `RelatedContractsDrawer` | 客户名、房间编号 | `openCustomer` / `openRoom` |
+| `RelatedPeriodsDrawer` | 房间编号 | `openRoom` |
+| `RelatedReceiptsDrawer` | 合约 / 发票 / 应收编号 | `openContract` / `openInvoice` / `openReceivable` |
+| `RelatedInvoicesDrawer` | 合约编号 | `openContract` |
+| `RelatedReceivablesDrawer` | 发票 / 合约编号 | `openInvoice` / `openContract` |
+| `RelatedOtherFeesDrawer` | 退租编号 | `openTermination` |
+| `RelatedTerminationsDrawer` | 合约 / 房间编号 | `openContract` / `openRoom` |
+
+Hub 与主要 ListView（Customer / Room / Contract / Invoice / DepositRefund / Requirement 等）已接上对应 `@open-*`。
+
+### B.4 其它同会话相关但非本交接主题（有改动未单独交接）
+
+工作区 `git status` 里还有大量未提交改动，可能含：收据列印、合约未保存草稿预览、侧栏变窄、表头筛选清除 ✕ / facet 选项不收缩、筛选搜索框样式等。新会话若只做「关联下钻」，请先 `git diff` / `git status` 分清范围，**不要把无关 diff 一并 commit**。
+
+---
+
+## C. 当前卡在哪 / 未尽事项
+
+1. **未提交**：关联下钻相关前端改动仍在工作区，**用户未要求 commit**。新会话不要擅自提交。
+2. **Related 列表仍可增强（非必须）**：
+   - `RelatedDepositRefundsDrawer` 等若只有主编号列、无次级 customer/room/contract 列，按「从非合约上下文打开是否需要」再补。
+   - `LeaseTermination.relatedDepositRefund` 多为自由文本无 `*Id`，**不必**硬做成抽屉链接。
+3. **销售经理 / 用户账号**：一般不做业务实体详情抽屉（N/A）。
+4. **预存在的 vue-tsc 噪音**（非本任务引入）：多处 `tableRef` unused、`@row-click` 与 Element Plus `TableColumnCtx | null` 类型不匹配、`DefaultRow` 传参等。修关联下钻时**不要顺手大扫除**除非用户要求。
+5. **旧 HANDOFF 未结案项仍在**：协议模板「第 2 页后空白页」、合约列表大厦筛选胶囊——与本任务无关。
+
+---
+
+## D. 下一步计划（建议新会话按序做）
+
+1. 人工点验：客户 → 合约 → 发票 → 应收 → 收据 → 再点回合约/客户；Related 列表点次级 FK；其他费用/按金扣除的 `terminationCode`。
+2. 若用户要提交：只 stage 关联下钻相关文件（`RelatedEntityDrawers`、`Related*`、各 `*ListView`、相关 `*DetailDrawer`），排除 `dist/` 与无关列印/CSS 若用户未要求一并提交。
+3. 可选清理：ListView 里因改走 hub 而残留的未使用 import / 本地 nested DetailDrawer 状态（本会话已清大部分，以 `vue-tsc` / IDE 为准再扫一遍）。
+4. 不要主动重启 dev server（仓库规则）。
+
+---
+
+## E. 踩过的坑（绝对不要再踩）
+
+### 编码 / 改文件（仓库红线）
+
+- **禁止**用 PowerShell `Set-Content` / `Out-File` / `>` / `Get-Content -Raw` 再写回 `.vue/.ts` 等源文件（UTF-8 会被毁掉）。
+- 批量改文件：用编辑工具，或独立 `.mjs` + `fs.readFileSync/writeFileSync(..., 'utf8')`。本会话曾写临时 cleanup 脚本，用完已删；需要时再写，**不要**用复杂 `node -e "..."` 内联塞进 PowerShell。
+
+### 关联下钻架构
+
+- **嵌套详情必须走 hub**（`relationDrawers.openXxxSide`）。在 ListView 本地再挂一套 DetailDrawer 却不接 `@open-*`，会出现「第一层能点、抽屉里 FK 点不动」。
+- Related 列表点开行时要用 **`openXxxSide(id)` fetch 全量**，不要 `relatedX.value = row` 只塞列表行（count 胶囊会缺数据）。
+- `openOtherFeeSide(id, ns)` 的 `ns`：`'contractOtherFee' | 'depositDeduction'`。退租下打开按金扣除列表要用 `depositDeduction`。
+- 按金退还编号字段是 **`refundCode`**，不是 `depositRefundCode`（hub 的 title-context 曾写错过）。
+
+### 产品 / 交互约定
+
+- 弹窗默认居中可拖：`App.vue` / `main.ts` 已全局配置，新增 `el-dialog` **不必**重复写 `align-center` / `draggable`。
+- **不要主动重启** backend / frontend。
+- 表格列宽必须用 `useTableColWidth`（`codeColW` / `textColW` / `statusColW` 等），编号列加 `col-code`。
+- 日期/时间列：排序 + `date-range` 筛选（既有规则）。
+
+### Prisma（若本任务扩到后端）
+
+- 新字段必须有中文 `///` + migration `COMMENT ON`（本任务前端为主，一般不动 schema）。
+
+---
+
+## F. 关键路径速查（关联下钻）
+
+| 用途 | 路径 |
+|------|------|
+| 全局关联枢纽 | `frontend/src/components/RelatedEntityDrawers.vue` |
+| Related 列表组件 | `frontend/src/components/Related*.vue` |
+| 各实体详情抽屉 | `frontend/src/components/*DetailDrawer.vue` |
+| 样式 `.fk-link` | `frontend/src/style.css`（搜 `fk-link`） |
+| 参考接线（合约） | `frontend/src/views/contract-mgmt/ContractListView.vue` |
+| 参考接线（客户） | `frontend/src/views/customer-mgmt/CustomerListView.vue` |
+| 退租编号列表 FK | `ContractOtherFeeListView` / `DepositDeductionListView` |
+
+---
+
+## G. 一句话状态（本任务）
+
+**关联字段 → 左侧详情抽屉 → 抽屉内继续下钻的主链路与 Related 次级 FK 已基本打通；改动未提交。新会话优先人工回归点验，再按用户要求选择性 commit；勿与上方「协议 PDF 空白页」任务搅在一起。**

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { fetchBuildings, fetchBuilding } from '@/api/buildings'
+import { fetchBuildings } from '@/api/buildings'
 import {
   fetchRooms,
   createRoomApi,
@@ -26,18 +26,15 @@ import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
-import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+
+
+
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
 import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
 import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
-import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
-import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
@@ -78,23 +75,16 @@ const relatedInvoicesDrawer = ref(false)
 const relatedTerminationsDrawer = ref(false)
 const relatedDepositRefundsDrawer = ref(false)
 const relatedListRoom = ref<RoomRecord | null>(null)
-const relatedContract = ref<ContractRecord | null>(null)
-const relatedInvoice = ref<InvoiceRecord | null>(null)
-const relatedTermination = ref<LeaseTerminationRecord | null>(null)
-const relatedDepositRefund = ref<DepositRefundRecord | null>(null)
-const contractDetailDrawer = ref(false)
-const invoiceDetailDrawer = ref(false)
-const terminationDetailDrawer = ref(false)
-const depositRefundDetailDrawer = ref(false)
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const formVisible = ref(false)
 const current = ref<RoomRecord | null>(null)
 const editing = ref<RoomRecord | null>(null)
-const buildingDrawerVisible = ref(false)
-const relatedRoomsDrawer = ref(false)
-const relatedRoomDrawer = ref(false)
-const relatedBuilding = ref<BuildingRecord | null>(null)
-const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
-const relatedRoom = ref<RoomRecord | null>(null)
+
+
+
+
+
+
 
 const buildings = ref<BuildingRecord[]>([])
 const sizeOptions = ref<RoomConfigOption[]>([])
@@ -426,48 +416,25 @@ function openDepositRefundsSide(row: RoomRecord) {
   relatedDepositRefundsDrawer.value = true
 }
 function onOpenContractFromRelated(row: ContractRecord) {
-  relatedContract.value = row
-  contractDetailDrawer.value = true
+  void relationDrawers.value?.openContractSide(row.id)
 }
 function onOpenInvoiceFromRelated(row: InvoiceRecord) {
-  relatedInvoice.value = row
-  invoiceDetailDrawer.value = true
+  void relationDrawers.value?.openInvoiceSide(row.id)
 }
 function onOpenTerminationFromRelated(row: LeaseTerminationRecord) {
-  relatedTermination.value = row
-  terminationDetailDrawer.value = true
+  void relationDrawers.value?.openTerminationSide(row.id)
 }
 function onOpenDepositRefundFromRelated(row: DepositRefundRecord) {
-  relatedDepositRefund.value = row
-  depositRefundDetailDrawer.value = true
+  void relationDrawers.value?.openDepositRefundSide(row.id)
 }
 
 async function openBuildingDetail(buildingId: string) {
-  if (!buildingId) return
-  let building = buildings.value.find((b) => b.id === buildingId) || null
-  if (!building) {
-    try {
-      const res = await fetchBuilding(buildingId)
-      building = res.data
-    } catch {
-      ElMessage.warning(t('building.notFound'))
-      return
-    }
-  }
-  relatedBuilding.value = building
-  buildingDrawerVisible.value = true
+  await relationDrawers.value?.openBuildingSide(buildingId)
 }
 
-function openRoomsSide(row: BuildingRecord) {
-  if (!row.roomIds?.length) return
-  relatedRoomsBuilding.value = row
-  relatedRoomsDrawer.value = true
-}
 
-function onOpenRoomFromList(room: RoomRecord) {
-  relatedRoom.value = room
-  relatedRoomDrawer.value = true
-}
+
+
 
 function onRoomRowClick(row: RoomRecord, column: { type?: string } | undefined, event: Event) {
   if (column?.type === 'selection') return
@@ -1413,34 +1380,14 @@ async function saveForm() {
       </template>
     </el-drawer>
 
-    <BuildingDetailDrawer
-      v-model="buildingDrawerVisible"
-      :building="relatedBuilding"
-      desktop-direction="ltr"
-      @open-rooms="openRoomsSide"
-    />
-    <RelatedRoomsDrawer
-      v-model="relatedRoomsDrawer"
-      :building="relatedRoomsBuilding"
-      desktop-direction="ltr"
-      @open-room="onOpenRoomFromList"
-    />
-    <RoomDetailDrawer
-      v-model="relatedRoomDrawer"
-      :room="relatedRoom"
-      desktop-direction="ltr"
-      @open-building="openBuildingDetail"
-      @open-contracts="openContractsSide"
-      @open-invoices="openInvoicesSide"
-      @open-terminations="openTerminationsSide"
-      @open-deposit-refunds="openDepositRefundsSide"
-    />
     <RelatedContractsDrawer
       v-model="relatedContractsDrawer"
       :room-id="relatedListRoom?.id"
       :title-context="relatedListRoom?.roomCode || ''"
       desktop-direction="ltr"
       @open-contract="onOpenContractFromRelated"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr')"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
     <RelatedInvoicesDrawer
       v-model="relatedInvoicesDrawer"
@@ -1448,6 +1395,7 @@ async function saveForm() {
       :title-context="relatedListRoom?.roomCode || ''"
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromRelated"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedTerminationsDrawer
       v-model="relatedTerminationsDrawer"
@@ -1455,6 +1403,8 @@ async function saveForm() {
       :title-context="relatedListRoom?.roomCode || ''"
       desktop-direction="ltr"
       @open-termination="onOpenTerminationFromRelated"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
     <RelatedDepositRefundsDrawer
       v-model="relatedDepositRefundsDrawer"
@@ -1463,10 +1413,7 @@ async function saveForm() {
       desktop-direction="ltr"
       @open-deposit-refund="onOpenDepositRefundFromRelated"
     />
-    <ContractDetailDrawer v-model="contractDetailDrawer" :contract="relatedContract" desktop-direction="ltr" />
-    <InvoiceDetailDrawer v-model="invoiceDetailDrawer" :record="relatedInvoice" desktop-direction="ltr" />
-    <LeaseTerminationDetailDrawer v-model="terminationDetailDrawer" :termination="relatedTermination" desktop-direction="ltr" />
-    <DepositRefundDetailDrawer v-model="depositRefundDetailDrawer" :record="relatedDepositRefund" desktop-direction="ltr" />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

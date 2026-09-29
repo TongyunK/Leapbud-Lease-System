@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import type { ReceiptRecord } from '@/types/receipt'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import { formatMoney } from '@/utils/format'
+import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -29,6 +31,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const printing = ref(false)
+
+watch(
+  () => [visible.value, props.record?.id] as const,
+  ([open, id]) => {
+    if (open && id) prefetchReceiptPdfApi(id)
+  },
+)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '560px'))
@@ -39,6 +49,21 @@ function dash(v?: string | null) {
 
 function money(v: number | null | undefined) {
   return v == null ? '—' : formatMoney(v)
+}
+
+async function onPrintReceipt() {
+  const row = props.record
+  if (!row?.id || printing.value) return
+  printing.value = true
+  try {
+    await previewReceiptPdfApi(row.id, { autoPrint: false })
+    ElMessage.success(t('receipt.printReceiptPreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('receipt.printReceiptFailed')
+    ElMessage.error(msg)
+  } finally {
+    printing.value = false
+  }
 }
 </script>
 
@@ -51,6 +76,18 @@ function money(v: number | null | undefined) {
     class="responsive-drawer"
   >
     <template v-if="record">
+      <div class="detail-toolbar">
+        <el-button
+          type="primary"
+          class="lb-btn-primary"
+          :loading="printing"
+          @mouseenter="record?.id && prefetchReceiptPdfApi(record.id)"
+          @focus="record?.id && prefetchReceiptPdfApi(record.id)"
+          @click="onPrintReceipt"
+        >
+          {{ t('receipt.printReceipt') }}
+        </el-button>
+      </div>
       <section class="detail-section">
         <h3>{{ t('receipt.sections.basic') }}</h3>
         <dl class="detail-grid two">
@@ -128,7 +165,6 @@ function money(v: number | null | undefined) {
           </div>
         </dl>
       </section>
-
       <section class="detail-section">
         <h3>{{ t('receipt.sections.finance') }}</h3>
         <dl class="detail-grid two">
@@ -150,7 +186,6 @@ function money(v: number | null | undefined) {
           </div>
         </dl>
       </section>
-
       <AuditDetailSection
         :created-by="record.createdBy"
         :created-at="record.createdAt"

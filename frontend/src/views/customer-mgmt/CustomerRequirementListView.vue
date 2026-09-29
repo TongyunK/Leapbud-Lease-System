@@ -14,16 +14,15 @@ import {
   updateCustomerRequirementApi,
 } from '@/api/customer-requirements'
 import type { CustomerRequirementImportItem, CustomerRequirementListQuery } from '@/api/customer-requirements'
-import { fetchCustomer, fetchCustomers } from '@/api/customers'
+import { fetchCustomers } from '@/api/customers'
 import { fetchRoomConfigs } from '@/api/room-configs'
 import { fetchUsers } from '@/api/users'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
 import { CUSTOMER_REQUIREMENT_STATUSES } from '@/types/customer-requirement'
-import type { CustomerRecord, OccupantRecord } from '@/types/customer'
+import type { CustomerRecord } from '@/types/customer'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { UserRecord } from '@/types/user'
 import type { BuildingRecord } from '@/types/building'
-import type { RoomRecord } from '@/types/room'
 import { fetchBuildings } from '@/api/buildings'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useServerPagedList } from '@/composables/useServerPagedList'
@@ -36,15 +35,8 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import type { ContractRecord } from '@/types/contract'
-import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
-import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
-import RelatedCustomerRequirementsDrawer from '@/components/RelatedCustomerRequirementsDrawer.vue'
-import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
-import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
-import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -73,37 +65,19 @@ const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidt
 
 const formVisible = ref(false)
 const editing = ref<CustomerRequirementRecord | null>(null)
+const drawerVisible = ref(false)
+const relatedContractsDrawer = ref(false)
+const relatedListRequirement = ref<CustomerRequirementRecord | null>(null)
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
+const current = ref<CustomerRequirementRecord | null>(null)
 const customers = ref<CustomerRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sizeOptions = ref<RoomConfigOption[]>([])
 const acOptions = ref<RoomConfigOption[]>([])
 const windowOptions = ref<RoomConfigOption[]>([])
 const keyword = ref('')
-
-const drawerVisible = ref(false)
-const relatedContractsDrawer = ref(false)
-const relatedListRequirement = ref<CustomerRequirementRecord | null>(null)
-const relatedContract = ref<ContractRecord | null>(null)
-const contractDetailDrawer = ref(false)
-const current = ref<CustomerRequirementRecord | null>(null)
-const customerDrawerVisible = ref(false)
-const relatedCustomer = ref<CustomerRecord | null>(null)
-const relatedOccupantsListDrawer = ref(false)
-const relatedOccupantDrawer = ref(false)
-const relatedOccupant = ref<OccupantRecord | null>(null)
-const relatedRequirementsListDrawer = ref(false)
-const relatedRequirementDrawer = ref(false)
-const relatedRequirement = ref<CustomerRequirementRecord | null>(null)
-const buildingDrawerVisible = ref(false)
-const relatedBuilding = ref<BuildingRecord | null>(null)
-const relatedRoomsDrawer = ref(false)
-const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
-const relatedRoomDrawer = ref(false)
-const relatedRoom = ref<RoomRecord | null>(null)
 const buildings = ref<BuildingRecord[]>([])
-const customerDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
 const requirementDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
-const occupantDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 
 function userOptionLabel(u: UserRecord) {
   const name = u.displayName?.trim()
@@ -136,6 +110,7 @@ const {
   loadList,
   fetchExportRows,
   onClearFilters,
+  resetPage,
 } = useServerPagedList<CustomerRequirementRecord, CustomerRequirementListQuery>({
   keyword,
   sortFilter,
@@ -435,8 +410,7 @@ function openContractsSide(row: CustomerRequirementRecord) {
   relatedContractsDrawer.value = true
 }
 function onOpenContractFromRelated(row: ContractRecord) {
-  relatedContract.value = row
-  contractDetailDrawer.value = true
+  void relationDrawers.value?.openContractSide(row.id)
 }
 
 function onRowClick(row: CustomerRequirementRecord, column: { type?: string } | undefined, event: Event) {
@@ -447,64 +421,7 @@ function onRowClick(row: CustomerRequirementRecord, column: { type?: string } | 
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!customerId) return
-  try {
-    const { data } = await fetchCustomer(customerId)
-    relatedCustomer.value = data
-    customerDrawerDirection.value = direction
-    customerDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
-}
-
-function openOccupantsSide(row: CustomerRecord) {
-  if (!row.occupantCount) return
-  relatedCustomer.value = row
-  relatedOccupantsListDrawer.value = true
-}
-
-function openRequirementsSide(row: CustomerRecord) {
-  if (!row.requirementCount) return
-  relatedCustomer.value = row
-  relatedRequirementsListDrawer.value = true
-}
-
-function onOpenOccupantFromCustomer(occupant: OccupantRecord) {
-  relatedOccupant.value = occupant
-  occupantDrawerDirection.value = 'ltr'
-  relatedOccupantDrawer.value = true
-}
-
-function onOpenRequirementFromList(requirement: CustomerRequirementRecord) {
-  relatedRequirement.value = requirement
-  relatedRequirementDrawer.value = true
-}
-
-function openBuildingSide(buildingId?: string | null) {
-  if (!buildingId) return
-  const building = buildings.value.find((b) => b.id === buildingId) || null
-  if (!building) {
-    ElMessage.warning(t('building.notFound'))
-    return
-  }
-  relatedBuilding.value = building
-  buildingDrawerVisible.value = true
-}
-
-function openRoomsSide(row: BuildingRecord) {
-  if (!row.roomIds?.length) return
-  relatedRoomsBuilding.value = row
-  relatedRoomsDrawer.value = true
-}
-
-function onOpenRoomFromList(room: RoomRecord) {
-  relatedRoom.value = room
-  relatedRoomDrawer.value = true
-}
-
-async function openCustomerFromOccupant(customerId: string) {
-  await openCustomerSide(customerId, 'ltr')
+  await relationDrawers.value?.openCustomerSide(customerId, direction)
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
@@ -1069,7 +986,6 @@ async function onImportFile(ev: Event) {
       :requirement="current"
       :desktop-direction="requirementDrawerDirection"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
-    
       @open-contracts="openContractsSide"
     />
     <RelatedContractsDrawer
@@ -1078,58 +994,10 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListRequirement?.requirementCode || ''"
       desktop-direction="ltr"
       @open-contract="onOpenContractFromRelated"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr')"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
-    <ContractDetailDrawer v-model="contractDetailDrawer" :contract="relatedContract" desktop-direction="ltr" />
-    <CustomerDetailDrawer
-      v-model="customerDrawerVisible"
-      :customer="relatedCustomer"
-      :desktop-direction="customerDrawerDirection"
-      @open-occupants="openOccupantsSide"
-      @open-requirements="openRequirementsSide"
-      @open-building="openBuildingSide"
-    />
-    <RelatedOccupantsDrawer
-      v-model="relatedOccupantsListDrawer"
-      :customer="relatedCustomer"
-      desktop-direction="ltr"
-      @open-occupant="onOpenOccupantFromCustomer"
-    />
-    <RelatedCustomerRequirementsDrawer
-      v-model="relatedRequirementsListDrawer"
-      :customer="relatedCustomer"
-      desktop-direction="ltr"
-      @open-requirement="onOpenRequirementFromList"
-    />
-    <CustomerRequirementDetailDrawer
-      v-model="relatedRequirementDrawer"
-      :requirement="relatedRequirement"
-      desktop-direction="ltr"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-    />
-    <OccupantDetailDrawer
-      v-model="relatedOccupantDrawer"
-      :occupant="relatedOccupant"
-      :desktop-direction="occupantDrawerDirection"
-      @open-customer="openCustomerFromOccupant"
-    />
-    <BuildingDetailDrawer
-      v-model="buildingDrawerVisible"
-      :building="relatedBuilding"
-      desktop-direction="ltr"
-      @open-rooms="openRoomsSide"
-    />
-    <RelatedRoomsDrawer
-      v-model="relatedRoomsDrawer"
-      :building="relatedRoomsBuilding"
-      desktop-direction="ltr"
-      @open-room="onOpenRoomFromList"
-    />
-    <RoomDetailDrawer
-      v-model="relatedRoomDrawer"
-      :room="relatedRoom"
-      desktop-direction="ltr"
-      @open-building="openBuildingSide"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <ImportProgressDialog
       v-model="importState.visible"

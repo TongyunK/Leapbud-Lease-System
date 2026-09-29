@@ -36,6 +36,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openReceivable: [receivable: ReceivableRecord]
+  openInvoice: [invoiceId: string]
+  openContract: [contractId: string]
 }>()
 
 const { t } = useI18n()
@@ -203,8 +205,41 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
             "
             class-name="col-code"
             label-class-name="col-code"
-            show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.invoiceId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openInvoice', row.invoiceId)"
+              >
+                {{ row.invoiceCode || '—' }}
+              </button>
+              <template v-else>{{ row.invoiceCode || '—' }}</template>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('receivable.fields.contractCode')"
+            :min-width="
+              codeColW(t('receivable.fields.contractCode'), {
+                samples: paged.map((r) => r.contractCode),
+              })
+            "
+            class-name="col-code"
+            label-class-name="col-code"
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.contractId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openContract', row.contractId)"
+              >
+                {{ row.contractCode || '—' }}
+              </button>
+              <template v-else>{{ row.contractCode || '—' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t('receivable.fields.paymentDueDate')"
             :min-width="colW(t('receivable.fields.paymentDueDate'), { contentMin: 110 })"

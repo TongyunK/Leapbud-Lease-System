@@ -17,7 +17,7 @@ import type {
   ContractPeriodListQuery,
   ContractPeriodWritePayload,
 } from '@/api/contract-periods'
-import { fetchContract, fetchContracts } from '@/api/contracts'
+import { fetchContracts } from '@/api/contracts'
 import { fetchContractConfigs } from '@/api/contract-configs'
 import type { ContractPeriodListRecord } from '@/types/contract-period'
 import type { ContractRecord } from '@/types/contract'
@@ -28,7 +28,6 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import ContractPeriodDetailDrawer from '@/components/ContractPeriodDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -85,9 +84,6 @@ const codeLayoutKey = computed(() =>
   ].join('-'),
 )
 
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const drawerVisible = ref(false)
 const current = ref<ContractPeriodListRecord | null>(null)
@@ -442,16 +438,8 @@ function onRowClick(row: ContractPeriodListRecord, column: { type?: string } | u
   void openDetail(row, 'rtl')
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
@@ -460,14 +448,6 @@ async function openCustomerSide(customerId?: string | null, direction: 'ltr' | '
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
@@ -988,15 +968,6 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
-    />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 

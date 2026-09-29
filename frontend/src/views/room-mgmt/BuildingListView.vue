@@ -23,7 +23,8 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
 import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
@@ -59,11 +60,10 @@ const useCards = computed(() => isMobile.value)
 const keyword = ref('')
 const drawerVisible = ref(false)
 const relatedRoomsDrawer = ref(false)
-const relatedRoomDrawer = ref(false)
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const formVisible = ref(false)
 const current = ref<BuildingRecord | null>(null)
 const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
-const relatedRoom = ref<RoomRecord | null>(null)
 const editing = ref<BuildingRecord | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const managerFilterOptions = ref<{ value: string; label: string }[]>([])
@@ -300,15 +300,7 @@ function openRoomsSide(row: BuildingRecord) {
 }
 
 function onOpenRoomFromList(room: RoomRecord) {
-  relatedRoom.value = room
-  relatedRoomDrawer.value = true
-}
-
-function onOpenBuildingFromRoom(buildingId: string) {
-  const b =
-    list.value.find((x) => x.id === buildingId) ||
-    (relatedRoomsBuilding.value?.id === buildingId ? relatedRoomsBuilding.value : null)
-  if (b) openDetail(b)
+  void relationDrawers.value?.openRoomSide(room.id)
 }
 
 function onBuildingRowClick(row: BuildingRecord, column: { type?: string } | undefined, event: Event) {
@@ -878,12 +870,7 @@ async function saveForm() {
       desktop-direction="ltr"
       @open-room="onOpenRoomFromList"
     />
-    <RoomDetailDrawer
-      v-model="relatedRoomDrawer"
-      :room="relatedRoom"
-      desktop-direction="ltr"
-      @open-building="onOpenBuildingFromRoom"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

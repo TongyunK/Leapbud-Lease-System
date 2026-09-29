@@ -336,13 +336,13 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 @media (min-width: 1440px) {
   .app-layout {
-    --sidebar-w: 236px;
+    --sidebar-w: 218px;
   }
 }
 
 @media (min-width: 1800px) {
   .app-layout {
-    --sidebar-w: 252px;
+    --sidebar-w: 226px;
   }
 }
 

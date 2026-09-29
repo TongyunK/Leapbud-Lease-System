@@ -14,7 +14,7 @@ import {
   updateLeaseTerminationApi,
 } from '@/api/lease-terminations'
 import type { LeaseTerminationWritePayload, LeaseTerminationListQuery } from '@/api/lease-terminations'
-import { fetchContract, fetchContracts } from '@/api/contracts'
+import { fetchContracts } from '@/api/contracts'
 import type { ContractOtherFeeNestedRecord } from '@/types/contract-other-fee'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
 import type { ContractRecord } from '@/types/contract'
@@ -24,11 +24,9 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
-import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
 import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -65,13 +63,8 @@ const contracts = ref<ContractRecord[]>([])
 const drawerVisible = ref(false)
 const relatedOtherFeesDrawer = ref(false)
 const relatedListTermination = ref<LeaseTerminationRecord | null>(null)
-const relatedOtherFee = ref<ContractOtherFeeRecord | null>(null)
-const otherFeeDetailDrawer = ref(false)
 const current = ref<LeaseTerminationRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
@@ -381,8 +374,7 @@ function openOtherFeesSide(row: LeaseTerminationRecord) {
   relatedOtherFeesDrawer.value = true
 }
 function onOpenOtherFeeFromRelated(row: ContractOtherFeeRecord) {
-  relatedOtherFee.value = row
-  otherFeeDetailDrawer.value = true
+  void relationDrawers.value?.openOtherFeeSide(row.id, 'depositDeduction')
 }
 
 function onRowClick(row: LeaseTerminationRecord, column: { type?: string } | undefined, event: Event) {
@@ -392,16 +384,8 @@ function onRowClick(row: LeaseTerminationRecord, column: { type?: string } | und
   void openDetail(row, 'rtl')
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
@@ -410,14 +394,6 @@ async function openCustomerSide(customerId?: string | null, direction: 'ltr' | '
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
@@ -940,7 +916,6 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
-    
       @open-other-fees="openOtherFeesSide"
     />
     <RelatedOtherFeesDrawer
@@ -950,16 +925,7 @@ async function onImportFile(ev: Event) {
       mode="depositDeduction"
       desktop-direction="ltr"
       @open-fee="onOpenOtherFeeFromRelated"
-    />
-    <ContractOtherFeeDetailDrawer v-model="otherFeeDetailDrawer" :fee="relatedOtherFee" desktop-direction="ltr" />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
+      @open-termination="(id) => relationDrawers?.openTerminationSide(id)"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 

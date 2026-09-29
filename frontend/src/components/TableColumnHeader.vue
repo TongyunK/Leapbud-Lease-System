@@ -97,14 +97,24 @@ const activeHint = computed(() => {
   return t('tableColumn.menu')
 })
 
+/** 合并 props.options 与已选值，避免选项源收缩后已选项从列表消失 */
+const baseOptions = computed(() => {
+  const map = new Map(props.options.map((o) => [o.value, o]))
+  for (const v of selected.value) {
+    if (!v || map.has(v)) continue
+    map.set(v, { value: v, label: v })
+  }
+  return [...map.values()]
+})
+
 const allSelected = computed(
-  () => props.options.length > 0 && selected.value.length === props.options.length,
+  () => baseOptions.value.length > 0 && selected.value.length === baseOptions.value.length,
 )
 
 const filteredOptions = computed(() => {
-  if (!filterSearch.value.trim()) return props.options
+  if (!filterSearch.value.trim()) return baseOptions.value
   const search = filterSearch.value.toLowerCase().trim()
-  return props.options.filter((opt) => opt.label.toLowerCase().includes(search))
+  return baseOptions.value.filter((opt) => opt.label.toLowerCase().includes(search))
 })
 
 const popoverWidth = computed(() => (props.dateRange ? 300 : 248))
@@ -118,7 +128,7 @@ function clearSort() {
 }
 
 function selectAll() {
-  selected.value = props.options.map((o) => o.value)
+  selected.value = baseOptions.value.map((o) => o.value)
 }
 
 function clearFilter() {
@@ -128,6 +138,16 @@ function clearFilter() {
 function clearDateRange() {
   draftRange.value = null
   emit('update:dateRangeValue', null)
+}
+
+/** 表头叉号：一键清空本列多选/日期筛选与排序 */
+function clearColumnConditions(e: Event) {
+  e.preventDefault()
+  e.stopPropagation()
+  visible.value = false
+  if (props.filterable && selected.value.length) clearFilter()
+  if (props.dateRange && hasDateRange.value) clearDateRange()
+  if (props.sortable && props.sortOrder) clearSort()
 }
 
 function toggleOption(value: string) {
@@ -276,83 +296,17 @@ function toggleOption(value: string) {
       </div>
     </el-popover>
 
-    <span v-else class="lb-col-head__label">{{ label }}</span>
+    <button
+      v-if="interactive && hasActive"
+      type="button"
+      class="lb-col-head__clear"
+      :title="t('tableColumn.clearColumnConditions')"
+      :aria-label="t('tableColumn.clearColumnConditions')"
+      @click="clearColumnConditions"
+    >
+      <el-icon :size="11"><Close /></el-icon>
+    </button>
+
+    <span v-else-if="!interactive" class="lb-col-head__label">{{ label }}</span>
   </div>
 </template>
-
-<style scoped>
-.lb-col-panel__filter-search {
-  padding: 8px 12px 12px;
-  background: linear-gradient(to bottom, #fafbfc 0%, #f5f7f9 100%);
-  border-bottom: 1px solid #e8ecf0;
-  margin: 0;
-}
-
-.lb-col-panel__filter-search :deep(.el-input) {
-  width: 100%;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__wrapper) {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px #e0e3e8 inset;
-  background-color: #ffffff;
-  border-radius: 6px;
-  padding: 2px 12px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.lb-col-panel__filter-search :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 0 0 1px #c5c9d0 inset;
-  background-color: #ffffff;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 3px 8px rgba(64, 158, 255, 0.12), 0 0 0 1px var(--el-color-primary) inset;
-  background-color: #ffffff;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__inner) {
-  font-size: 13px;
-  height: 30px;
-  line-height: 30px;
-  color: #303133;
-  font-weight: 400;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__inner::placeholder) {
-  color: #b4b8c0;
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__prefix) {
-  color: #909399;
-  display: flex;
-  align-items: center;
-  transition: color 0.2s;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__wrapper.is-focus .el-input__prefix) {
-  color: var(--el-color-primary);
-}
-
-.lb-col-panel__filter-search :deep(.el-input__suffix) {
-  display: flex;
-  align-items: center;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__clear) {
-  font-size: 14px;
-  color: #c0c4cc;
-  transition: color 0.2s;
-}
-
-.lb-col-panel__filter-search :deep(.el-input__clear:hover) {
-  color: #909399;
-}
-
-.lb-col-panel__filter-search :deep(.el-icon) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-</style>

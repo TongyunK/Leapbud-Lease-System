@@ -29,22 +29,13 @@ import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
 import RelatedCustomerRequirementsDrawer from '@/components/RelatedCustomerRequirementsDrawer.vue'
-import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
-import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
-import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
 import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
 import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
 import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
-import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
-import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
-import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
-import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
@@ -95,19 +86,11 @@ const drawerVisible = ref(false)
 const relatedOccupantDrawer = ref(false)
 const relatedOccupantsListDrawer = ref(false)
 const relatedRequirementsListDrawer = ref(false)
-const relatedRequirementDrawer = ref(false)
-const buildingDrawerVisible = ref(false)
-const relatedRoomsDrawer = ref(false)
-const relatedRoomDrawer = ref(false)
 const editing = ref<CustomerRecord | null>(null)
 const current = ref<CustomerRecord | null>(null)
 const relatedOccupant = ref<OccupantRecord | null>(null)
 const relatedOccupantsCustomer = ref<CustomerRecord | null>(null)
 const relatedRequirementsCustomer = ref<CustomerRecord | null>(null)
-const relatedRequirement = ref<CustomerRequirementRecord | null>(null)
-const relatedBuilding = ref<BuildingRecord | null>(null)
-const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
-const relatedRoom = ref<RoomRecord | null>(null)
 const relatedContractsDrawer = ref(false)
 const relatedInvoicesDrawer = ref(false)
 const relatedReceivablesDrawer = ref(false)
@@ -115,18 +98,7 @@ const relatedReceiptsDrawer = ref(false)
 const relatedTerminationsDrawer = ref(false)
 const relatedDepositRefundsDrawer = ref(false)
 const relatedListCustomer = ref<CustomerRecord | null>(null)
-const relatedContract = ref<ContractRecord | null>(null)
-const relatedInvoice = ref<InvoiceRecord | null>(null)
-const relatedReceivable = ref<ReceivableRecord | null>(null)
-const relatedReceipt = ref<ReceiptRecord | null>(null)
-const relatedTermination = ref<LeaseTerminationRecord | null>(null)
-const relatedDepositRefund = ref<DepositRefundRecord | null>(null)
-const contractDetailDrawer = ref(false)
-const invoiceDetailDrawer = ref(false)
-const receivableDetailDrawer = ref(false)
-const receiptDetailDrawer = ref(false)
-const terminationDetailDrawer = ref(false)
-const depositRefundDetailDrawer = ref(false)
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const buildings = ref<BuildingRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sourceOptions = ref<CustomerSourceOption[]>([])
@@ -149,10 +121,6 @@ const isCreatingOccupant = computed(
 const customerDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
 const occupantDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 
-function findBuilding(id?: string | null) {
-  if (!id) return null
-  return buildings.value.find((b) => b.id === id) || null
-}
 
 function userOptionLabel(u: UserRecord) {
   const name = u.displayName?.trim()
@@ -185,6 +153,7 @@ const {
   loadList,
   fetchExportRows,
   onClearFilters,
+  resetPage,
 } = useServerPagedList<CustomerRecord, CustomerListQuery>({
   keyword,
   sortFilter,
@@ -258,6 +227,7 @@ async function onBatchDelete() {
     finishBatch(ok, fail)
     clearSelection()
     await loadList()
+    void loadNameContactFilterOptions()
   } catch {
     finishBatch(0, ids.length)
   } finally {
@@ -296,29 +266,31 @@ const buildingFilterOptions = computed(() => {
   return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
 
-const customerNameFilterOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { value: string; label: string }[] = []
-  for (const c of list.value) {
-    const name = c.name?.trim()
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    opts.push({ value: name, label: name })
-  }
-  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
-})
+/** 客户名 / 主要联络人筛选项：必须来自未按本列筛选的全量数据，否则选中 AB 后 AC 会从选项里消失 */
+const customerNameFilterOptions = ref<{ value: string; label: string }[]>([])
+const primaryContactFilterOptions = ref<{ value: string; label: string }[]>([])
 
-const primaryContactFilterOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { value: string; label: string }[] = []
-  for (const c of list.value) {
-    const contact = c.primaryContact?.trim()
-    if (!contact || seen.has(contact)) continue
-    seen.add(contact)
-    opts.push({ value: contact, label: contact })
+async function loadNameContactFilterOptions() {
+  try {
+    const { data } = await fetchCustomers()
+    const names = new Set<string>()
+    const contacts = new Set<string>()
+    for (const c of data.items) {
+      const name = c.name?.trim()
+      if (name) names.add(name)
+      const contact = c.primaryContact?.trim()
+      if (contact) contacts.add(contact)
+    }
+    customerNameFilterOptions.value = [...names]
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+      .map((v) => ({ value: v, label: v }))
+    primaryContactFilterOptions.value = [...contacts]
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+      .map((v) => ({ value: v, label: v }))
+  } catch {
+    /* 保留上次选项 */
   }
-  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
-})
+}
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 
@@ -461,6 +433,7 @@ async function loadOptions() {
     fetchCustomerSources({ activeOnly: true }),
     fetchRooms(),
     fetchDocumentTemplates({ type: 'agreement', enabledOnly: true }),
+    loadNameContactFilterOptions(),
   ])
   buildings.value = buildingsRes.data.items
   users.value = usersRes.data
@@ -693,6 +666,7 @@ async function saveForm() {
     }
     formVisible.value = false
     await loadList()
+    void loadNameContactFilterOptions()
     resetPage()
   } catch {
     /* interceptor */
@@ -709,6 +683,7 @@ async function onDelete(row: CustomerRecord) {
     await deleteCustomerApi(row.id)
     ElMessage.success(t('customer.deleted'))
     await loadList()
+    void loadNameContactFilterOptions()
   } catch {
     /* cancel */
   }
@@ -762,33 +737,26 @@ function openDepositRefundsSide(row: CustomerRecord) {
 }
 
 function onOpenContractFromRelated(row: ContractRecord) {
-  relatedContract.value = row
-  contractDetailDrawer.value = true
+  void relationDrawers.value?.openContractSide(row.id)
 }
 function onOpenInvoiceFromRelated(row: InvoiceRecord) {
-  relatedInvoice.value = row
-  invoiceDetailDrawer.value = true
+  void relationDrawers.value?.openInvoiceSide(row.id)
 }
 function onOpenReceivableFromRelated(row: ReceivableRecord) {
-  relatedReceivable.value = row
-  receivableDetailDrawer.value = true
+  void relationDrawers.value?.openReceivableSide(row.id)
 }
 function onOpenReceiptFromRelated(row: ReceiptRecord) {
-  relatedReceipt.value = row
-  receiptDetailDrawer.value = true
+  void relationDrawers.value?.openReceiptSide(row.id)
 }
 function onOpenTerminationFromRelated(row: LeaseTerminationRecord) {
-  relatedTermination.value = row
-  terminationDetailDrawer.value = true
+  void relationDrawers.value?.openTerminationSide(row.id)
 }
 function onOpenDepositRefundFromRelated(row: DepositRefundRecord) {
-  relatedDepositRefund.value = row
-  depositRefundDetailDrawer.value = true
+  void relationDrawers.value?.openDepositRefundSide(row.id)
 }
 
 function onOpenRequirementFromCustomer(requirement: CustomerRequirementRecord) {
-  relatedRequirement.value = requirement
-  relatedRequirementDrawer.value = true
+  void relationDrawers.value?.openRequirementSide(requirement.id)
 }
 
 async function openDetail(row: CustomerRecord, direction: 'ltr' | 'rtl' = 'rtl') {
@@ -824,30 +792,8 @@ async function openCustomerFromOccupant(customerId: string) {
   }
 }
 
-function openBuildingSide(buildingId?: string | null) {
-  if (!buildingId) return
-  let building = findBuilding(buildingId)
-  if (!building) {
-    // fallback: try from relatedBuilding already loaded list after refresh
-    building = buildings.value.find((b) => b.id === buildingId) || null
-  }
-  if (!building) {
-    ElMessage.warning(t('building.notFound'))
-    return
-  }
-  relatedBuilding.value = building
-  buildingDrawerVisible.value = true
-}
-
-function openRoomsSide(row: BuildingRecord) {
-  if (!row.roomIds?.length) return
-  relatedRoomsBuilding.value = row
-  relatedRoomsDrawer.value = true
-}
-
-function onOpenRoomFromList(room: RoomRecord) {
-  relatedRoom.value = room
-  relatedRoomDrawer.value = true
+async function openBuildingSide(buildingId?: string | null) {
+  await relationDrawers.value?.openBuildingSide(buildingId)
 }
 
 function statusLabel(status: string) {
@@ -1030,6 +976,7 @@ async function onImportFile(ev: Event) {
     }
 
     await loadList()
+    void loadNameContactFilterOptions()
     resetPage()
     finishImport()
   } catch {
@@ -1528,6 +1475,8 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
       desktop-direction="ltr"
       @open-contract="onOpenContractFromRelated"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr')"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
     <RelatedInvoicesDrawer
       v-model="relatedInvoicesDrawer"
@@ -1535,6 +1484,7 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromRelated"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedReceivablesDrawer
       v-model="relatedReceivablesDrawer"
@@ -1542,6 +1492,8 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
       desktop-direction="ltr"
       @open-receivable="onOpenReceivableFromRelated"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawer"
@@ -1549,6 +1501,9 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
       desktop-direction="ltr"
       @open-receipt="onOpenReceiptFromRelated"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
     />
     <RelatedTerminationsDrawer
       v-model="relatedTerminationsDrawer"
@@ -1556,6 +1511,8 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
       desktop-direction="ltr"
       @open-termination="onOpenTerminationFromRelated"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
     <RelatedDepositRefundsDrawer
       v-model="relatedDepositRefundsDrawer"
@@ -1564,41 +1521,12 @@ async function onImportFile(ev: Event) {
       desktop-direction="ltr"
       @open-deposit-refund="onOpenDepositRefundFromRelated"
     />
-    <ContractDetailDrawer v-model="contractDetailDrawer" :contract="relatedContract" desktop-direction="ltr" />
-    <InvoiceDetailDrawer v-model="invoiceDetailDrawer" :record="relatedInvoice" desktop-direction="ltr" />
-    <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
-    <ReceiptDetailDrawer v-model="receiptDetailDrawer" :record="relatedReceipt" desktop-direction="ltr" />
-    <LeaseTerminationDetailDrawer v-model="terminationDetailDrawer" :termination="relatedTermination" desktop-direction="ltr" />
-    <DepositRefundDetailDrawer v-model="depositRefundDetailDrawer" :record="relatedDepositRefund" desktop-direction="ltr" />
-    <CustomerRequirementDetailDrawer
-      v-model="relatedRequirementDrawer"
-      :requirement="relatedRequirement"
-      desktop-direction="ltr"
-      @open-customer="openCustomerFromOccupant"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
     <OccupantDetailDrawer
       v-model="relatedOccupantDrawer"
       :occupant="relatedOccupant"
       :desktop-direction="occupantDrawerDirection"
       @open-customer="openCustomerFromOccupant"
-    />
-    <BuildingDetailDrawer
-      v-model="buildingDrawerVisible"
-      :building="relatedBuilding"
-      desktop-direction="ltr"
-      @open-rooms="openRoomsSide"
-    />
-    <RelatedRoomsDrawer
-      v-model="relatedRoomsDrawer"
-      :building="relatedRoomsBuilding"
-      desktop-direction="ltr"
-      @open-room="onOpenRoomFromList"
-    />
-    <RoomDetailDrawer
-      v-model="relatedRoomDrawer"
-      :room="relatedRoom"
-      desktop-direction="ltr"
-      @open-building="openBuildingSide"
     />
 
     <el-dialog

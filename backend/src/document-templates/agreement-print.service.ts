@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import * as path from 'path';
 import { KEY_DEPOSIT_CODES } from '../contract-configs/contract-config.mapper';
 import { PrismaService } from '../prisma/prisma.service';
+import type { AgreementPreviewDraftDto } from './dto/document-template.dto';
 import { fillDocxTemplate } from './docx-fill.util';
 import { convertDocxToPdf } from './pdf-convert.util';
 
@@ -77,6 +78,14 @@ function formatZhDate(d: Date | null | undefined): string {
   const m = d.getUTCMonth() + 1;
   const day = d.getUTCDate();
   return `${y}年${m}月${day}日`;
+}
+
+/** YYYY-MM-DD → UTC Date；非法或空返回 null */
+function parseDateOnlyLoose(v?: string | null): Date | null {
+  const raw = s(v);
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  return new Date(`${raw}T00:00:00.000Z`);
 }
 
 const CN_DIGITS = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
@@ -151,6 +160,14 @@ function uploadsRoot() {
   return path.join(process.cwd(), 'uploads');
 }
 
+type PeriodSource = {
+  startDate: Date | null;
+  endDate: Date | null;
+  dateUnit?: string | null;
+  dateType?: string | null;
+  dateValue: number;
+};
+
 export type AgreementPrintResult = {
   buffer: Buffer;
   fileName: string;
@@ -162,42 +179,12 @@ export type AgreementPrintResult = {
 export class AgreementPrintService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 聚合合约数据为模板填充对象 */
-  async buildAgreementData(contractId: string): Promise<Record<string, unknown>> {
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
-      include: {
-        customer: { include: { primaryOccupant: true } },
-        room: { include: { building: true } },
-        periods: { orderBy: [{ sortOrder: 'asc' }, { startDate: 'asc' }] },
-      },
-    });
-    if (!contract) throw new NotFoundException(`Contract ${contractId} not found`);
-
-    const keyPriceRows = await this.prisma.contractConfigOption.findMany({
-      where: {
-        type: ContractConfigType.keyDeposit,
-        code: { in: [KEY_DEPOSIT_CODES.door, KEY_DEPOSIT_CODES.mailbox] },
-      },
-    });
-    const doorKeyUnitPrice = formatUnitPrice(
-      keyPriceRows.find((r) => r.code === KEY_DEPOSIT_CODES.door)?.unitPrice,
-    );
-    const mailboxKeyUnitPrice = formatUnitPrice(
-      keyPriceRows.find((r) => r.code === KEY_DEPOSIT_CODES.mailbox)?.unitPrice,
-    );
-
-    const customer = contract.customer;
-    const occupant = customer.primaryOccupant;
-    const room = contract.room;
-    const building = room.building;
-
-    const periods = contract.periods.map((p) => {
+  private mapPeriods(periodRows: PeriodSource[]) {
+    const periods = periodRows.map((p) => {
       const start = formatZhDate(p.startDate);
       const end = formatZhDate(p.endDate);
       const unit = s(p.dateUnit) || '月';
       const dateType = s(p.dateType) || '合約期';
-      // 例：2027年9月23日 至 2028年9月22日 為 12 個月使用期
       const range = start && end ? `${start} 至 ${end}` : start || end || '';
       const unitPhrase = unit === '月' ? '個月' : unit;
       const duration =
@@ -213,17 +200,130 @@ export class AgreementPrintService {
         dateUnit: unit,
       };
     });
-
-    const periodsSummary = periods
-      .map((p) => `${p.label}：${p.text}`)
-      .join('；');
-    // 单元格内多行：用 \n 拼接（配合 linebreaks），避免循环内软换行导致末尾多空行
+    const periodsSummary = periods.map((p) => `${p.label}：${p.text}`).join('；');
     const periodsLines = periods.map((p) => p.text).join('\n');
+    return { periods, periodsSummary, periodsLines, periodCount: periods.length };
+  }
 
-    const monthlyRentAmount = formatAmountWithComma(contract.monthlyRent);
-    const paymentMonths = paymentCycleMonths(contract.paymentCycle ?? '');
-    const paymentCyclePayText = paymentCycleToPayPhrase(contract.paymentCycle ?? '');
-    // 兼容旧模板整句；新模板请只用数字字段自行排版
+  /** 聚合合约数据为模板填充对象；传入 draft 时按弹窗未保存内容覆盖 */
+  async buildAgreementData(
+    contractId: string,
+    draft?: AgreementPreviewDraftDto,
+  ): Promise<Record<string, unknown>> {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      include: {
+        customer: { include: { primaryOccupant: true } },
+        room: { include: { building: true } },
+        periods: { orderBy: [{ sortOrder: 'asc' }, { startDate: 'asc' }] },
+      },
+    });
+    if (!contract) throw new NotFoundException(`Contract ${contractId} not found`);
+
+    const customerId = s(draft?.customerId) || contract.customerId;
+    const roomId = s(draft?.roomId) || contract.roomId;
+
+    const [customer, room, keyPriceRows] = await Promise.all([
+      customerId === contract.customerId
+        ? Promise.resolve(contract.customer)
+        : this.prisma.customer.findUnique({
+            where: { id: customerId },
+            include: { primaryOccupant: true },
+          }),
+      roomId === contract.roomId
+        ? Promise.resolve(contract.room)
+        : this.prisma.room.findUnique({
+            where: { id: roomId },
+            include: { building: true },
+          }),
+      this.prisma.contractConfigOption.findMany({
+        where: {
+          type: ContractConfigType.keyDeposit,
+          code: { in: [KEY_DEPOSIT_CODES.door, KEY_DEPOSIT_CODES.mailbox] },
+        },
+      }),
+    ]);
+
+    if (!customer) throw new BadRequestException('客户不存在');
+    if (!room) throw new BadRequestException('房间不存在');
+
+    const doorKeyUnitRaw =
+      keyPriceRows.find((r) => r.code === KEY_DEPOSIT_CODES.door)?.unitPrice ?? 0;
+    const mailboxKeyUnitRaw =
+      keyPriceRows.find((r) => r.code === KEY_DEPOSIT_CODES.mailbox)?.unitPrice ?? 0;
+    const doorKeyUnitPrice = formatUnitPrice(doorKeyUnitRaw);
+    const mailboxKeyUnitPrice = formatUnitPrice(mailboxKeyUnitRaw);
+
+    const useDraft = !!draft;
+    const contractCode = useDraft
+      ? s(draft?.contractCode) || contract.contractCode
+      : contract.contractCode;
+    const startDate = useDraft
+      ? parseDateOnlyLoose(draft?.startDate)
+      : contract.startDate;
+    const endDate = useDraft ? parseDateOnlyLoose(draft?.endDate) : contract.endDate;
+    const monthlyRent = useDraft ? (draft?.monthlyRent ?? null) : contract.monthlyRent;
+    const electricityRate = useDraft
+      ? (draft?.electricityRate ?? null)
+      : contract.electricityRate;
+    const roomDeposit = useDraft ? (draft?.roomDeposit ?? null) : contract.roomDeposit;
+    const bookingDeposit = useDraft
+      ? (draft?.bookingDeposit ?? null)
+      : contract.bookingDeposit;
+    const miscDeposit = useDraft ? (draft?.miscDeposit ?? null) : contract.miscDeposit;
+    const doorKeyQty = useDraft
+      ? Number(draft?.doorKeyQty ?? 0) || 0
+      : contract.doorKeyQty;
+    const mailboxKeyQty = useDraft
+      ? Number(draft?.mailboxKeyQty ?? 0) || 0
+      : contract.mailboxKeyQty;
+    const doorKeyDeposit = useDraft
+      ? Math.round(doorKeyQty * (Number(doorKeyUnitRaw) || 0) * 100) / 100
+      : contract.doorKeyDeposit;
+    const mailboxKeyDeposit = useDraft
+      ? Math.round(mailboxKeyQty * (Number(mailboxKeyUnitRaw) || 0) * 100) / 100
+      : contract.mailboxKeyDeposit;
+    const remark = useDraft ? (draft?.remark ?? '') : (contract.remark ?? '');
+    const leaseType = useDraft
+      ? (draft?.leaseType ?? '')
+      : (contract.leaseType ?? '');
+    const paymentCycle = useDraft
+      ? (draft?.paymentCycle ?? '')
+      : (contract.paymentCycle ?? '');
+    const roomNameText = useDraft
+      ? s(draft?.roomNameText)
+      : s(contract.roomNameText);
+
+    let periodRows: PeriodSource[];
+    if (useDraft && Array.isArray(draft?.periods)) {
+      periodRows = draft!.periods!
+        .filter((p) => s(p.startDate) && s(p.endDate))
+        .map((p) => ({
+          startDate: parseDateOnlyLoose(p.startDate),
+          endDate: parseDateOnlyLoose(p.endDate),
+          dateUnit: p.dateUnit,
+          dateType: p.dateType,
+          dateValue: Number(p.dateValue) || 0,
+        }));
+    } else {
+      periodRows = contract.periods.map((p) => ({
+        startDate: p.startDate,
+        endDate: p.endDate,
+        dateUnit: p.dateUnit,
+        dateType: p.dateType,
+        dateValue: p.dateValue,
+      }));
+    }
+
+    const { periods, periodsSummary, periodsLines, periodCount } =
+      this.mapPeriods(periodRows);
+
+    const occupant = customer.primaryOccupant;
+    const building = room.building;
+
+    const monthlyRentAmount = formatAmountWithComma(monthlyRent);
+    const paymentMonths = paymentCycleMonths(paymentCycle);
+    const paymentCyclePayText = paymentCycleToPayPhrase(paymentCycle);
     const monthlyRentLine = [
       monthlyRentAmount ? `合約期內每月費用 HKD$ ${monthlyRentAmount}` : '合約期內每月費用',
       paymentCyclePayText ? `(${paymentCyclePayText})` : '',
@@ -232,35 +332,33 @@ export class AgreementPrintService {
       .join('');
 
     return {
-      contractCode: contract.contractCode,
-      startDate: formatZhDate(contract.startDate),
-      endDate: formatZhDate(contract.endDate),
-      monthlyRent: decimalToFixed(contract.monthlyRent),
+      contractCode,
+      startDate: formatZhDate(startDate),
+      endDate: formatZhDate(endDate),
+      monthlyRent: decimalToFixed(monthlyRent),
       monthlyRentAmount,
-      monthlyRentText: amountToChinese(contract.monthlyRent),
+      monthlyRentText: amountToChinese(monthlyRent),
       monthlyRentLine,
-      // 仅单价，便于模板自由组合：---NIL--- 跟前約 (以每度電 {electricity} 計)
-      electricityRate: decimalToFixed(contract.electricityRate, 2) || '0.00',
-      electricity: `$${formatAmountWithComma(contract.electricityRate ?? 0, 2) || '0.00'}`,
-      roomDeposit: decimalToFixed(contract.roomDeposit),
-      roomDepositAmount: formatAmountWithComma(contract.roomDeposit) || '0.00',
-      bookingDeposit: decimalToFixed(contract.bookingDeposit),
-      miscDeposit: decimalToFixed(contract.miscDeposit),
-      miscDepositAmount: formatAmountWithComma(contract.miscDeposit) || '0.00',
-      // 服務保證金 = 房間按金 + 雜項按金；图2格式：$ 9,538.00 + $ 2,000.00
+      electricityRate: decimalToFixed(electricityRate, 2) || '0.00',
+      electricity: `$${formatAmountWithComma(electricityRate ?? 0, 2) || '0.00'}`,
+      roomDeposit: decimalToFixed(roomDeposit),
+      roomDepositAmount: formatAmountWithComma(roomDeposit) || '0.00',
+      bookingDeposit: decimalToFixed(bookingDeposit),
+      miscDeposit: decimalToFixed(miscDeposit),
+      miscDepositAmount: formatAmountWithComma(miscDeposit) || '0.00',
       serviceDepositAmount: formatAmountWithComma(
-        (Number(contract.roomDeposit ?? 0) || 0) + (Number(contract.miscDeposit ?? 0) || 0),
+        (Number(roomDeposit ?? 0) || 0) + (Number(miscDeposit ?? 0) || 0),
       ),
-      serviceDepositLine: `$ ${formatAmountWithComma(contract.roomDeposit) || '0.00'} + $ ${formatAmountWithComma(contract.miscDeposit) || '0.00'}`,
-      doorKeyQty: contract.doorKeyQty,
+      serviceDepositLine: `$ ${formatAmountWithComma(roomDeposit) || '0.00'} + $ ${formatAmountWithComma(miscDeposit) || '0.00'}`,
+      doorKeyQty,
       doorKeyUnitPrice,
-      doorKeyDeposit: decimalToFixed(contract.doorKeyDeposit),
-      mailboxKeyQty: contract.mailboxKeyQty,
+      doorKeyDeposit: decimalToFixed(doorKeyDeposit),
+      mailboxKeyQty,
       mailboxKeyUnitPrice,
-      mailboxKeyDeposit: decimalToFixed(contract.mailboxKeyDeposit),
-      remark: contract.remark ?? '',
-      leaseType: contract.leaseType ?? '',
-      paymentCycle: contract.paymentCycle ?? '',
+      mailboxKeyDeposit: decimalToFixed(mailboxKeyDeposit),
+      remark,
+      leaseType,
+      paymentCycle,
       paymentCycleMonths: paymentMonths,
       paymentCyclePayText,
       customerCode: customer.customerCode,
@@ -277,20 +375,22 @@ export class AgreementPrintService {
       occupantAddress: occupant?.address ?? '',
       occupantIdCardNo: occupant?.idCardNo ?? '',
       roomCode: room.roomCode,
-      // 模板写「{roomName} 室」；名称若已带「室」则去掉，只传如 05A
-      roomName: (s(contract.roomNameText) || room.name).replace(/\s*室\s*$/u, '').trim(),
+      roomName: (roomNameText || room.name).replace(/\s*室\s*$/u, '').trim(),
       buildingName: building?.name ?? '',
       buildingAddress: building?.address ?? '',
       buildingAddressEn: building?.addressEn ?? '',
       periods,
-      periodCount: periods.length,
+      periodCount,
       periodsSummary,
       periodsLines,
     };
   }
 
-  /** 解析协议模板：客户覆盖 → 大厦绑定 → 否则 400 */
-  async resolveAgreementTemplate(contractId: string) {
+  /** 解析协议模板：客户覆盖 → 大厦绑定；draft 可替换客户/房间 */
+  async resolveAgreementTemplate(
+    contractId: string,
+    draft?: AgreementPreviewDraftDto,
+  ) {
     const contract = await this.prisma.contract.findUnique({
       where: { id: contractId },
       include: {
@@ -312,7 +412,30 @@ export class AgreementPrintService {
     });
     if (!contract) throw new NotFoundException(`Contract ${contractId} not found`);
 
-    const override = contract.customer.agreementTemplate;
+    const customerId = s(draft?.customerId) || contract.customerId;
+    const roomId = s(draft?.roomId) || contract.roomId;
+
+    const customer =
+      customerId === contract.customerId
+        ? contract.customer
+        : await this.prisma.customer.findUnique({
+            where: { id: customerId },
+            include: { agreementTemplate: true },
+          });
+    if (!customer) throw new BadRequestException('客户不存在');
+
+    const room =
+      roomId === contract.roomId
+        ? contract.room
+        : await this.prisma.room.findUnique({
+            where: { id: roomId },
+            include: {
+              building: { include: { agreementTemplateRef: true } },
+            },
+          });
+    if (!room) throw new BadRequestException('房间不存在');
+
+    const override = customer.agreementTemplate;
     if (override) {
       if (!override.enabled) {
         throw new BadRequestException('客户指定的协议模板已停用');
@@ -320,7 +443,7 @@ export class AgreementPrintService {
       return override;
     }
 
-    const buildingTpl = contract.room.building?.agreementTemplateRef;
+    const buildingTpl = room.building?.agreementTemplateRef;
     if (buildingTpl) {
       if (!buildingTpl.enabled) {
         throw new BadRequestException('所属大厦绑定的协议模板已停用');
@@ -336,13 +459,28 @@ export class AgreementPrintService {
   async print(params: {
     contractId: string;
     format?: 'docx' | 'pdf';
+    draft?: AgreementPreviewDraftDto;
   }): Promise<AgreementPrintResult> {
     const contractId = s(params.contractId);
     if (!contractId) throw new BadRequestException('contractId is required');
 
-    const template = await this.resolveAgreementTemplate(contractId);
+    const draft = params.draft;
+    if (draft) {
+      if (!s(draft.roomId) && !s(draft.customerId)) {
+        /* room/customer 可回退到已存合约 */
+      } else {
+        if (draft.roomId !== undefined && !s(draft.roomId)) {
+          throw new BadRequestException('请选择房间后再预览');
+        }
+        if (draft.customerId !== undefined && !s(draft.customerId)) {
+          throw new BadRequestException('请选择客户后再预览');
+        }
+      }
+    }
+
+    const template = await this.resolveAgreementTemplate(contractId, draft);
     const absPath = path.join(uploadsRoot(), template.storageKey);
-    const data = await this.buildAgreementData(contractId);
+    const data = await this.buildAgreementData(contractId, draft);
     const docxBuffer = fillDocxTemplate(absPath, data);
 
     const code = s(String(data.contractCode ?? '')) || 'agreement';
@@ -353,7 +491,6 @@ export class AgreementPrintService {
     const wantPdf = params.format === 'pdf';
 
     if (wantPdf) {
-      // 稳定缓存键：合约数据 + 模板未变时直接复用 PDF
       const dataHash = createHash('sha1')
         .update(JSON.stringify(data))
         .digest('hex')

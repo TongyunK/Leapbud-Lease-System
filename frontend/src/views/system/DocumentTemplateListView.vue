@@ -9,6 +9,7 @@ import {
   deleteDocumentTemplateApi,
   downloadAgreementSampleApi,
   downloadInvoiceSampleApi,
+  downloadReceiptSampleApi,
   downloadDocumentTemplateApi,
   fetchDocumentFieldDictionary,
   fetchDocumentTemplates,
@@ -355,6 +356,8 @@ async function onDownloadSample() {
     const type = (filterType.value || fieldGuideType.value || 'agreement') as DocumentTemplateType
     if (type === 'invoice') {
       await downloadInvoiceSampleApi()
+    } else if (type === 'receipt') {
+      await downloadReceiptSampleApi()
     } else {
       await downloadAgreementSampleApi()
     }
@@ -367,6 +370,7 @@ async function onDownloadSample() {
 
 const sampleDownloadLabel = computed(() => {
   if (filterType.value === 'invoice') return t('documentTemplate.actions.downloadInvoiceSample')
+  if (filterType.value === 'receipt') return t('documentTemplate.actions.downloadReceiptSample')
   if (filterType.value === 'agreement') return t('documentTemplate.actions.downloadAgreementSample')
   return t('documentTemplate.actions.downloadSample')
 })

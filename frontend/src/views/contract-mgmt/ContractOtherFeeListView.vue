@@ -14,7 +14,7 @@ import {
   updateContractOtherFeeApi,
 } from '@/api/contract-other-fees'
 import type { ContractOtherFeeWritePayload, ContractOtherFeeListQuery } from '@/api/contract-other-fees'
-import { fetchContract, fetchContracts } from '@/api/contracts'
+import { fetchContracts } from '@/api/contracts'
 import { fetchLeaseTerminations } from '@/api/lease-terminations'
 import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
@@ -25,7 +25,6 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -63,9 +62,6 @@ const terminationsForForm = ref<LeaseTerminationRecord[]>([])
 const drawerVisible = ref(false)
 const current = ref<ContractOtherFeeRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
@@ -333,16 +329,8 @@ function onRowClick(row: ContractOtherFeeRecord, column: { type?: string } | und
   void openDetail(row, 'rtl')
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
@@ -351,14 +339,6 @@ async function openCustomerSide(customerId?: string | null, direction: 'ltr' | '
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 function moneyOrDash(v: number | null | undefined): string {
@@ -658,7 +638,17 @@ async function onImportFile(ev: Event) {
                 @update:sort-order="(v) => setSort('terminationCode', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.terminationCode || '—' }}</template>
+            <template #default="{ row }">
+              <button
+                v-if="row.terminationId"
+                type="button"
+                class="fk-link"
+                @click.stop="relationDrawers?.openTerminationSide(row.terminationId)"
+              >
+                {{ row.terminationCode || '—' }}
+              </button>
+              <template v-else>{{ row.terminationCode || '—' }}</template>
+            </template>
           </el-table-column>
           <el-table-column
             :label="t('contractOtherFee.fields.description')"
@@ -869,15 +859,7 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
-    />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
+      @open-termination="(id) => relationDrawers?.openTerminationSide(id)"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 

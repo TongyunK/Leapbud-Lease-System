@@ -21,7 +21,10 @@ const props = withDefaults(
   { desktopDirection: 'ltr', size: undefined },
 )
 
-const emit = defineEmits<{ openPeriod: [period: ContractPeriodListRecord] }>()
+const emit = defineEmits<{
+  openPeriod: [period: ContractPeriodListRecord]
+  openRoom: [roomId: string]
+}>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -158,8 +161,19 @@ function onRowClick(row: ContractPeriodListRecord, column?: { type?: string }, e
             :min-width="codeColW(t('contractPeriod.fields.roomCode'), { samples: paged.map((r) => r.roomCode) })"
             class-name="col-code"
             label-class-name="col-code"
-            show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.roomId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openRoom', row.roomId)"
+              >
+                {{ row.roomCode || '—' }}
+              </button>
+              <template v-else>{{ row.roomCode || '—' }}</template>
+            </template>
+          </el-table-column>
         </el-table>
       </div>
       <div v-if="total" class="related-list__pager">

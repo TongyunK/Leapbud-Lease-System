@@ -173,8 +173,56 @@ export const INVOICE_FIELD_DICTIONARY: DocumentFieldDef[] = [
   { key: 'status', label: '发票状态', loop: false },
 ];
 
+/** 收据（receipt）可填充字段；兼容旧系统 ${date}/${payer}/${amount}/${paymentNumber} */
+export const RECEIPT_FIELD_DICTIONARY: DocumentFieldDef[] = [
+  { key: 'date', label: '收款日期（旧键；英文长格式，如 25 September 2026）', loop: false },
+  { key: 'paymentDateLong', label: '收款日期（英文长格式，等同 date）', loop: false },
+  { key: 'paymentDate', label: '收款日期（DD/MM/YYYY）', loop: false },
+  { key: 'payer', label: '付款人／客户名称（旧键；等同 customerName）', loop: false },
+  { key: 'customerName', label: '客户名称', loop: false },
+  { key: 'customerCode', label: '客户编号', loop: false },
+  {
+    key: 'amount',
+    label: '收款金额（千分位，无币种符号；模板可写 HK$ {amount}）',
+    loop: false,
+  },
+  { key: 'amountRaw', label: '收款金额（无千分位）', loop: false },
+  {
+    key: 'paymentNumber',
+    label: '該款繳付（旧键；优先 #发票编号，无发票时用 #收据编号）',
+    loop: false,
+  },
+  { key: 'receiptCode', label: '收据编号', loop: false },
+  { key: 'invoiceCode', label: '所属发票编号（无 # 前缀）', loop: false },
+  { key: 'contractCode', label: '所属合约编号', loop: false },
+  { key: 'receivableCode', label: '所属应收编号', loop: false },
+  { key: 'paymentMethod', label: '收款方式', loop: false },
+  {
+    key: 'cashCheque',
+    label: 'Cash/支票行（旧模板手写位；现金或支票时填收款方式，否则空）',
+    loop: false,
+  },
+  { key: 'remark', label: '备注', loop: false },
+  { key: 'roomCode', label: '房间编号', loop: false },
+  { key: 'roomName', label: '房间名称（不含末尾「室」）', loop: false },
+  { key: 'buildingName', label: '大厦名称', loop: false },
+  { key: 'buildingAddress', label: '大厦地址（中文）', loop: false },
+  { key: 'buildingAddressEn', label: '大厦地址（英文）', loop: false },
+  {
+    key: 'companyNameZh',
+    label: '客户公司名称（中文）',
+    loop: false,
+  },
+  {
+    key: 'companyNameEn',
+    label: '客户公司名称（英文）',
+    loop: false,
+  },
+];
+
 export function getFieldDictionary(type: string): DocumentFieldDef[] {
   if (type === 'agreement') return AGREEMENT_FIELD_DICTIONARY;
   if (type === 'invoice') return INVOICE_FIELD_DICTIONARY;
+  if (type === 'receipt') return RECEIPT_FIELD_DICTIONARY;
   return [];
 }

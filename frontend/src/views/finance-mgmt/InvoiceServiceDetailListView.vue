@@ -17,19 +17,16 @@ import type {
   InvoiceServiceDetailWritePayload,
   InvoiceServiceDetailListQuery,
 } from '@/api/invoice-service-details'
-import { fetchInvoice, fetchInvoices } from '@/api/invoices'
-import { fetchContract } from '@/api/contracts'
+import { fetchInvoices } from '@/api/invoices'
+
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
 import type { InvoiceRecord } from '@/types/invoice'
-import type { ContractRecord } from '@/types/contract'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
 import InvoiceServiceDetailDrawer from '@/components/InvoiceServiceDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -67,12 +64,6 @@ const editing = ref<InvoiceServiceDetailListRecord | null>(null)
 const drawerVisible = ref(false)
 const current = ref<InvoiceServiceDetailListRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
-const invoiceDrawerVisible = ref(false)
-const currentInvoice = ref<InvoiceRecord | null>(null)
-const invoiceDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
@@ -345,28 +336,12 @@ function onRowClick(
   void openDetail(row, 'rtl')
 }
 
-async function openInvoiceSide(invoiceId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!invoiceId) return
-  try {
-    const { data } = await fetchInvoice(invoiceId)
-    currentInvoice.value = data
-    invoiceDrawerDirection.value = direction
-    invoiceDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openInvoiceSide(invoiceId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openInvoiceSide(invoiceId)
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
@@ -375,14 +350,6 @@ async function openCustomerSide(customerId?: string | null, direction: 'ltr' | '
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 function moneyOrDash(v: number | null | undefined): string {
@@ -837,23 +804,6 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
-    />
-    <InvoiceDetailDrawer
-      v-model="invoiceDrawerVisible"
-      :record="currentInvoice"
-      :desktop-direction="invoiceDrawerDirection"
-      @open-contract="(id) => openContractSide(id, 'ltr')"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-    />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 

@@ -33,7 +33,10 @@ const props = withDefaults(
   },
 )
 
-const emit = defineEmits<{ openFee: [fee: ContractOtherFeeRecord] }>()
+const emit = defineEmits<{
+  openFee: [fee: ContractOtherFeeRecord]
+  openTermination: [terminationId: string]
+}>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -166,8 +169,19 @@ function onRowClick(row: ContractOtherFeeRecord, column?: { type?: string }, eve
             "
             class-name="col-code"
             label-class-name="col-code"
-            show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.terminationId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openTermination', row.terminationId)"
+              >
+                {{ row.terminationCode || '—' }}
+              </button>
+              <template v-else>{{ row.terminationCode || '—' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t(`${i18nNs}.fields.description`)"
             :min-width="textColW(t(`${i18nNs}.fields.description`), { kind: 'long' })"

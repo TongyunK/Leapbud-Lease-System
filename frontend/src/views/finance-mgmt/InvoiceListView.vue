@@ -14,7 +14,7 @@ import {
   updateInvoiceApi,
 } from '@/api/invoices'
 import type { InvoiceWritePayload, InvoiceListQuery } from '@/api/invoices'
-import { fetchContract, fetchContracts } from '@/api/contracts'
+import { fetchContracts } from '@/api/contracts'
 import { fetchUsers } from '@/api/users'
 import type { InvoiceRecord, InvoiceServiceDetailRecord } from '@/types/invoice'
 import { INVOICE_STATUSES, INVOICE_TYPES } from '@/types/invoice'
@@ -26,18 +26,14 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
 import RelatedServiceDetailsDrawer from '@/components/RelatedServiceDetailsDrawer.vue'
-import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
-import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
 import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
-import InvoiceServiceDetailDrawer from '@/components/InvoiceServiceDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -131,17 +127,8 @@ const relatedReceivablesDrawer = ref(false)
 const relatedReceiptsDrawer = ref(false)
 const relatedServiceDetailsDrawer = ref(false)
 const relatedListInvoice = ref<InvoiceRecord | null>(null)
-const relatedReceivable = ref<ReceivableRecord | null>(null)
-const relatedReceipt = ref<ReceiptRecord | null>(null)
-const relatedServiceDetail = ref<InvoiceServiceDetailListRecord | null>(null)
-const receivableDetailDrawer = ref(false)
-const receiptDetailDrawer = ref(false)
-const serviceDetailDrawer = ref(false)
 const current = ref<InvoiceRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
@@ -539,16 +526,13 @@ function openServiceDetailsSide(row: InvoiceRecord) {
   relatedServiceDetailsDrawer.value = true
 }
 function onOpenReceivableFromRelated(row: ReceivableRecord) {
-  relatedReceivable.value = row
-  receivableDetailDrawer.value = true
+  void relationDrawers.value?.openReceivableSide(row.id)
 }
 function onOpenReceiptFromRelated(row: ReceiptRecord) {
-  relatedReceipt.value = row
-  receiptDetailDrawer.value = true
+  void relationDrawers.value?.openReceiptSide(row.id)
 }
 function onOpenServiceDetailFromRelated(row: InvoiceServiceDetailListRecord) {
-  relatedServiceDetail.value = row
-  serviceDetailDrawer.value = true
+  void relationDrawers.value?.openServiceDetailSide(row.id)
 }
 
 function onRowClick(row: InvoiceRecord, column: { type?: string } | undefined, event: Event) {
@@ -558,16 +542,8 @@ function onRowClick(row: InvoiceRecord, column: { type?: string } | undefined, e
   void openDetail(row, 'rtl')
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
@@ -576,14 +552,6 @@ async function openCustomerSide(customerId?: string | null, direction: 'ltr' | '
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 function moneyOrDash(v: number | null | undefined): string {
@@ -1206,7 +1174,6 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
-    
       @open-receivables="openReceivablesSide"
       @open-receipts="openReceiptsSide"
       @open-service-details="openServiceDetailsSide"
@@ -1224,6 +1191,8 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListInvoice?.invoiceCode || ''"
       desktop-direction="ltr"
       @open-receivable="onOpenReceivableFromRelated"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawer"
@@ -1231,22 +1200,9 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListInvoice?.invoiceCode || ''"
       desktop-direction="ltr"
       @open-receipt="onOpenReceiptFromRelated"
-    />
-    <InvoiceServiceDetailDrawer
-      v-model="serviceDetailDrawer"
-      :detail="relatedServiceDetail"
-      desktop-direction="ltr"
-    />
-    <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
-    <ReceiptDetailDrawer v-model="receiptDetailDrawer" :record="relatedReceipt" desktop-direction="ltr" />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 

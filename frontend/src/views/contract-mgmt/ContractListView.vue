@@ -47,13 +47,6 @@ import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
-import InvoiceDetailDrawer from '@/components/InvoiceDetailDrawer.vue'
-import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
-import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
-import ContractPeriodDetailDrawer from '@/components/ContractPeriodDetailDrawer.vue'
-import LeaseTerminationDetailDrawer from '@/components/LeaseTerminationDetailDrawer.vue'
-import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
-import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
 import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
@@ -82,7 +75,7 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
-import { previewAgreementPdfApi, prefetchAgreementPdfApi } from '@/api/document-templates'
+import { previewAgreementPdfApi, prefetchAgreementPdfApi, previewAgreementDraftPdfApi } from '@/api/document-templates'
 
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
@@ -111,6 +104,7 @@ const contractActionColWidth = computed(() => {
 })
 
 const printingAgreementId = ref<string | null>(null)
+const previewingDraft = ref(false)
 
 async function onPrintAgreement(row: ContractRecord) {
   if (!row?.id || printingAgreementId.value) return
@@ -123,6 +117,49 @@ async function onPrintAgreement(row: ContractRecord) {
     ElMessage.error(msg)
   } finally {
     printingAgreementId.value = null
+  }
+}
+
+/** 编辑弹窗预览：使用当前表单（含未保存修改） */
+async function onPreviewAgreementDraft() {
+  const row = editing.value
+  if (!row?.id || previewingDraft.value) return
+  if (!form.roomId.trim()) {
+    ElMessage.warning(t('contract.roomRequired'))
+    return
+  }
+  if (!form.customerId.trim()) {
+    ElMessage.warning(t('contract.customerRequired'))
+    return
+  }
+  previewingDraft.value = true
+  try {
+    const payload = payloadFromForm()
+    await previewAgreementDraftPdfApi(row.id, {
+      contractCode: payload.contractCode || row.contractCode,
+      roomId: payload.roomId,
+      customerId: payload.customerId,
+      startDate: payload.startDate,
+      endDate: payload.endDate,
+      leaseType: payload.leaseType,
+      paymentCycle: payload.paymentCycle,
+      monthlyRent: payload.monthlyRent,
+      roomDeposit: payload.roomDeposit,
+      bookingDeposit: payload.bookingDeposit,
+      miscDeposit: payload.miscDeposit,
+      electricityRate: payload.electricityRate,
+      doorKeyQty: payload.doorKeyQty,
+      mailboxKeyQty: payload.mailboxKeyQty,
+      roomNameText: payload.roomNameText,
+      remark: payload.remark,
+      periods: payload.periods,
+    })
+    ElMessage.success(t('contract.printAgreementPreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('contract.printAgreementFailed')
+    ElMessage.error(msg)
+  } finally {
+    previewingDraft.value = false
   }
 }
 
@@ -152,14 +189,6 @@ const contractDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 // 相关记录抽屉
-const invoiceDrawerVisible = ref(false)
-const receivableDrawerVisible = ref(false)
-const receiptDrawerVisible = ref(false)
-const periodDrawerVisible = ref(false)
-const terminationDrawerVisible = ref(false)
-const otherFeeDrawerVisible = ref(false)
-const depositDeductionDrawerVisible = ref(false)
-const depositRefundDrawerVisible = ref(false)
 const relatedInvoicesDrawerVisible = ref(false)
 const relatedReceivablesDrawerVisible = ref(false)
 const relatedReceiptsDrawerVisible = ref(false)
@@ -168,14 +197,6 @@ const relatedTerminationsDrawerVisible = ref(false)
 const relatedOtherFeesDrawerVisible = ref(false)
 const relatedDepositDeductionsDrawerVisible = ref(false)
 const relatedDepositRefundsDrawerVisible = ref(false)
-const currentInvoice = ref<InvoiceRecord | null>(null)
-const currentReceivable = ref<ReceivableRecord | null>(null)
-const currentReceipt = ref<ReceiptRecord | null>(null)
-const currentPeriod = ref<ContractPeriodListRecord | null>(null)
-const currentTermination = ref<LeaseTerminationRecord | null>(null)
-const currentOtherFee = ref<ContractOtherFeeRecord | null>(null)
-const currentDepositDeduction = ref<ContractOtherFeeRecord | null>(null)
-const currentDepositRefund = ref<DepositRefundRecord | null>(null)
 const relatedInvoicesContract = ref<ContractRecord | null>(null)
 const relatedReceivablesContract = ref<ContractRecord | null>(null)
 const relatedReceiptsContract = ref<ContractRecord | null>(null)
@@ -877,39 +898,6 @@ async function openRequirementSide(requirementId?: string | null) {
   await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
-async function openInvoiceDetail(invoiceId: string) {
-  try {
-    const { fetchInvoice } = await import('@/api/invoices')
-    const { data } = await fetchInvoice(invoiceId)
-    currentInvoice.value = data
-    invoiceDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
-}
-
-async function openReceivableDetail(receivableId: string) {
-  try {
-    const { fetchReceivable } = await import('@/api/receivables')
-    const { data } = await fetchReceivable(receivableId)
-    currentReceivable.value = data
-    receivableDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
-}
-
-async function openReceiptDetail(receiptId: string) {
-  try {
-    const { fetchReceipt } = await import('@/api/receipts')
-    const { data } = await fetchReceipt(receiptId)
-    currentReceipt.value = data
-    receiptDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
-}
-
 function openInvoicesList(row: ContractRecord) {
   if (!row.invoiceCount) return
   relatedInvoicesContract.value = row
@@ -959,43 +947,35 @@ function openDepositRefundsList(row: ContractRecord) {
 }
 
 function onOpenInvoiceFromList(invoice: InvoiceRecord) {
-  currentInvoice.value = invoice
-  invoiceDrawerVisible.value = true
+  void relationDrawers.value?.openInvoiceSide(invoice.id)
 }
 
 function onOpenReceivableFromList(receivable: ReceivableRecord) {
-  currentReceivable.value = receivable
-  receivableDrawerVisible.value = true
+  void relationDrawers.value?.openReceivableSide(receivable.id)
 }
 
 function onOpenReceiptFromList(receipt: ReceiptRecord) {
-  currentReceipt.value = receipt
-  receiptDrawerVisible.value = true
+  void relationDrawers.value?.openReceiptSide(receipt.id)
 }
 
 function onOpenPeriodFromList(period: ContractPeriodListRecord) {
-  currentPeriod.value = period
-  periodDrawerVisible.value = true
+  void relationDrawers.value?.openPeriodSide(period.id)
 }
 
 function onOpenTerminationFromList(termination: LeaseTerminationRecord) {
-  currentTermination.value = termination
-  terminationDrawerVisible.value = true
+  void relationDrawers.value?.openTerminationSide(termination.id)
 }
 
 function onOpenOtherFeeFromList(fee: ContractOtherFeeRecord) {
-  currentOtherFee.value = fee
-  otherFeeDrawerVisible.value = true
+  void relationDrawers.value?.openOtherFeeSide(fee.id, 'contractOtherFee')
 }
 
 function onOpenDepositDeductionFromList(fee: ContractOtherFeeRecord) {
-  currentDepositDeduction.value = fee
-  depositDeductionDrawerVisible.value = true
+  void relationDrawers.value?.openOtherFeeSide(fee.id, 'depositDeduction')
 }
 
 function onOpenDepositRefundFromList(record: DepositRefundRecord) {
-  currentDepositRefund.value = record
-  depositRefundDrawerVisible.value = true
+  void relationDrawers.value?.openDepositRefundSide(record.id)
 }
 </script>
 
@@ -1553,36 +1533,46 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       :contract="relatedInvoicesContract"
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromList"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedReceivablesDrawer
       v-model="relatedReceivablesDrawerVisible"
       :contract="relatedReceivablesContract"
       desktop-direction="ltr"
       @open-receivable="onOpenReceivableFromList"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawerVisible"
       :contract="relatedReceiptsContract"
       desktop-direction="ltr"
       @open-receipt="onOpenReceiptFromList"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
     />
     <RelatedPeriodsDrawer
       v-model="relatedPeriodsDrawerVisible"
       :contract="relatedPeriodsContract"
       desktop-direction="ltr"
       @open-period="onOpenPeriodFromList"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
     <RelatedTerminationsDrawer
       v-model="relatedTerminationsDrawerVisible"
       :contract="relatedTerminationsContract"
       desktop-direction="ltr"
       @open-termination="onOpenTerminationFromList"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />
     <RelatedOtherFeesDrawer
       v-model="relatedOtherFeesDrawerVisible"
       :contract="relatedOtherFeesContract"
       desktop-direction="ltr"
       @open-fee="onOpenOtherFeeFromList"
+      @open-termination="(id) => relationDrawers?.openTerminationSide(id)"
     />
     <RelatedOtherFeesDrawer
       v-model="relatedDepositDeductionsDrawerVisible"
@@ -1590,55 +1580,13 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       mode="depositDeduction"
       desktop-direction="ltr"
       @open-fee="onOpenDepositDeductionFromList"
+      @open-termination="(id) => relationDrawers?.openTerminationSide(id)"
     />
     <RelatedDepositRefundsDrawer
       v-model="relatedDepositRefundsDrawerVisible"
       :contract="relatedDepositRefundsContract"
       desktop-direction="ltr"
       @open-deposit-refund="onOpenDepositRefundFromList"
-    />
-
-    <InvoiceDetailDrawer
-      v-model="invoiceDrawerVisible"
-      :invoice="currentInvoice"
-      desktop-direction="ltr"
-    />
-    <ReceivableDetailDrawer
-      v-model="receivableDrawerVisible"
-      :receivable="currentReceivable"
-      desktop-direction="ltr"
-    />
-    <ReceiptDetailDrawer
-      v-model="receiptDrawerVisible"
-      :receipt="currentReceipt"
-      desktop-direction="ltr"
-    />
-    <ContractPeriodDetailDrawer
-      v-model="periodDrawerVisible"
-      :period="currentPeriod"
-      desktop-direction="ltr"
-    />
-    <LeaseTerminationDetailDrawer
-      v-model="terminationDrawerVisible"
-      :termination="currentTermination"
-      desktop-direction="ltr"
-    />
-    <ContractOtherFeeDetailDrawer
-      v-model="otherFeeDrawerVisible"
-      :fee="currentOtherFee"
-      i18n-ns="contractOtherFee"
-      desktop-direction="ltr"
-    />
-    <ContractOtherFeeDetailDrawer
-      v-model="depositDeductionDrawerVisible"
-      :fee="currentDepositDeduction"
-      i18n-ns="depositDeduction"
-      desktop-direction="ltr"
-    />
-    <DepositRefundDetailDrawer
-      v-model="depositRefundDrawerVisible"
-      :record="currentDepositRefund"
-      desktop-direction="ltr"
     />
 
     <el-dialog
@@ -2032,6 +1980,13 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       </el-form>
       <template #footer>
         <div class="dialog-footer">
+          <el-button
+            v-if="editing"
+            :loading="previewingDraft"
+            @click="onPreviewAgreementDraft"
+          >
+            {{ t('contract.previewAgreement') }}
+          </el-button>
           <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
           <el-button type="primary" class="lb-btn-primary" @click="saveForm">
             {{ t('common.save') }}

@@ -31,7 +31,11 @@ const props = withDefaults(
   },
 )
 
-const emit = defineEmits<{ openTermination: [termination: LeaseTerminationRecord] }>()
+const emit = defineEmits<{
+  openTermination: [termination: LeaseTerminationRecord]
+  openContract: [contractId: string]
+  openRoom: [roomId: string]
+}>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -159,6 +163,50 @@ function onRowClick(row: LeaseTerminationRecord, column?: { type?: string }, eve
             label-class-name="col-code"
             show-overflow-tooltip
           />
+          <el-table-column
+            :label="t('leaseTermination.fields.contractCode')"
+            :min-width="
+              codeColW(t('leaseTermination.fields.contractCode'), {
+                samples: paged.map((r) => r.contractCode),
+              })
+            "
+            class-name="col-code"
+            label-class-name="col-code"
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.contractId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openContract', row.contractId)"
+              >
+                {{ row.contractCode || '—' }}
+              </button>
+              <template v-else>{{ row.contractCode || '—' }}</template>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('leaseTermination.fields.roomCode')"
+            :min-width="
+              codeColW(t('leaseTermination.fields.roomCode'), {
+                samples: paged.map((r) => r.roomCode),
+              })
+            "
+            class-name="col-code"
+            label-class-name="col-code"
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.roomId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openRoom', row.roomId)"
+              >
+                {{ row.roomCode || '—' }}
+              </button>
+              <template v-else>{{ row.roomCode || '—' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t('leaseTermination.fields.terminationDate')"
             :min-width="colW(t('leaseTermination.fields.terminationDate'), { contentMin: 110 })"

@@ -27,6 +27,7 @@ const emit = defineEmits<{
   openContract: [contractId: string]
   openCustomer: [customerId: string]
   openRoom: [roomId: string]
+  openTermination: [terminationId: string]
 }>()
 
 const { t } = useI18n()
@@ -77,7 +78,17 @@ function f(key: string) {
           </div>
           <div>
             <dt>{{ f('terminationCode') }}</dt>
-            <dd>{{ dash(fee.terminationCode) }}</dd>
+            <dd>
+              <button
+                v-if="fee.terminationId"
+                type="button"
+                class="fk-link"
+                @click="emit('openTermination', fee.terminationId)"
+              >
+                {{ fee.terminationCode || '—' }}
+              </button>
+              <template v-else>{{ dash(fee.terminationCode) }}</template>
+            </dd>
           </div>
           <div>
             <dt>{{ f('customerName') }}</dt>

@@ -37,6 +37,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openInvoice: [invoice: InvoiceRecord]
+  openContract: [contractId: string]
 }>()
 
 const { t } = useI18n()
@@ -182,6 +183,28 @@ function statusLabel(status: string) {
             label-class-name="col-code"
             show-overflow-tooltip
           />
+          <el-table-column
+            :label="t('invoice.fields.contractCode')"
+            :min-width="
+              codeColW(t('invoice.fields.contractCode'), {
+                samples: paged.map((r) => r.contractCode),
+              })
+            "
+            class-name="col-code"
+            label-class-name="col-code"
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.contractId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openContract', row.contractId)"
+              >
+                {{ row.contractCode || '—' }}
+              </button>
+              <template v-else>{{ row.contractCode || '—' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="invoiceType"
             :label="t('invoice.fields.invoiceType')"

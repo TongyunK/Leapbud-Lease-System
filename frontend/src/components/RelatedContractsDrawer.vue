@@ -35,6 +35,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openContract: [contract: ContractRecord]
+  openCustomer: [customerId: string]
+  openRoom: [roomId: string]
 }>()
 
 const { t } = useI18n()
@@ -183,8 +185,19 @@ function statusLabel(status: string) {
             prop="customerName"
             :label="t('contract.fields.customerName')"
             :min-width="textColW(t('contract.fields.customerName'), { kind: 'name' })"
-            show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.customerId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openCustomer', row.customerId)"
+              >
+                {{ row.customerName || '—' }}
+              </button>
+              <template v-else>{{ row.customerName || '—' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="roomCode"
             :label="t('contract.fields.roomCode')"
@@ -195,8 +208,19 @@ function statusLabel(status: string) {
             "
             class-name="col-code"
             label-class-name="col-code"
-            show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <button
+                v-if="row.roomId"
+                type="button"
+                class="fk-link"
+                @click.stop="emit('openRoom', row.roomId)"
+              >
+                {{ row.roomCode || '—' }}
+              </button>
+              <template v-else>{{ row.roomCode || '—' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t('contract.fields.status')"
             :min-width="statusColW(t('contract.fields.status'), statusLabels, { interactive: false })"

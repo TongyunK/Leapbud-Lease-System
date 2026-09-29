@@ -14,11 +14,10 @@ import {
   updateOccupantApi,
 } from '@/api/occupants'
 import type { OccupantWritePayload, OccupantListQuery } from '@/api/occupants'
-import { fetchCustomer, fetchCustomers } from '@/api/customers'
+import { fetchCustomers } from '@/api/customers'
 import { fetchBuildings } from '@/api/buildings'
 import type { CustomerRecord, OccupantRecord } from '@/types/customer'
 import type { BuildingRecord } from '@/types/building'
-import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
@@ -27,11 +26,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
-import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
-import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
-import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
-import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
-import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -63,22 +58,12 @@ const keyword = ref('')
 const customerIdFilter = ref('')
 const formVisible = ref(false)
 const drawerVisible = ref(false)
-const relatedCustomerDrawer = ref(false)
-const relatedOccupantsListDrawer = ref(false)
-const buildingDrawerVisible = ref(false)
-const relatedRoomsDrawer = ref(false)
-const relatedRoomDrawer = ref(false)
+const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const editing = ref<OccupantRecord | null>(null)
 const current = ref<OccupantRecord | null>(null)
-const relatedCustomer = ref<CustomerRecord | null>(null)
-const relatedOccupantsCustomer = ref<CustomerRecord | null>(null)
-const relatedBuilding = ref<BuildingRecord | null>(null)
-const relatedRoomsBuilding = ref<BuildingRecord | null>(null)
-const relatedRoom = ref<RoomRecord | null>(null)
 const customers = ref<CustomerRecord[]>([])
 const buildings = ref<BuildingRecord[]>([])
 const occupantDrawerDirection = ref<'ltr' | 'rtl'>('rtl')
-const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 
 const sortFilter = useTableSortFilter<OccupantRecord>()
 const {
@@ -106,6 +91,7 @@ const {
   loadList,
   fetchExportRows,
   onClearFilters,
+  resetPage,
 } = useServerPagedList<OccupantRecord, OccupantListQuery>({
   keyword,
   sortFilter,
@@ -356,51 +342,7 @@ function onRowClick(row: OccupantRecord, column: { type?: string } | undefined, 
 }
 
 async function openCustomerSide(customerId?: string | null) {
-  if (!customerId) return
-  let row = customers.value.find((c) => c.id === customerId) || null
-  if (!row) {
-    try {
-      const { data } = await fetchCustomer(customerId)
-      row = data
-    } catch {
-      return
-    }
-  }
-  relatedCustomer.value = row
-  customerDrawerDirection.value = 'ltr'
-  relatedCustomerDrawer.value = true
-}
-
-function onOpenOccupantFromCustomer(occupant: OccupantRecord) {
-  openDetail(occupant, 'ltr')
-}
-
-function openOccupantsSide(row: CustomerRecord) {
-  if (!row.occupantCount) return
-  relatedOccupantsCustomer.value = row
-  relatedOccupantsListDrawer.value = true
-}
-
-function openBuildingSide(buildingId?: string | null) {
-  if (!buildingId) return
-  const building = buildings.value.find((b) => b.id === buildingId) || null
-  if (!building) {
-    ElMessage.warning(t('building.notFound'))
-    return
-  }
-  relatedBuilding.value = building
-  buildingDrawerVisible.value = true
-}
-
-function openRoomsSide(row: BuildingRecord) {
-  if (!row.roomIds?.length) return
-  relatedRoomsBuilding.value = row
-  relatedRoomsDrawer.value = true
-}
-
-function onOpenRoomFromList(room: RoomRecord) {
-  relatedRoom.value = room
-  relatedRoomDrawer.value = true
+  await relationDrawers.value?.openCustomerSide(customerId, 'ltr')
 }
 
 const importInputRef = ref<HTMLInputElement | null>(null)
@@ -832,37 +774,7 @@ async function onImportFile(ev: Event) {
       :desktop-direction="occupantDrawerDirection"
       @open-customer="openCustomerSide"
     />
-    <CustomerDetailDrawer
-      v-model="relatedCustomerDrawer"
-      :customer="relatedCustomer"
-      :desktop-direction="customerDrawerDirection"
-      @open-occupants="openOccupantsSide"
-      @open-building="openBuildingSide"
-    />
-    <RelatedOccupantsDrawer
-      v-model="relatedOccupantsListDrawer"
-      :customer="relatedOccupantsCustomer"
-      desktop-direction="ltr"
-      @open-occupant="onOpenOccupantFromCustomer"
-    />
-    <BuildingDetailDrawer
-      v-model="buildingDrawerVisible"
-      :building="relatedBuilding"
-      desktop-direction="ltr"
-      @open-rooms="openRoomsSide"
-    />
-    <RelatedRoomsDrawer
-      v-model="relatedRoomsDrawer"
-      :building="relatedRoomsBuilding"
-      desktop-direction="ltr"
-      @open-room="onOpenRoomFromList"
-    />
-    <RoomDetailDrawer
-      v-model="relatedRoomDrawer"
-      :room="relatedRoom"
-      desktop-direction="ltr"
-      @open-building="openBuildingSide"
-    />
+    <RelatedEntityDrawers ref="relationDrawers" />
 
     <el-dialog
       v-model="formVisible"

@@ -204,6 +204,92 @@ function agreementPreviewUrl(ticket: string, fileName: string) {
   return `${getApiBaseUrl()}/document-templates/prints/agreement/view/${encodeURIComponent(ticket)}/${safeName}`
 }
 
+/** 编辑弹窗未保存草稿（覆盖库内合约字段） */
+export type AgreementPreviewDraft = {
+  contractCode?: string
+  roomId?: string
+  customerId?: string
+  startDate?: string | null
+  endDate?: string | null
+  leaseType?: string
+  paymentCycle?: string
+  monthlyRent?: number | null
+  roomDeposit?: number | null
+  bookingDeposit?: number | null
+  miscDeposit?: number | null
+  electricityRate?: number | null
+  doorKeyQty?: number
+  mailboxKeyQty?: number
+  roomNameText?: string
+  remark?: string
+  periods?: Array<{
+    dateType?: string
+    dateUnit?: string
+    dateValue?: number
+    startDate?: string | null
+    endDate?: string | null
+  }>
+}
+
+async function fetchAgreementDraftPreviewTicket(
+  contractId: string,
+  draft: AgreementPreviewDraft,
+  opts?: { silentError?: boolean },
+): Promise<AgreementPreviewTicket> {
+  const res = await request.post<{ ticket: string; fileName: string }>(
+    '/document-templates/prints/agreement/preview-ticket',
+    { contractId, format: 'pdf', draft },
+    { silentError: opts?.silentError },
+  )
+  const ticket = String(res.data?.ticket || '')
+  const fileName = String(res.data?.fileName || 'agreement.pdf')
+  if (!ticket) throw new Error('未能创建 PDF 预览')
+  return { ticket, fileName, at: Date.now() }
+}
+
+/**
+ * 按编辑弹窗当前表单（含未保存修改）预览协议 PDF。
+ * 不走已存合约缓存，每次按 draft 重新生成。
+ */
+export async function previewAgreementDraftPdfApi(
+  contractId: string,
+  draft: AgreementPreviewDraft,
+  opts?: { silentError?: boolean; autoPrint?: boolean },
+) {
+  const autoPrint = opts?.autoPrint === true
+  const win = openPreviewWindow()
+
+  try {
+    const { ticket, fileName } = await fetchAgreementDraftPreviewTicket(contractId, draft, {
+      silentError: opts?.silentError,
+    })
+    const url = agreementPreviewUrl(ticket, fileName)
+    try {
+      win.location.href = url
+    } catch {
+      win.close()
+      throw new Error('无法在预览窗口中打开 PDF，请重试')
+    }
+    if (autoPrint) {
+      window.setTimeout(() => {
+        try {
+          win.focus()
+          win.print()
+        } catch {
+          /* 用户可在预览页手动 Ctrl+P */
+        }
+      }, 800)
+    }
+  } catch (error) {
+    try {
+      if (!win.closed) win.close()
+    } catch {
+      /* ignore */
+    }
+    throw error
+  }
+}
+
 export function fetchDocumentTemplates(params?: DocumentTemplateListQuery) {
   const query: Record<string, string> = {}
   if (params?.type) query.type = params.type
@@ -505,6 +591,152 @@ export async function previewInvoicePdfApi(
       silentError: opts?.silentError,
     })
     const url = invoicePreviewUrl(ticket, fileName)
+    try {
+      win.location.href = url
+    } catch {
+      win.close()
+      throw new Error('无法在预览窗口中打开 PDF，请重试')
+    }
+    if (autoPrint) {
+      window.setTimeout(() => {
+        try {
+          win.focus()
+          win.print()
+        } catch {
+          /* 用户可在预览页手动 Ctrl+P */
+        }
+      }, 800)
+    }
+  } catch (error) {
+    try {
+      if (!win.closed) win.close()
+    } catch {
+      /* ignore */
+    }
+    throw error
+  }
+}
+
+/** 下载收据样例 docx（旧系统键名占位符） */
+export async function downloadReceiptSampleApi() {
+  try {
+    const res = await request.get<Blob>('/document-templates/samples/receipt', {
+      responseType: 'blob',
+    })
+    await downloadBlobResponse(res, 'receipt-sample.docx')
+  } catch (error) {
+    await rethrowIfBlobError(error)
+  }
+}
+
+/** 收据 PDF 预览票据缓存 */
+type ReceiptPreviewTicket = { ticket: string; fileName: string; at: number }
+const receiptTicketCache = new Map<string, ReceiptPreviewTicket>()
+const RECEIPT_TICKET_TTL_MS = 10 * 60 * 1000
+const receiptTicketInflight = new Map<string, Promise<ReceiptPreviewTicket>>()
+
+function getCachedReceiptTicket(receiptId: string): ReceiptPreviewTicket | null {
+  const hit = receiptTicketCache.get(receiptId)
+  if (!hit) return null
+  if (Date.now() - hit.at > RECEIPT_TICKET_TTL_MS) {
+    receiptTicketCache.delete(receiptId)
+    return null
+  }
+  return hit
+}
+
+function setCachedReceiptTicket(receiptId: string, ticket: ReceiptPreviewTicket) {
+  receiptTicketCache.set(receiptId, ticket)
+  while (receiptTicketCache.size > 32) {
+    const oldest = receiptTicketCache.keys().next().value
+    if (oldest == null) break
+    receiptTicketCache.delete(oldest)
+  }
+}
+
+async function fetchReceiptPreviewTicket(
+  receiptId: string,
+  opts?: { silentError?: boolean },
+): Promise<ReceiptPreviewTicket> {
+  const cached = getCachedReceiptTicket(receiptId)
+  if (cached) return cached
+
+  const inflight = receiptTicketInflight.get(receiptId)
+  if (inflight) return inflight
+
+  const task = (async () => {
+    const res = await request.post<{ ticket: string; fileName: string }>(
+      '/document-templates/prints/receipt/preview-ticket',
+      { receiptId, format: 'pdf' },
+      { silentError: opts?.silentError },
+    )
+    const ticket = String(res.data?.ticket || '')
+    const fileName = String(res.data?.fileName || 'receipt.pdf')
+    if (!ticket) throw new Error('未能创建 PDF 预览')
+    const entry = { ticket, fileName, at: Date.now() }
+    setCachedReceiptTicket(receiptId, entry)
+    return entry
+  })()
+
+  receiptTicketInflight.set(receiptId, task)
+  try {
+    return await task
+  } finally {
+    receiptTicketInflight.delete(receiptId)
+  }
+}
+
+function receiptPreviewUrl(ticket: string, fileName: string) {
+  const safeName = encodeURIComponent(fileName || 'receipt.pdf')
+  return `${getApiBaseUrl()}/document-templates/prints/receipt/view/${encodeURIComponent(ticket)}/${safeName}`
+}
+
+export async function printReceiptApi(
+  receiptId: string,
+  format: 'docx' | 'pdf' = 'pdf',
+  opts?: { silentError?: boolean },
+) {
+  try {
+    const res = await request.post<Blob>(
+      '/document-templates/prints/receipt',
+      { receiptId, format },
+      { responseType: 'blob', silentError: opts?.silentError },
+    )
+    const ext = format === 'pdf' ? 'pdf' : 'docx'
+    await downloadBlobResponse(res, `receipt.${ext}`)
+  } catch (error) {
+    await rethrowIfBlobError(error)
+  }
+}
+
+/** 悬停预热：提前生成收据预览票据 */
+export function prefetchReceiptPdfApi(receiptId: string) {
+  if (
+    !receiptId ||
+    getCachedReceiptTicket(receiptId) ||
+    receiptTicketInflight.has(receiptId)
+  ) {
+    return
+  }
+  void fetchReceiptPreviewTicket(receiptId, { silentError: true }).catch(() => undefined)
+}
+
+/**
+ * 在浏览器新标签页预览收据最终 PDF。
+ * 「另存为」为「收据编号-客户名称.pdf」。
+ */
+export async function previewReceiptPdfApi(
+  receiptId: string,
+  opts?: { silentError?: boolean; autoPrint?: boolean },
+) {
+  const autoPrint = opts?.autoPrint === true
+  const win = openPreviewWindow()
+
+  try {
+    const { ticket, fileName } = await fetchReceiptPreviewTicket(receiptId, {
+      silentError: opts?.silentError,
+    })
+    const url = receiptPreviewUrl(ticket, fileName)
     try {
       win.location.href = url
     } catch {

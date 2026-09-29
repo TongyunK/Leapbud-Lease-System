@@ -14,7 +14,7 @@ import {
   updateDepositRefundApi,
 } from '@/api/deposit-refunds'
 import type { DepositRefundWritePayload, DepositRefundListQuery } from '@/api/deposit-refunds'
-import { fetchContract, fetchContracts } from '@/api/contracts'
+import { fetchContracts } from '@/api/contracts'
 import { fetchUsers } from '@/api/users'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { DEPOSIT_REFUND_STATUSES } from '@/types/deposit-refund'
@@ -26,11 +26,9 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import DepositRefundDetailDrawer from '@/components/DepositRefundDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
-import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
 import type { ReceivableRecord } from '@/types/receivable'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -78,13 +76,8 @@ const users = ref<UserRecord[]>([])
 const drawerVisible = ref(false)
 const relatedReceivablesDrawer = ref(false)
 const relatedListRefund = ref<DepositRefundRecord | null>(null)
-const relatedReceivable = ref<ReceivableRecord | null>(null)
-const receivableDetailDrawer = ref(false)
 const current = ref<DepositRefundRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
-const contractDrawerVisible = ref(false)
-const currentContract = ref<ContractRecord | null>(null)
-const contractDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 
 const {
@@ -393,8 +386,7 @@ function openReceivablesSide(row: DepositRefundRecord) {
   relatedReceivablesDrawer.value = true
 }
 function onOpenReceivableFromRelated(row: ReceivableRecord) {
-  relatedReceivable.value = row
-  receivableDetailDrawer.value = true
+  void relationDrawers.value?.openReceivableSide(row.id)
 }
 
 function onRowClick(row: DepositRefundRecord, column: { type?: string } | undefined, event: Event) {
@@ -404,16 +396,8 @@ function onRowClick(row: DepositRefundRecord, column: { type?: string } | undefi
   void openDetail(row, 'rtl')
 }
 
-async function openContractSide(contractId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  if (!contractId) return
-  try {
-    const { data } = await fetchContract(contractId)
-    currentContract.value = data
-    contractDrawerDirection.value = direction
-    contractDrawerVisible.value = true
-  } catch {
-    /* interceptor */
-  }
+async function openContractSide(contractId?: string | null, _direction: 'ltr' | 'rtl' = 'ltr') {
+  await relationDrawers.value?.openContractSide(contractId)
 }
 
 async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
@@ -422,14 +406,6 @@ async function openCustomerSide(customerId?: string | null, direction: 'ltr' | '
 
 async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
   await relationDrawers.value?.openRoomSide(roomId, direction)
-}
-
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
-}
-
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
 }
 
 function moneyOrDash(v: number | null | undefined): string {
@@ -1014,7 +990,6 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-room="(id) => openRoomSide(id, 'ltr')"
-    
       @open-receivables="openReceivablesSide"
     />
     <RelatedReceivablesDrawer
@@ -1023,16 +998,8 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListRefund?.refundCode || ''"
       desktop-direction="ltr"
       @open-receivable="onOpenReceivableFromRelated"
-    />
-    <ReceivableDetailDrawer v-model="receivableDetailDrawer" :record="relatedReceivable" desktop-direction="ltr" />
-    <ContractDetailDrawer
-      v-model="contractDrawerVisible"
-      :contract="currentContract"
-      :desktop-direction="contractDrawerDirection"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
-      @open-building="openBuildingSide"
-      @open-requirement="openRequirementSide"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
 
