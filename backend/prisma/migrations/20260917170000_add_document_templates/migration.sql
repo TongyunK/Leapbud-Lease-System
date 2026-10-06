@@ -64,6 +64,25 @@ INSERT INTO "menus" (
   "id", "parent_id", "type", "name", "name_key", "route_name", "path", "icon",
   "sort_order", "active", "created_at", "updated_at"
 ) VALUES (
+  'menu_system',
+  NULL,
+  'directory',
+  '系統管理',
+  'menu.system',
+  '',
+  '',
+  'Setting',
+  45,
+  true,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+)
+ON CONFLICT ("id") DO NOTHING;
+
+INSERT INTO "menus" (
+  "id", "parent_id", "type", "name", "name_key", "route_name", "path", "icon",
+  "sort_order", "active", "created_at", "updated_at"
+) VALUES (
   'menu_document_templates',
   'menu_system',
   'menu',

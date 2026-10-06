@@ -93,6 +93,26 @@ COMMENT ON COLUMN "customer_requirements"."updated_by" IS '更新人用户 ID';
 COMMENT ON COLUMN "customer_requirements"."created_at" IS '创建时间';
 COMMENT ON COLUMN "customer_requirements"."updated_at" IS '更新时间';
 
+-- 空库部署时 seed 尚未执行，须先确保父级目录存在（否则 parent_id 外键失败）
+INSERT INTO "menus" (
+  "id", "parent_id", "type", "name", "name_key", "route_name", "path", "icon",
+  "sort_order", "active", "created_at", "updated_at"
+) VALUES (
+  'menu_customer_mgmt',
+  NULL,
+  'directory',
+  '客戶管理',
+  'menu.customerMgmt',
+  '',
+  '',
+  'UserFilled',
+  20,
+  true,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+)
+ON CONFLICT ("id") DO NOTHING;
+
 -- 菜单：客户需求（客户管理下）
 INSERT INTO "menus" (
   "id", "parent_id", "type", "name", "name_key", "route_name", "path", "icon",
