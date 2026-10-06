@@ -42,6 +42,7 @@ services:
       dockerfile: docker/frontend/Dockerfile
       args:
         - NODE_ENV=production
+        - VITE_USE_SAME_ORIGIN_API=true
         - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-0}
     image: leapbud-lease-images-frontend-blue
     container_name: leapbud-lease-frontend-blue

@@ -3,16 +3,19 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY frontend/package*.json ./
+COPY frontend/package.json frontend/package-lock.json* ./
 
-RUN npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY frontend/ .
 
+ARG VITE_USE_SAME_ORIGIN_API=true
+# Docker 走入口 Nginx 同源 /api，勿 baked 外网/内网直连的 VITE_API_ORIGIN
 ARG VITE_API_ORIGIN=
 ARG NODE_ENV=production
 ARG BUILD_TIMESTAMP
 
+ENV VITE_USE_SAME_ORIGIN_API=$VITE_USE_SAME_ORIGIN_API
 ENV VITE_API_ORIGIN=$VITE_API_ORIGIN
 ENV NODE_ENV=$NODE_ENV
 

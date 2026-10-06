@@ -5,6 +5,9 @@
  * - 静态站外置：通过 VITE_API_ORIGIN 指定
  */
 export function getApiBaseUrl(): string {
+  if (import.meta.env.VITE_USE_SAME_ORIGIN_API === 'true') {
+    return '/api'
+  }
   const origin = import.meta.env.VITE_API_ORIGIN as string | undefined
   if (origin) {
     return `${origin.replace(/\/$/, '')}/api`

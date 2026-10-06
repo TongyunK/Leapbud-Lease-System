@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_ORIGIN?: string
+  readonly VITE_USE_SAME_ORIGIN_API?: string
 }
 
 interface ImportMeta {
