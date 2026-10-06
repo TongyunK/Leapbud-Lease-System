@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
+import { NumberingRulesModule } from '../numbering-rules/numbering-rules.module'
 import { ReceiptsController } from './receipts.controller'
 import { ReceiptsService } from './receipts.service'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, NumberingRulesModule],
   controllers: [ReceiptsController],
   providers: [ReceiptsService, JwtAuthGuard, RolesGuard],
   exports: [ReceiptsService],

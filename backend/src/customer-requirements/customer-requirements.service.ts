@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RoomConfigType } from '@prisma/client';
+import { NumberingBizKey, Prisma, RoomConfigType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service';
 import {
   CreateCustomerRequirementDto,
   ImportCustomerRequirementsDto,
@@ -62,7 +63,10 @@ function nullId(v: string | null | undefined): string | null {
 
 @Injectable()
 export class CustomerRequirementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numberingRules: NumberingRulesService,
+  ) {}
 
   async findAll(params: {
     keyword?: string;
@@ -229,27 +233,14 @@ export class CustomerRequirementsService {
   }
 
   private async nextRequirementCode(reserved?: { has(key: string): boolean }) {
-    const now = new Date();
-    const y = String(now.getFullYear()).slice(-2);
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const prefix = `REQ${y}${m}${d}`;
-    const latest = await this.prisma.customerRequirement.findFirst({
-      where: { requirementCode: { startsWith: prefix } },
-      orderBy: { requirementCode: 'desc' },
-      select: { requirementCode: true },
+    return this.numberingRules.nextCode(NumberingBizKey.customerRequirement, {
+      reserved,
+      isTaken: async (code) =>
+        !!(await this.prisma.customerRequirement.findFirst({
+          where: { requirementCode: code },
+          select: { id: true },
+        })),
     });
-    let seq = 1;
-    if (latest) {
-      const n = Number(latest.requirementCode.slice(prefix.length));
-      if (!Number.isNaN(n)) seq = n + 1;
-    }
-    let code = `${prefix}${String(seq).padStart(4, '0')}`;
-    while (reserved?.has(code.toLowerCase())) {
-      seq += 1;
-      code = `${prefix}${String(seq).padStart(4, '0')}`;
-    }
-    return code;
   }
 
   private async assertCustomer(customerId: string) {

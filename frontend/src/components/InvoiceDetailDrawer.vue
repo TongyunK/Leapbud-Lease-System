@@ -91,15 +91,16 @@ async function onPrintInvoice() {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('invoice.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
-    <template v-if="record">
-      <div class="detail-toolbar">
+    <template #header="{ titleId, titleClass }">
+      <div class="drawer-header-with-action">
+        <h4 :id="titleId" :class="titleClass">{{ t('invoice.detailTitle') }}</h4>
         <el-button
+          v-if="record"
           type="primary"
-          class="lb-btn-primary"
+          class="lb-btn-primary drawer-header-action"
           :loading="printing"
           @mouseenter="record?.id && prefetchInvoicePdfApi(record.id)"
           @focus="record?.id && prefetchInvoicePdfApi(record.id)"
@@ -108,6 +109,8 @@ async function onPrintInvoice() {
           {{ t('invoice.printInvoice') }}
         </el-button>
       </div>
+    </template>
+    <template v-if="record">
       <section class="detail-section">
         <h3>{{ t('invoice.sections.basic') }}</h3>
         <dl class="detail-grid two">
@@ -290,13 +293,6 @@ async function onPrintInvoice() {
 </template>
 
 <style scoped>
-.detail-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
 .fee-list {
   display: flex;
   flex-direction: column;

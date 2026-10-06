@@ -283,7 +283,7 @@ export class DocumentTemplatesController {
   }
 
   @Get(':id/preview')
-  @ApiOkResponse({ description: '浏览器预览模板（docx 转 PDF；失败则下载原文件）' })
+  @ApiOkResponse({ description: '浏览器预览模板（返回原始 docx，由前端渲染）' })
   async preview(
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
@@ -291,9 +291,7 @@ export class DocumentTemplatesController {
     const result = await this.documentTemplatesService.previewFile(id);
     res.set({
       'Content-Type': result.contentType,
-      'Content-Disposition': result.contentType.includes('pdf')
-        ? inlineDisposition(result.fileName)
-        : attachmentDisposition(result.fileName),
+      'Content-Disposition': inlineDisposition(result.fileName),
     });
     return new StreamableFile(result.buffer);
   }

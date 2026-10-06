@@ -1,0 +1,32 @@
+# Nginx 入口（蓝绿流量切换）
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: leapbud-lease-nginx
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "3400:80"
+      - "3443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - leapbud-lease-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+networks:
+  leapbud-lease-network:
+    external: true

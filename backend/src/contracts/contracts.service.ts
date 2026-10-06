@@ -4,11 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RoomStatus } from '@prisma/client';
+import { NumberingBizKey, Prisma, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContractDto, ContractPeriodInputDto, UpdateContractDto, ImportContractsDto } from './dto/contract.dto';
 import { contractInclude, toContractDto } from './contract.mapper';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service';
 import { userWhereActorLabels } from '../common/audit';
 import {
   dateRangeFilter,
@@ -116,6 +117,7 @@ export class ContractsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractConfigs: ContractConfigsService,
+    private readonly numberingRules: NumberingRulesService,
   ) {}
 
   async findAll(params: {
@@ -297,22 +299,13 @@ export class ContractsService {
   }
 
   private async nextContractCode() {
-    const now = new Date();
-    const y = String(now.getFullYear()).slice(-2);
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const prefix = `CTR${y}${m}${d}`;
-    const latest = await this.prisma.contract.findFirst({
-      where: { contractCode: { startsWith: prefix } },
-      orderBy: { contractCode: 'desc' },
-      select: { contractCode: true },
+    return this.numberingRules.nextCode(NumberingBizKey.contract, {
+      isTaken: async (code) =>
+        !!(await this.prisma.contract.findFirst({
+          where: { contractCode: code },
+          select: { id: true },
+        })),
     });
-    let seq = 1;
-    if (latest) {
-      const n = Number(latest.contractCode.slice(prefix.length));
-      if (!Number.isNaN(n)) seq = n + 1;
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`;
   }
 
   private async assertRoom(roomId: string) {

@@ -1,0 +1,68 @@
+# 蓝环境应用（postgres 由 base compose 单独启动，勿在本文件 depends_on）
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  backend-blue:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    image: leapbud-lease-images-backend-blue
+    container_name: leapbud-lease-backend-blue
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      - TZ=Asia/Hong_Kong
+      - NODE_ENV=production
+      - PORT=3410
+      - DATABASE_URL=postgresql://${DB_USER:-leapbud}:${DB_PASSWORD:-leapbud123456}@postgres:5432/${DB_NAME:-leapbud_lease}?schema=public
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-long-random-string}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+    ports:
+      - "3411:3410"
+    volumes:
+      - leapbud_uploads_data_volumes:/app/uploads
+    networks:
+      - leapbud-lease-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3410/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  frontend-blue:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+      args:
+        - NODE_ENV=production
+        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-0}
+    image: leapbud-lease-images-frontend-blue
+    container_name: leapbud-lease-frontend-blue
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "3412:80"
+    networks:
+      - leapbud-lease-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  leapbud_uploads_data_volumes:
+    name: leapbud_uploads_data_volumes
+    driver: local
+
+networks:
+  leapbud-lease-network:
+    external: true

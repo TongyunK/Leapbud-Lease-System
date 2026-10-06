@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
+import { NumberingBizKey, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import {
   CreateInvoiceDto,
   ImportInvoicesDto,
@@ -61,7 +62,10 @@ function nullId(v?: string | null): string | null {
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numberingRules: NumberingRulesService,
+  ) {}
 
   async findAll(params: {
     keyword?: string
@@ -485,21 +489,12 @@ export class InvoicesService {
   }
 
   private async nextInvoiceCode(): Promise<string> {
-    const now = new Date()
-    const y = String(now.getUTCFullYear()).slice(-2)
-    const m = String(now.getUTCMonth() + 1).padStart(2, '0')
-    const d = String(now.getUTCDate()).padStart(2, '0')
-    const prefix = `INV${y}${m}${d}`
-    const latest = await this.prisma.invoice.findFirst({
-      where: { invoiceCode: { startsWith: prefix } },
-      orderBy: { invoiceCode: 'desc' },
-      select: { invoiceCode: true },
+    return this.numberingRules.nextCode(NumberingBizKey.invoice, {
+      isTaken: async (code) =>
+        !!(await this.prisma.invoice.findFirst({
+          where: { invoiceCode: code },
+          select: { id: true },
+        })),
     })
-    let seq = 1
-    if (latest?.invoiceCode) {
-      const n = Number(latest.invoiceCode.slice(prefix.length))
-      if (!Number.isNaN(n)) seq = n + 1
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`
   }
 }

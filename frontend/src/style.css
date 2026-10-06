@@ -1220,9 +1220,19 @@ button {
 }
 
 .action-pill--danger:hover {
-  border-color: #a33b32;
-  background: #a33b32;
+  background: #a53a33;
+  border-color: #a53a33;
+}
+
+.action-pill--warn {
+  border: 1px solid #d4910a;
+  background: #e8a317;
   color: #fff;
+}
+
+.action-pill--warn:hover {
+  background: #c9850c;
+  border-color: #c9850c;
 }
 
 .action-pill:disabled,
@@ -2118,6 +2128,29 @@ button {
   font-size: 1.05rem !important;
   font-weight: 700 !important;
   color: #0d3a28 !important;
+}
+
+/* 详情抽屉标题栏：标题 + 列印等操作（关闭按钮仍由 el-drawer 渲染） */
+.drawer-header-with-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.drawer-header-with-action .el-drawer__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-header-with-action .drawer-header-action {
+  flex: 0 0 auto;
 }
 
 .detail-section + .detail-section {

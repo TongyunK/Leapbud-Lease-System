@@ -16,7 +16,7 @@ import {
   CreateDocumentTemplateDto,
   UpdateDocumentTemplateDto,
 } from './dto/document-template.dto';
-import { convertDocxToPdf, invalidatePdfCache, warmUpLibreOffice } from './pdf-convert.util';
+import { invalidatePdfCache, warmUpLibreOffice } from './pdf-convert.util';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -158,28 +158,10 @@ export class DocumentTemplatesService {
     }
   }
 
-  /** 浏览器预览：docx 优先转 PDF；转失败则回退原文件下载 */
+  /** 浏览器预览：直接返回原始 docx，由前端渲染（不做 PDF 转换） */
   async previewFile(id: string) {
     const file = await this.getFile(id);
     const lower = file.fileName.toLowerCase();
-    if (lower.endsWith('.docx')) {
-      let cacheKey = `tpl:${id}`;
-      try {
-        const st = await fs.stat(this.absPath(file.storageKey));
-        cacheKey = `tpl:${id}:${st.mtimeMs}:${st.size}`;
-      } catch {
-        /* ignore */
-      }
-      const pdf = await convertDocxToPdf(file.buffer, cacheKey);
-      if (pdf) {
-        const base = file.fileName.replace(/\.docx$/i, '') || 'template';
-        return {
-          buffer: pdf,
-          fileName: `${base}.pdf`,
-          contentType: 'application/pdf',
-        };
-      }
-    }
     return {
       buffer: file.buffer,
       fileName: file.fileName,

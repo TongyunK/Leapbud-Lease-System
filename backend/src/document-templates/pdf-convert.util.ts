@@ -45,6 +45,12 @@ function sofficeCandidates(): string[] {
       'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
       'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
     );
+  } else {
+    list.push(
+      '/usr/lib/libreoffice/program/soffice',
+      '/usr/bin/soffice',
+      '/usr/bin/libreoffice',
+    );
   }
   list.push('soffice', 'soffice.exe');
   return list;
@@ -107,6 +113,9 @@ async function resolveLoPython(sofficeBin: string): Promise<string | null> {
     path.join(dir, 'python.exe'),
     path.join(dir, 'python'),
     path.join(dir, 'python.bin'),
+    // Debian/Docker：soffice 常为 /usr/bin 包装脚本，UNO Python 在 program 目录
+    '/usr/lib/libreoffice/program/python',
+    '/usr/bin/python3',
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {

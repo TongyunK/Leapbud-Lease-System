@@ -25,6 +25,7 @@ import { InvoiceServiceDetailsModule } from './invoice-service-details/invoice-s
 import { ReceivablesModule } from './receivables/receivables.module';
 import { ReceiptsModule } from './receipts/receipts.module';
 import { DocumentTemplatesModule } from './document-templates/document-templates.module';
+import { NumberingRulesModule } from './numbering-rules/numbering-rules.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { DocumentTemplatesModule } from './document-templates/document-templates
     ReceivablesModule,
     ReceiptsModule,
     DocumentTemplatesModule,
+    NumberingRulesModule,
     RolesModule,
     MenusModule,
   ],

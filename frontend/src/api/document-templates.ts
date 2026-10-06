@@ -97,13 +97,21 @@ async function downloadBlobResponse(
   triggerBrowserDownload(response.data, fileName)
 }
 
-function writePreviewLoading(win: Window) {
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function writePreviewLoading(win: Window, message = '正在生成 PDF 预览，请稍候…') {
   try {
+    const safe = escapeHtml(message)
     win.document.open()
     win.document.write(
-      '<!doctype html><html><head><meta charset="utf-8"><title>正在生成 PDF…</title></head>' +
-        '<body style="font:14px/1.5 system-ui,sans-serif;padding:24px;color:#666">' +
-        '正在生成 PDF 预览，请稍候…</body></html>',
+      `<!doctype html><html><head><meta charset="utf-8"><title>${safe}</title></head>` +
+        `<body style="font:14px/1.5 system-ui,sans-serif;padding:24px;color:#666">${safe}</body></html>`,
     )
     win.document.close()
   } catch {
@@ -111,35 +119,42 @@ function writePreviewLoading(win: Window) {
   }
 }
 
-function openPreviewWindow(): Window {
+function openPreviewWindow(loadingMessage?: string): Window {
   const win = window.open('about:blank', '_blank')
   if (!win) {
     throw new Error('浏览器拦截了弹窗，请允许本站弹出窗口后重试')
   }
-  writePreviewLoading(win)
+  writePreviewLoading(win, loadingMessage)
   return win
 }
 
-function showPdfInWindow(win: Window, pdfBlob: Blob, autoPrint: boolean) {
-  const url = URL.createObjectURL(pdfBlob)
+/** 新标签以 docx-preview 渲染原始 Word（模板文件预览，非填模后最终 PDF） */
+async function showDocxInWindow(win: Window, docxBlob: Blob, title: string) {
+  const { renderAsync } = await import('docx-preview')
+  const safeTitle = escapeHtml(title || '模板预览')
   try {
-    win.location.href = url
+    win.document.open()
+    win.document.write(
+      `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title>` +
+        '<style>html,body{margin:0;background:#e8e8e8}#viewer{min-height:100vh;padding:16px 0}</style>' +
+        '</head><body><div id="viewer"></div></body></html>',
+    )
+    win.document.close()
   } catch {
     win.close()
-    URL.revokeObjectURL(url)
-    throw new Error('无法在预览窗口中打开 PDF，请重试')
+    throw new Error('无法在预览窗口中打开文档，请重试')
   }
-  if (autoPrint) {
-    window.setTimeout(() => {
-      try {
-        win.focus()
-        win.print()
-      } catch {
-        /* 用户可在预览页手动 Ctrl+P */
-      }
-    }, 800)
+  const container = win.document.getElementById('viewer')
+  if (!container) {
+    win.close()
+    throw new Error('无法在预览窗口中打开文档，请重试')
   }
-  window.setTimeout(() => URL.revokeObjectURL(url), 120_000)
+  await renderAsync(docxBlob, container, win.document.head, {
+    className: 'docx',
+    inWrapper: true,
+    breakPages: true,
+    useBase64URL: true,
+  })
 }
 
 /** 协议 PDF 预览票据缓存：打开真实 URL 才能让「另存为」带上正确文件名 */
@@ -345,9 +360,9 @@ export async function downloadDocumentTemplateApi(id: string, fallbackName = 'te
   }
 }
 
-/** 新标签预览模板（docx → PDF，最终版式） */
+/** 新标签预览模板（原始 docx，浏览器渲染） */
 export async function previewDocumentTemplateApi(id: string) {
-  const win = openPreviewWindow()
+  const win = openPreviewWindow('正在加载模板预览，请稍候…')
   try {
     const res = await request.get<Blob>(`/document-templates/${id}/preview`, {
       responseType: 'blob',
@@ -355,27 +370,15 @@ export async function previewDocumentTemplateApi(id: string) {
     })
     const ct = String(res.headers['content-type'] || res.data.type || '').toLowerCase()
     await assertDownloadableBlob(res.data, ct)
-    const head = new Uint8Array(await res.data.slice(0, 5).arrayBuffer())
-    const isPdf =
-      ct.includes('pdf') ||
-      (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46)
-    if (isPdf) {
-      const pdfBlob =
-        res.data.type === 'application/pdf'
-          ? res.data
-          : new Blob([res.data], { type: 'application/pdf' })
-      showPdfInWindow(win, pdfBlob, false)
-      return
-    }
     const name =
       parseContentDisposition(String(res.headers['content-disposition'] || '')) || 'template.docx'
-    triggerBrowserDownload(res.data, name)
-    try {
-      win.close()
-    } catch {
-      /* ignore */
-    }
-    throw new Error('该文件无法生成 PDF 预览，已改为下载')
+    const docxBlob =
+      ct.includes('wordprocessingml') || ct.includes('octet-stream') || !res.data.type
+        ? new Blob([res.data], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          })
+        : res.data
+    await showDocxInWindow(win, docxBlob, name)
   } catch (error) {
     try {
       if (!win.closed) win.close()

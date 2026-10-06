@@ -1,2 +1,23 @@
+# 依赖
+node_modules
+*/node_modules/
+
+# 打包
+dist
+*.log
+.DS_Store
+
+# Docker 部署本地环境（含密钥）
+.env
+
+# Nginx SSL 私钥与证书（在 docker/nginx/ssl 下自行生成）
+docker/nginx/ssl/*.pem
+docker/nginx/nginx.conf.backup.*
+
+# 本地数据 / 备份
 data/
+*.dump
+backups/
+
+# 其它
 new_project_checklist.md

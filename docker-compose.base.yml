@@ -1,0 +1,54 @@
+# 基础服务：PostgreSQL、Adminer
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: leapbud-lease-postgres
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: ${DB_NAME:-leapbud_lease}
+      POSTGRES_USER: ${DB_USER:-leapbud}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-leapbud123456}
+    ports:
+      - "35432:5432"
+    volumes:
+      - leapbud_postgres_data_volumes:/var/lib/postgresql/data
+    networks:
+      - leapbud-lease-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-leapbud} -d ${DB_NAME:-leapbud_lease}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    build:
+      context: .
+      dockerfile: docker/adminer/Dockerfile
+    image: leapbud-lease-adminer
+    container_name: leapbud-lease-adminer
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "3401:3401"
+    networks:
+      - leapbud-lease-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  leapbud_postgres_data_volumes:
+    name: leapbud_postgres_data_volumes
+    driver: local
+
+networks:
+  leapbud-lease-network:
+    external: true

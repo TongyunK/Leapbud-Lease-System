@@ -245,6 +245,17 @@ const router = createRouter({
             subtitleKey: 'documentTemplate.subtitle',
           },
         },
+        {
+          path: 'system/auto-numbering',
+          name: 'autoNumbering',
+          component: () => import('@/views/system/AutoNumberingListView.vue'),
+          meta: {
+            requiresAuth: true,
+            requiresAdmin: true,
+            titleKey: 'menu.autoNumbering',
+            subtitleKey: 'autoNumbering.subtitle',
+          },
+        },
         // 旧路径兼容跳转
         { path: 'system/room-configs', redirect: { name: 'roomConfigs' } },
         { path: 'system/room-types', redirect: { name: 'roomTypes' } },

@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env
+**/.git
+**/uploads
+*.log
+data
+docs
+.cursor
+.vscode

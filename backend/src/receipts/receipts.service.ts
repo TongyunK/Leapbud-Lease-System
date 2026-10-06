@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
+import { NumberingBizKey, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/receipt.dto'
 import { receiptInclude, toReceiptDto } from './receipt.mapper'
 import {
@@ -45,7 +46,10 @@ function nullId(v?: string | null): string | null {
 
 @Injectable()
 export class ReceiptsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numberingRules: NumberingRulesService,
+  ) {}
 
   async findAll(params: {
     keyword?: string
@@ -585,21 +589,12 @@ export class ReceiptsService {
   }
 
   private async nextReceiptCode(): Promise<string> {
-    const now = new Date()
-    const y = String(now.getUTCFullYear()).slice(-2)
-    const m = String(now.getUTCMonth() + 1).padStart(2, '0')
-    const d = String(now.getUTCDate()).padStart(2, '0')
-    const prefix = `RCP${y}${m}${d}`
-    const latest = await this.prisma.receipt.findFirst({
-      where: { receiptCode: { startsWith: prefix } },
-      orderBy: { receiptCode: 'desc' },
-      select: { receiptCode: true },
+    return this.numberingRules.nextCode(NumberingBizKey.receipt, {
+      isTaken: async (code) =>
+        !!(await this.prisma.receipt.findFirst({
+          where: { receiptCode: code },
+          select: { id: true },
+        })),
     })
-    let seq = 1
-    if (latest?.receiptCode) {
-      const n = Number(latest.receiptCode.slice(prefix.length))
-      if (!Number.isNaN(n)) seq = n + 1
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`
   }
 }

@@ -103,15 +103,16 @@ function emitIfCount(
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('contract.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
-    <template v-if="contract">
-      <div class="detail-toolbar">
+    <template #header="{ titleId, titleClass }">
+      <div class="drawer-header-with-action">
+        <h4 :id="titleId" :class="titleClass">{{ t('contract.detailTitle') }}</h4>
         <el-button
+          v-if="contract"
           type="primary"
-          class="lb-btn-primary"
+          class="lb-btn-primary drawer-header-action"
           :loading="printing"
           @mouseenter="contract?.id && prefetchAgreementPdfApi(contract.id)"
           @focus="contract?.id && prefetchAgreementPdfApi(contract.id)"
@@ -120,6 +121,8 @@ function emitIfCount(
           {{ t('contract.printAgreement') }}
         </el-button>
       </div>
+    </template>
+    <template v-if="contract">
       <section class="detail-section">
         <h3>{{ t('contract.sections.basic') }}</h3>
         <dl class="detail-grid two">
@@ -383,11 +386,6 @@ function emitIfCount(
 </template>
 
 <style scoped>
-.detail-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
-}
 .period-list {
   display: flex;
   flex-direction: column;

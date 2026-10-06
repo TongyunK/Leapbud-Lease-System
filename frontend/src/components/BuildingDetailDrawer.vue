@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import type { BuildingRecord } from '@/types/building'
+import { previewDocumentTemplateApi } from '@/api/document-templates'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
@@ -27,6 +29,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const previewingTemplateId = ref('')
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '520px'))
@@ -44,6 +47,20 @@ function onRoomsClick() {
   const b = props.building
   if (!b?.roomIds?.length) return
   emit('openRooms', b)
+}
+
+async function onPreviewTemplate(id?: string | null) {
+  if (!id || previewingTemplateId.value) return
+  previewingTemplateId.value = id
+  try {
+    await previewDocumentTemplateApi(id)
+  } catch (e) {
+    const msg =
+      e instanceof Error && e.message ? e.message : t('building.templatePreviewFailed')
+    ElMessage.error(msg)
+  } finally {
+    previewingTemplateId.value = ''
+  }
 }
 
 const logoItems = computed(() => {
@@ -152,15 +169,51 @@ const logoItems = computed(() => {
         <dl class="detail-grid">
           <div>
             <dt>{{ t('building.fields.agreementTemplate') }}</dt>
-            <dd>{{ templateLabel(building.agreementTemplateName, building.agreementTemplateFileName) }}</dd>
+            <dd>
+              <button
+                v-if="building.agreementTemplateId"
+                type="button"
+                class="template-preview-link"
+                :title="t('building.templatePreviewHint')"
+                :disabled="previewingTemplateId === building.agreementTemplateId"
+                @click="onPreviewTemplate(building.agreementTemplateId)"
+              >
+                {{ templateLabel(building.agreementTemplateName, building.agreementTemplateFileName) }}
+              </button>
+              <span v-else>{{ t('common.none') }}</span>
+            </dd>
           </div>
           <div>
             <dt>{{ t('building.fields.invoiceTemplate') }}</dt>
-            <dd>{{ templateLabel(building.invoiceTemplateName, building.invoiceTemplateFileName) }}</dd>
+            <dd>
+              <button
+                v-if="building.invoiceTemplateId"
+                type="button"
+                class="template-preview-link"
+                :title="t('building.templatePreviewHint')"
+                :disabled="previewingTemplateId === building.invoiceTemplateId"
+                @click="onPreviewTemplate(building.invoiceTemplateId)"
+              >
+                {{ templateLabel(building.invoiceTemplateName, building.invoiceTemplateFileName) }}
+              </button>
+              <span v-else>{{ t('common.none') }}</span>
+            </dd>
           </div>
           <div>
             <dt>{{ t('building.fields.receiptTemplate') }}</dt>
-            <dd>{{ templateLabel(building.receiptTemplateName, building.receiptTemplateFileName) }}</dd>
+            <dd>
+              <button
+                v-if="building.receiptTemplateId"
+                type="button"
+                class="template-preview-link"
+                :title="t('building.templatePreviewHint')"
+                :disabled="previewingTemplateId === building.receiptTemplateId"
+                @click="onPreviewTemplate(building.receiptTemplateId)"
+              >
+                {{ templateLabel(building.receiptTemplateName, building.receiptTemplateFileName) }}
+              </button>
+              <span v-else>{{ t('common.none') }}</span>
+            </dd>
           </div>
           <div>
             <dt>{{ t('building.fields.apiTemplateSuffix') }}</dt>
@@ -187,6 +240,32 @@ const logoItems = computed(() => {
 </template>
 
 <style scoped>
+.template-preview-link {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: #409eff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+  word-break: break-all;
+}
+
+.template-preview-link:hover:not(:disabled) {
+  color: #337ecc;
+}
+
+.template-preview-link:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .logo-row {
   margin-top: 14px;
   display: grid;

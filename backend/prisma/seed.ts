@@ -766,6 +766,17 @@ async function seedRolesAndMenus(actorId: string) {
       icon: 'Document',
       sortOrder: 95,
     },
+    {
+      id: 'menu_auto_numbering',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '自動編號',
+      nameKey: 'menu.autoNumbering',
+      routeName: 'autoNumbering',
+      path: 'system/auto-numbering',
+      icon: 'Tickets',
+      sortOrder: 96,
+    },
   ];
 
   for (const m of menuSeeds) {
@@ -800,6 +811,85 @@ async function seedRolesAndMenus(actorId: string) {
     });
   }
 
+  const numberingSeeds: Array<{
+    id: string;
+    bizKey: 'customer' | 'customerRequirement' | 'contract' | 'invoice' | 'receipt';
+    name: string;
+    format: string;
+    resetCycle: 'none' | 'daily' | 'monthly' | 'yearly';
+    sortOrder: number;
+  }> = [
+    {
+      id: 'nr_customer',
+      bizKey: 'customer',
+      name: '客戶編號',
+      format: 'CSM%YY%04d',
+      resetCycle: 'yearly',
+      sortOrder: 1,
+    },
+    {
+      id: 'nr_customer_requirement',
+      bizKey: 'customerRequirement',
+      name: '客戶需求編號',
+      format: 'REQ%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 2,
+    },
+    {
+      id: 'nr_contract',
+      bizKey: 'contract',
+      name: '合約編號',
+      format: 'CTR%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 3,
+    },
+    {
+      id: 'nr_invoice',
+      bizKey: 'invoice',
+      name: '發票編號',
+      format: 'INV%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 4,
+    },
+    {
+      id: 'nr_receipt',
+      bizKey: 'receipt',
+      name: '收據編號',
+      format: 'RCP%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 5,
+    },
+  ];
+
+  for (const r of numberingSeeds) {
+    await prisma.numberingRule.upsert({
+      where: { id: r.id },
+      create: {
+        id: r.id,
+        bizKey: r.bizKey,
+        name: r.name,
+        format: r.format,
+        startValue: 1,
+        resetCycle: r.resetCycle,
+        currentSeq: 0,
+        periodKey: '',
+        active: true,
+        sortOrder: r.sortOrder,
+        createdById: actorId,
+        updatedById: actorId,
+      },
+      update: {
+        bizKey: r.bizKey,
+        name: r.name,
+        format: r.format,
+        resetCycle: r.resetCycle,
+        sortOrder: r.sortOrder,
+        active: true,
+        updatedById: actorId,
+      },
+    });
+  }
+
   const allMenuIds = menuSeeds.map((m) => m.id);
   const adminOnlyMenus = new Set([
     'menu_system',
@@ -807,6 +897,7 @@ async function seedRolesAndMenus(actorId: string) {
     'menu_roles',
     'menu_menus',
     'menu_document_templates',
+    'menu_auto_numbering',
     'menu_room_configs',
     'menu_room_types',
     'menu_customer_sources',

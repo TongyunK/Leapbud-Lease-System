@@ -71,15 +71,16 @@ async function onPrintReceipt() {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('receipt.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
-    <template v-if="record">
-      <div class="detail-toolbar">
+    <template #header="{ titleId, titleClass }">
+      <div class="drawer-header-with-action">
+        <h4 :id="titleId" :class="titleClass">{{ t('receipt.detailTitle') }}</h4>
         <el-button
+          v-if="record"
           type="primary"
-          class="lb-btn-primary"
+          class="lb-btn-primary drawer-header-action"
           :loading="printing"
           @mouseenter="record?.id && prefetchReceiptPdfApi(record.id)"
           @focus="record?.id && prefetchReceiptPdfApi(record.id)"
@@ -88,6 +89,8 @@ async function onPrintReceipt() {
           {{ t('receipt.printReceipt') }}
         </el-button>
       </div>
+    </template>
+    <template v-if="record">
       <section class="detail-section">
         <h3>{{ t('receipt.sections.basic') }}</h3>
         <dl class="detail-grid two">

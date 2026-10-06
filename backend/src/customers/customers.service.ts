@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { NumberingBizKey, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service';
 import {
   CreateCustomerDto,
   ImportCustomersDto,
@@ -44,7 +45,10 @@ type OccupantContact = {
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numberingRules: NumberingRulesService,
+  ) {}
 
   private async assertBuilding(buildingId: string | null | undefined) {
     const id = s(buildingId);
@@ -285,25 +289,14 @@ export class CustomersService {
 
   /** 生成下一个客户编号：CSM + YY + 4 位序号 */
   private async nextCustomerCode(reserved?: { has(key: string): boolean }) {
-    const now = new Date();
-    const y = String(now.getFullYear()).slice(-2);
-    const prefix = `CSM${y}`;
-    const latest = await this.prisma.customer.findFirst({
-      where: { customerCode: { startsWith: prefix } },
-      orderBy: { customerCode: 'desc' },
-      select: { customerCode: true },
+    return this.numberingRules.nextCode(NumberingBizKey.customer, {
+      reserved,
+      isTaken: async (code) =>
+        !!(await this.prisma.customer.findFirst({
+          where: { customerCode: code },
+          select: { id: true },
+        })),
     });
-    let seq = 1;
-    if (latest) {
-      const n = Number(latest.customerCode.slice(prefix.length));
-      if (!Number.isNaN(n)) seq = n + 1;
-    }
-    let code = `${prefix}${String(seq).padStart(4, '0')}`;
-    while (reserved?.has(code.toLowerCase())) {
-      seq += 1;
-      code = `${prefix}${String(seq).padStart(4, '0')}`;
-    }
-    return code;
   }
 
   async create(dto: CreateCustomerDto, actor = '') {

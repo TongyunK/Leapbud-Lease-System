@@ -169,6 +169,10 @@ model User {
   createdDocumentTemplates     DocumentTemplate[]     @relation("DocumentTemplateCreatedBy")
   /// 作为更新人：单据打印模板
   updatedDocumentTemplates     DocumentTemplate[]     @relation("DocumentTemplateUpdatedBy")
+  /// 作为创建人：自动编号规则
+  createdNumberingRules        NumberingRule[]        @relation("NumberingRuleCreatedBy")
+  /// 作为更新人：自动编号规则
+  updatedNumberingRules        NumberingRule[]        @relation("NumberingRuleUpdatedBy")
 
   @@index([status])
   @@index([role])
@@ -1424,5 +1428,72 @@ model DocumentTemplate {
   @@index([createdById])
   @@index([updatedById])
   @@map("document_templates")
+}
+
+/// 自动编号业务键（与业务生成器绑定）
+enum NumberingBizKey {
+  /// 客户编号
+  customer
+  /// 客户需求编号
+  customerRequirement
+  /// 合约编号
+  contract
+  /// 发票编号
+  invoice
+  /// 收据编号
+  receipt
+}
+
+/// 自动编号序号重置周期
+enum NumberingResetCycle {
+  /// 不重置
+  none
+  /// 按日重置
+  daily
+  /// 按月重置
+  monthly
+  /// 按年重置
+  yearly
+}
+
+/// 自动编号规则（系统设置：客户/需求/合约/发票/收据等）
+model NumberingRule {
+  /// 主键
+  id          String               @id @default(cuid())
+  /// 业务键（与生成器绑定，唯一；复制出的备份规则可为空）
+  bizKey      NumberingBizKey?     @unique @map("biz_key")
+  /// 规则名称
+  name        String
+  /// 编号格式（%YYYY/%YY/%MM/%DD/%HH/%mm/%ss 与 %04d 序号）
+  format      String
+  /// 序号起始值
+  startValue  Int                  @default(1) @map("start_value")
+  /// 重置周期
+  resetCycle  NumberingResetCycle  @default(none) @map("reset_cycle")
+  /// 当前已用序号（下次取 currentSeq+1；周期重置后为 startValue-1）
+  currentSeq  Int                  @default(0) @map("current_seq")
+  /// 当前周期键（判断是否按周期重置，如 20260930 / 202609 / 2026）
+  periodKey   String               @default("") @map("period_key")
+  /// 是否启用
+  active      Boolean              @default(true)
+  /// 排序权重，越小越靠前
+  sortOrder   Int                  @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById String?              @map("created_by")
+  /// 创建人用户
+  createdByUser User?              @relation("NumberingRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?              @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?              @relation("NumberingRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime             @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  @@index([active, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("numbering_rules")
 }
 
