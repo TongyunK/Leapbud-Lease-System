@@ -19,7 +19,8 @@ services:
     ports:
       - "35432:5432"
     volumes:
-      - leapbud_postgres_data_volumes:/var/lib/postgresql/data
+      # 宿主机固定目录；默认 /opt/project-deployment/leapbud-lease/postgres
+      - ${POSTGRES_HOST_PATH:-/opt/project-deployment/leapbud-lease/postgres}:/var/lib/postgresql/data
     networks:
       - leapbud-lease-network
     healthcheck:
@@ -43,11 +44,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
-volumes:
-  leapbud_postgres_data_volumes:
-    name: leapbud_postgres_data_volumes
-    driver: local
 
 networks:
   leapbud-lease-network:

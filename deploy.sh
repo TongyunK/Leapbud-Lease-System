@@ -48,15 +48,19 @@ init_env_file() {
     fi
 }
 
-ensure_uploads_host_path() {
+ensure_host_data_paths() {
     # shellcheck disable=SC1091
     [ -f .env ] && set -a && . ./.env && set +a
     local uploads_path="${UPLOADS_HOST_PATH:-/opt/project-deployment/leapbud-lease}"
-    log_info "确保上传目录存在: $uploads_path"
-    if mkdir -p "$uploads_path" 2>/dev/null; then
-        log_success "上传目录就绪: $uploads_path"
+    local postgres_path="${POSTGRES_HOST_PATH:-/opt/project-deployment/leapbud-lease/postgres}"
+    log_info "确保宿主机数据目录存在..."
+    if mkdir -p "$uploads_path" "$postgres_path" 2>/dev/null; then
+        log_success "上传目录: $uploads_path"
+        log_success "数据库目录: $postgres_path"
     else
-        log_warning "无法创建 $uploads_path，请用 sudo mkdir -p 后重试"
+        log_warning "无法创建目录，请用 sudo mkdir -p 后重试："
+        log_warning "  $uploads_path"
+        log_warning "  $postgres_path"
     fi
 }
 
@@ -190,7 +194,7 @@ main() {
         blue)
             check_dependencies
             init_env_file
-            ensure_uploads_host_path
+            ensure_host_data_paths
             create_network
             start_base_services
             deploy_blue
@@ -200,7 +204,7 @@ main() {
         green)
             check_dependencies
             init_env_file
-            ensure_uploads_host_path
+            ensure_host_data_paths
             create_network
             start_base_services
             deploy_green
