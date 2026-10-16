@@ -16,7 +16,6 @@ export type BuildingWritePayload = {
   bankAccount?: string
   apiTemplateSuffix?: string
   useWbaNumber?: string
-  buildingConfig?: string
   chequePaymentBy?: string
   paymentAdvice?: string
   agreementTemplateId?: string | null

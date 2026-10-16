@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, Download, Plus, Rank, Search, Upload } from '@element-plus/icons-vue'
+import { Delete, Download, Filter, Plus, Rank, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import {
@@ -9,16 +9,19 @@ import {
   deleteContractApi,
   batchDeleteContractsApi,
   fetchContract,
+  fetchContractBuildingCounts,
   fetchContracts,
   importContractsApi,
   updateContractApi,
 } from '@/api/contracts'
 import type { ContractListQuery } from '@/api/contracts'
+import { fetchBuildings } from '@/api/buildings'
 import { fetchCustomers } from '@/api/customers'
 import { fetchCustomerRequirements } from '@/api/customer-requirements'
 import { fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
+import type { BuildingRecord } from '@/types/building'
 import type { ContractPeriodRecord, ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { ReceivableRecord } from '@/types/receivable'
@@ -165,6 +168,9 @@ async function onPreviewAgreementDraft() {
 
 const formVisible = ref(false)
 const editing = ref<ContractRecord | null>(null)
+const buildings = ref<BuildingRecord[]>([])
+/** buildingId -> 合约数量（筛选下拉右侧展示） */
+const buildingContractCountMap = ref<Record<string, number>>({})
 const customers = ref<CustomerRecord[]>([])
 const rooms = ref<RoomRecord[]>([])
 const users = ref<UserRecord[]>([])
@@ -214,7 +220,6 @@ const {
   dateRangeOf,
   dateRanges,
   sortOrderOf,
-  activeConditionCount,
   clearAll,
   sortKey,
   sortOrder,
@@ -241,6 +246,7 @@ const {
     const created = range('createdAt')
     return {
       keyword: kw,
+      buildingIds: f.buildingId?.length ? [...f.buildingId] : undefined,
       statuses: f.status?.length ? [...f.status] : undefined,
       roomCodes: f.roomCode?.length ? [...f.roomCode] : undefined,
       customerNames: f.customerName?.length ? [...f.customerName] : undefined,
@@ -261,6 +267,81 @@ const {
   },
   fetchPage: fetchContracts,
 })
+
+function buildingContractCount(buildingId: string) {
+  return buildingContractCountMap.value[buildingId] ?? 0
+}
+
+const buildingFilterOptions = computed(() =>
+  buildings.value
+    .filter((b) => b.active)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    .map((b) => ({
+      id: b.id,
+      name: b.name,
+      count: buildingContractCount(b.id),
+    })),
+)
+
+const allBuildingsContractCount = computed(() =>
+  Object.values(buildingContractCountMap.value).reduce((sum, n) => sum + n, 0),
+)
+
+/** 单选大厦筛选：哨兵值表示「全部」 */
+const ALL_BUILDINGS = '__all__'
+
+const filterBuildingId = computed({
+  get: () => {
+    const selected = filters.buildingId || []
+    return selected.length === 1 ? selected[0]! : ALL_BUILDINGS
+  },
+  set: (id: string) => setFilter('buildingId', !id || id === ALL_BUILDINGS ? [] : [id]),
+})
+
+const selectedBuildingChipLabel = computed(() => {
+  const id = filterBuildingId.value
+  if (id === ALL_BUILDINGS) {
+    return `${t('contract.filterAllBuildings')} (${allBuildingsContractCount.value})`
+  }
+  const hit = buildingFilterOptions.value.find((b) => b.id === id)
+  const name = hit?.name || id
+  const count = hit?.count ?? buildingContractCount(id)
+  return `${name} (${count})`
+})
+
+/** 清空筛选只统计表头条件，不含顶部大厦筛选 */
+const tableHeaderConditionCount = computed(() => {
+  let n = 0
+  for (const [key, selected] of Object.entries(filters)) {
+    if (key === 'buildingId') continue
+    if (selected?.length) n += 1
+  }
+  for (const range of Object.values(dateRanges)) {
+    if (range?.[0] && range?.[1]) n += 1
+  }
+  if (sortKey.value && sortOrder.value) n += 1
+  return n
+})
+
+function onClearTableHeaderFilters() {
+  const kept = filters.buildingId?.length ? [...filters.buildingId] : []
+  onClearFilters()
+  if (kept.length) setFilter('buildingId', kept)
+}
+
+async function loadBuildingContractCounts() {
+  try {
+    const { data } = await fetchContractBuildingCounts()
+    const map: Record<string, number> = {}
+    for (const row of data) {
+      if (row.buildingId) map[row.buildingId] = row.count
+    }
+    buildingContractCountMap.value = map
+  } catch {
+    buildingContractCountMap.value = {}
+  }
+}
 
 const {
   tableRef,
@@ -315,6 +396,7 @@ async function onBatchDelete() {
     finishBatch(ok, fail)
     clearSelection()
     await loadList()
+    void loadBuildingContractCounts()
   } catch {
     finishBatch(0, ids.length)
   } finally {
@@ -652,6 +734,7 @@ async function onImportFile(ev: Event) {
     }
 
     await loadList()
+    void loadBuildingContractCounts()
     finishImport()
   } catch {
     failImport(t('contract.importFailed'))
@@ -659,7 +742,8 @@ async function onImportFile(ev: Event) {
 }
 
 async function loadOptions() {
-  const [custRes, roomRes, userRes, periodRes, leaseRes, keyRes] = await Promise.all([
+  const [buildingRes, custRes, roomRes, userRes, periodRes, leaseRes, keyRes] = await Promise.all([
+    fetchBuildings({ activeOnly: true, pageSize: 500 }),
     fetchCustomers(),
     fetchRooms(),
     fetchUsers(),
@@ -667,12 +751,14 @@ async function loadOptions() {
     fetchContractConfigs({ type: 'leaseType', activeOnly: true }),
     fetchContractConfigs({ type: 'keyDeposit', activeOnly: true }),
   ])
+  buildings.value = buildingRes.data.items
   customers.value = custRes.data.items
   rooms.value = roomRes.data.items
   users.value = userRes.data.filter((u) => u.status === 'active')
   periodTypeOptions.value = periodRes.data
   leaseTypeOptions.value = leaseRes.data
   keyDepositOptions.value = keyRes.data
+  void loadBuildingContractCounts()
 }
 
 onMounted(() => {
@@ -686,6 +772,7 @@ function openCreate() {
   Object.assign(form, emptyForm())
   form.leaseType = leaseTypeOptions.value[0]?.label || ''
   periods.value = [defaultPeriodRow()]
+  periodPage.value = 1
   customerRequirements.value = []
   formVisible.value = true
 }
@@ -695,13 +782,111 @@ function periodDurationLabel(p: PeriodFormRow): string {
   return `${n}${p.dateUnit === '日' ? t('contract.periodUnits.日') : t('contract.periodUnits.月')}`
 }
 
+/** 合约期表格每页条数：超过后换页显示 */
+const PERIOD_PAGE_SIZE = 10
+const periodPage = ref(1)
+
+const periodTotalPages = computed(() =>
+  Math.max(1, Math.ceil(periods.value.length / PERIOD_PAGE_SIZE) || 1),
+)
+
+const pagedPeriods = computed(() => {
+  const start = (periodPage.value - 1) * PERIOD_PAGE_SIZE
+  return periods.value.slice(start, start + PERIOD_PAGE_SIZE).map((p, i) => ({
+    p,
+    index: start + i,
+  }))
+})
+
+function clampPeriodPage() {
+  periodPage.value = Math.min(Math.max(1, periodPage.value), periodTotalPages.value)
+}
+
 function addPeriod() {
   periods.value.push(defaultPeriodRow())
+  periodPage.value = Math.ceil(periods.value.length / PERIOD_PAGE_SIZE)
 }
 
 function removePeriod(idx: number) {
   periods.value.splice(idx, 1)
-  if (!periods.value.length) addPeriod()
+  if (!periods.value.length) {
+    addPeriod()
+    return
+  }
+  clampPeriodPage()
+}
+
+/** 双击序号改位置：跨页移动行（draft 必须保持字符串，避免 type=number 把 v-model 变成 number） */
+const editingPeriodIndexUid = ref<string | null>(null)
+const editingPeriodIndexFrom = ref(-1)
+const editingPeriodIndexDraft = ref('')
+const periodIndexInputRef = ref<HTMLInputElement | null>(null)
+let periodIndexCommitLock = false
+
+function goToPeriodIndex(absoluteIdx: number) {
+  periodPage.value = Math.floor(absoluteIdx / PERIOD_PAGE_SIZE) + 1
+}
+
+async function startEditPeriodIndex(uid: string, currentIndex: number) {
+  if (periods.value.length <= 1) return
+  periodIndexCommitLock = false
+  editingPeriodIndexUid.value = uid
+  editingPeriodIndexFrom.value = currentIndex
+  editingPeriodIndexDraft.value = String(currentIndex + 1)
+  await nextTick()
+  const el = periodIndexInputRef.value
+  if (!el) return
+  el.focus()
+  el.select()
+}
+
+function cancelEditPeriodIndex() {
+  editingPeriodIndexUid.value = null
+  editingPeriodIndexFrom.value = -1
+  editingPeriodIndexDraft.value = ''
+}
+
+function commitEditPeriodIndex() {
+  if (periodIndexCommitLock) return
+  periodIndexCommitLock = true
+  const uid = editingPeriodIndexUid.value
+  const fromIdx = editingPeriodIndexFrom.value
+  const draft = String(editingPeriodIndexDraft.value ?? '').trim()
+  cancelEditPeriodIndex()
+  if (!uid || fromIdx < 0) {
+    periodIndexCommitLock = false
+    return
+  }
+  const total = periods.value.length
+  const raw = Number.parseInt(draft, 10)
+  if (!Number.isFinite(raw)) {
+    periodIndexCommitLock = false
+    return
+  }
+  const toIdx = Math.min(total, Math.max(1, raw)) - 1
+  const list = periods.value
+  if (list[fromIdx]?.uid !== uid) {
+    periodIndexCommitLock = false
+    return
+  }
+  if (toIdx !== fromIdx) {
+    const [item] = list.splice(fromIdx, 1)
+    list.splice(toIdx, 0, item)
+  }
+  goToPeriodIndex(toIdx)
+  periodIndexCommitLock = false
+}
+
+function onPeriodIndexKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    e.stopPropagation()
+    commitEditPeriodIndex()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    cancelEditPeriodIndex()
+  }
 }
 
 const dragPeriodUid = ref<string | null>(null)
@@ -777,13 +962,15 @@ async function openEdit(row: ContractRecord) {
         endDate: p.endDate || '',
       }))
     : [defaultPeriodRow()]
+  periodPage.value = 1
   await loadRequirementsForCustomer(row.customerId)
   formVisible.value = true
 }
 
 function payloadFromForm() {
   return {
-    contractCode: form.contractCode.trim() || undefined,
+    // 新增不传编号，由后端按「房间编号-YYYYMMDD」生成；编辑保留原编号
+    contractCode: editing.value ? form.contractCode.trim() || undefined : undefined,
     roomId: form.roomId.trim(),
     customerId: form.customerId.trim(),
     salesManagerId: form.salesManagerId.trim() || null,
@@ -838,6 +1025,7 @@ async function saveForm() {
     }
     formVisible.value = false
     await loadList()
+    void loadBuildingContractCounts()
   } catch {
     /* interceptor */
   }
@@ -854,6 +1042,7 @@ async function onDelete(row: ContractRecord) {
     await deleteContractApi(row.id)
     ElMessage.success(t('contract.deleted'))
     await loadList()
+    void loadBuildingContractCounts()
   } catch {
     /* cancel */
   }
@@ -983,6 +1172,38 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   <div class="admin-page">
     <div class="admin-page-head">
       <h2>{{ t('menu.contracts') }}</h2>
+      <el-select
+        v-model="filterBuildingId"
+        filterable
+        class="head-building-chip-select"
+        popper-class="head-building-filter-popper"
+        :placeholder="t('contract.filterBuilding')"
+        :title="selectedBuildingChipLabel"
+      >
+        <template #prefix>
+          <el-icon class="head-building-chip-select__filter"><Filter /></el-icon>
+        </template>
+        <el-option
+          :label="`${t('contract.filterAllBuildings')} (${allBuildingsContractCount})`"
+          :value="ALL_BUILDINGS"
+        >
+          <div class="head-building-option">
+            <span class="head-building-option__label">{{ t('contract.filterAllBuildings') }}</span>
+            <span class="head-building-option__count">{{ allBuildingsContractCount }}</span>
+          </div>
+        </el-option>
+        <el-option
+          v-for="b in buildingFilterOptions"
+          :key="b.id"
+          :label="`${b.name} (${b.count})`"
+          :value="b.id"
+        >
+          <div class="head-building-option">
+            <span class="head-building-option__label">{{ b.name }}</span>
+            <span class="head-building-option__count">{{ b.count }}</span>
+          </div>
+        </el-option>
+      </el-select>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -991,7 +1212,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           :prefix-icon="Search"
           :placeholder="t('contract.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
+        <ClearTableFiltersButton :count="tableHeaderConditionCount" @clear="onClearTableHeaderFilters" />
         <el-button
           v-if="isAdmin"
           type="primary"
@@ -1599,12 +1820,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
         <section class="form-section">
           <h3>{{ t('contract.sections.basic') }}</h3>
           <div class="form-grid">
-            <el-form-item :label="t('contract.fields.contractCode')">
-              <el-input
-                v-model="form.contractCode"
-                :placeholder="t('contract.codeAutoHint')"
-                :disabled="!!editing"
-              />
+            <el-form-item v-if="editing" :label="t('contract.fields.contractCode')">
+              <el-input v-model="form.contractCode" disabled />
             </el-form-item>
             <el-form-item :label="t('contract.fields.roomCode')" required>
               <el-select
@@ -1732,17 +1949,30 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
         <section class="form-section form-section--periods">
           <div class="period-section-head">
-            <h3>{{ t('contract.sections.periods') }}</h3>
-            <el-button
-              type="primary"
-              size="small"
-              plain
-              :icon="Plus"
-              class="period-add-btn"
-              @click="addPeriod"
-            >
-              {{ t('contract.addPeriod') }}
-            </el-button>
+            <div class="period-section-head__left">
+              <h3>{{ t('contract.sections.periods') }}</h3>
+              <el-button
+                type="primary"
+                size="small"
+                plain
+                :icon="Plus"
+                class="period-add-btn"
+                @click="addPeriod"
+              >
+                {{ t('contract.addPeriod') }}
+              </el-button>
+            </div>
+            <div v-if="periods.length > PERIOD_PAGE_SIZE" class="period-table-pager">
+              <el-pagination
+                v-model:current-page="periodPage"
+                :page-size="PERIOD_PAGE_SIZE"
+                :total="periods.length"
+                layout="total, prev, pager, next"
+                small
+                background
+                class="period-pager"
+              />
+            </div>
           </div>
           <div class="period-table-wrap">
             <div class="period-table" role="table">
@@ -1770,86 +2000,118 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 <div class="period-table__cell period-table__cell--actions" role="columnheader"></div>
               </div>
               <div
-                v-for="(p, idx) in periods"
-                :key="p.uid"
-                class="period-table__row"
-                role="row"
-                :class="{
-                  'is-dragging': dragPeriodUid === p.uid,
-                  'is-drag-over': dragOverPeriodUid === p.uid,
-                }"
-                @dragover="onPeriodDragOver(p.uid, $event)"
-                @drop="onPeriodDrop(p.uid, $event)"
-                @dragleave="dragOverPeriodUid === p.uid && (dragOverPeriodUid = null)"
+                class="period-table__body"
+                :class="{ 'period-table__body--fixed': periods.length > PERIOD_PAGE_SIZE }"
               >
-                <div class="period-table__cell period-table__cell--index" role="cell">
-                  <button
-                    type="button"
-                    class="period-row__handle"
-                    draggable="true"
-                    :title="t('contract.dragPeriod')"
-                    aria-label="drag"
-                    @dragstart="onPeriodDragStart(p.uid, $event)"
-                    @dragend="onPeriodDragEnd"
+                <div
+                  v-for="{ p, index } in pagedPeriods"
+                  :key="p.uid"
+                  class="period-table__row"
+                  role="row"
+                  :class="{
+                    'is-dragging': dragPeriodUid === p.uid,
+                    'is-drag-over': dragOverPeriodUid === p.uid,
+                    'is-editing-index': editingPeriodIndexUid === p.uid,
+                  }"
+                  @dragover="onPeriodDragOver(p.uid, $event)"
+                  @drop="onPeriodDrop(p.uid, $event)"
+                  @dragleave="dragOverPeriodUid === p.uid && (dragOverPeriodUid = null)"
+                >
+                  <div
+                    class="period-table__cell period-table__cell--index"
+                    :class="{ 'is-editing-index': editingPeriodIndexUid === p.uid }"
+                    role="cell"
                   >
-                    <el-icon :size="14"><Rank /></el-icon>
-                  </button>
-                  <span class="period-row__index">{{ idx + 1 }}</span>
-                </div>
-                <div class="period-table__cell period-table__cell--type" role="cell">
-                  <el-select v-model="p.dateType" style="width: 100%">
-                    <el-option
-                      v-for="pt in periodTypeOptions"
-                      :key="pt.id"
-                      :label="pt.label"
-                      :value="pt.label"
+                    <button
+                      type="button"
+                      class="period-row__handle"
+                      draggable="true"
+                      :title="t('contract.dragPeriod')"
+                      aria-label="drag"
+                      @dragstart="onPeriodDragStart(p.uid, $event)"
+                      @dragend="onPeriodDragEnd"
+                    >
+                      <el-icon :size="14"><Rank /></el-icon>
+                    </button>
+                    <input
+                      v-if="editingPeriodIndexUid === p.uid"
+                      ref="periodIndexInputRef"
+                      :value="editingPeriodIndexDraft"
+                      class="period-row__index-input"
+                      type="text"
+                      inputmode="numeric"
+                      pattern="[0-9]*"
+                      maxlength="4"
+                      :aria-label="t('contract.editPeriodIndex')"
+                      @input="editingPeriodIndexDraft = ($event.target as HTMLInputElement).value.replace(/\D/g, '')"
+                      @keydown="onPeriodIndexKeydown"
+                      @blur="commitEditPeriodIndex"
                     />
-                  </el-select>
-                </div>
-                <div class="period-table__cell period-table__cell--unit" role="cell">
-                  <el-select v-model="p.dateUnit" style="width: 100%">
-                    <el-option
-                      v-for="u in CONTRACT_PERIOD_UNITS"
-                      :key="u"
-                      :label="t(`contract.periodUnits.${u}`)"
-                      :value="u"
+                    <button
+                      v-else
+                      type="button"
+                      class="period-row__index"
+                      :title="t('contract.editPeriodIndexHint')"
+                      @dblclick.stop="startEditPeriodIndex(p.uid, index)"
+                    >
+                      {{ index + 1 }}
+                    </button>
+                  </div>
+                  <div class="period-table__cell period-table__cell--type" role="cell">
+                    <el-select v-model="p.dateType" style="width: 100%">
+                      <el-option
+                        v-for="pt in periodTypeOptions"
+                        :key="pt.id"
+                        :label="pt.label"
+                        :value="pt.label"
+                      />
+                    </el-select>
+                  </div>
+                  <div class="period-table__cell period-table__cell--unit" role="cell">
+                    <el-select v-model="p.dateUnit" style="width: 100%">
+                      <el-option
+                        v-for="u in CONTRACT_PERIOD_UNITS"
+                        :key="u"
+                        :label="t(`contract.periodUnits.${u}`)"
+                        :value="u"
+                      />
+                    </el-select>
+                  </div>
+                  <div class="period-table__cell period-table__cell--value" role="cell">
+                    <el-input-number
+                      v-model="p.dateValue"
+                      :min="0"
+                      :controls="false"
+                      style="width: 100%"
                     />
-                  </el-select>
-                </div>
-                <div class="period-table__cell period-table__cell--value" role="cell">
-                  <el-input-number
-                    v-model="p.dateValue"
-                    :min="0"
-                    :controls="false"
-                    style="width: 100%"
-                  />
-                </div>
-                <div class="period-table__cell period-table__cell--duration" role="cell">
-                  <span class="period-row__duration">{{ periodDurationLabel(p) }}</span>
-                </div>
-                <div class="period-table__cell period-table__cell--start" role="cell">
-                  <el-date-picker
-                    v-model="p.startDate"
-                    type="date"
-                    value-format="YYYY-MM-DD"
-                    :placeholder="t('contract.fields.periodStart')"
-                    style="width: 100%"
-                  />
-                </div>
-                <div class="period-table__cell period-table__cell--to" role="cell">
-                  <span class="period-row__to">至</span>
-                </div>
-                <div class="period-table__cell period-table__cell--end" role="cell">
-                  <el-date-picker
-                    v-model="p.endDate"
-                    type="date"
-                    value-format="YYYY-MM-DD"
-                    :placeholder="t('contract.fields.periodEnd')"
-                    style="width: 100%"
-                  />
-                </div>
-                <div class="period-table__cell period-table__cell--actions" role="cell">
-                  <el-button type="danger" link :icon="Delete" @click="removePeriod(idx)" />
+                  </div>
+                  <div class="period-table__cell period-table__cell--duration" role="cell">
+                    <span class="period-row__duration">{{ periodDurationLabel(p) }}</span>
+                  </div>
+                  <div class="period-table__cell period-table__cell--start" role="cell">
+                    <el-date-picker
+                      v-model="p.startDate"
+                      type="date"
+                      value-format="YYYY-MM-DD"
+                      :placeholder="t('contract.fields.periodStart')"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div class="period-table__cell period-table__cell--to" role="cell">
+                    <span class="period-row__to">至</span>
+                  </div>
+                  <div class="period-table__cell period-table__cell--end" role="cell">
+                    <el-date-picker
+                      v-model="p.endDate"
+                      type="date"
+                      value-format="YYYY-MM-DD"
+                      :placeholder="t('contract.fields.periodEnd')"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div class="period-table__cell period-table__cell--actions" role="cell">
+                    <el-button type="danger" link :icon="Delete" @click="removePeriod(index)" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -2055,9 +2317,17 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 .period-section-head {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
+  min-height: 28px;
+}
+
+.period-section-head__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .period-section-head h3 {
@@ -2090,7 +2360,57 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   background: #fff;
 }
 
+.period-table-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
+  border: 1px solid #e4ebe6;
+}
+
+.period-pager.el-pagination {
+  --el-pagination-button-bg-color: #fff;
+  --el-pagination-hover-color: var(--lb-brand, #0f4a32);
+  --el-pagination-button-color: #4a5c54;
+  font-weight: 600;
+  gap: 2px;
+}
+
+.period-pager :deep(.el-pagination__total) {
+  margin-right: 4px;
+  color: #4a5c54;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.period-pager :deep(.btn-prev),
+.period-pager :deep(.btn-next),
+.period-pager :deep(.el-pager li) {
+  min-width: 26px !important;
+  height: 26px !important;
+  line-height: 26px !important;
+  border-radius: 7px !important;
+  margin: 0 2px !important;
+}
+
+.period-pager :deep(.el-pager li.is-active) {
+  background: var(--lb-brand, #0f4a32) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.period-pager :deep(.btn-prev:hover:not(:disabled)),
+.period-pager :deep(.btn-next:hover:not(:disabled)),
+.period-pager :deep(.el-pager li:hover:not(.is-active)) {
+  color: var(--lb-brand, #0f4a32);
+}
+
 .period-table {
+  --period-row-h: 44px;
   display: grid;
   min-width: 780px;
 }
@@ -2122,18 +2442,38 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   font-weight: 700;
 }
 
-.period-table__row {
-  min-height: 40px;
-  border-bottom: 1px solid #edf2ef;
-  transition: background 0.12s ease, box-shadow 0.12s ease;
+.period-table__body {
+  background: #fff;
 }
 
-.period-table__row:last-child {
+.period-table__body--fixed {
+  box-sizing: border-box;
+  height: calc(var(--period-row-h) * 10);
+  min-height: calc(var(--period-row-h) * 10);
+  overflow: hidden;
+}
+
+.period-table__row {
+  box-sizing: border-box;
+  min-height: var(--period-row-h);
+  height: var(--period-row-h);
+  border-bottom: 1px solid #edf2ef;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+  background: #fff;
+}
+
+.period-table__body:not(.period-table__body--fixed) .period-table__row:last-child {
   border-bottom: none;
 }
 
 .period-table__row.is-dragging {
   opacity: 0.45;
+}
+
+.period-table__row.is-editing-index {
+  position: relative;
+  z-index: 4;
+  overflow: visible;
 }
 
 .period-table__row.is-drag-over {
@@ -2148,8 +2488,15 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 }
 
 .period-table__cell--index {
-  gap: 2px;
+  gap: 1px;
   justify-content: flex-start;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.period-table__cell--index.is-editing-index {
+  z-index: 5;
 }
 
 .period-table__cell--to,
@@ -2167,7 +2514,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  width: 18px;
   height: 22px;
   padding: 0;
   border: none;
@@ -2188,13 +2535,54 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 }
 
 .period-row__index {
+  appearance: none;
   flex: 0 0 auto;
-  min-width: 0.9rem;
+  min-width: 1rem;
+  margin: 0;
+  padding: 0 1px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   text-align: center;
+  font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #5a6b62;
+  cursor: text;
+  line-height: 1.4;
+}
+
+.period-row__index:hover {
+  background: color-mix(in srgb, var(--lb-brand) 10%, #fff);
+  color: var(--lb-brand);
+}
+
+/* 编辑时输入框略向右浮出，不永久撑宽序号列 */
+.period-row__index-input {
+  box-sizing: border-box;
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  z-index: 6;
+  width: 2.4rem;
+  min-width: 2.4rem;
+  height: 24px;
+  margin: 0;
+  padding: 0 3px;
+  border: 1px solid var(--lb-brand, #0f4a32);
+  border-radius: 5px;
+  background: #fff;
+  color: #0f4a32;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 22px;
+  outline: none;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, transparent);
 }
 
 .period-row__duration {

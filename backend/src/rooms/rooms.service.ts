@@ -3,10 +3,19 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  StreamableFile,
 } from '@nestjs/common';
 import { Prisma, RoomStatus } from '@prisma/client';
+import * as fs from 'fs/promises';
+import { createReadStream } from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { roomListInclude, toRoomDto } from '../common/dto-mappers';
+import {
+  isExternalRoomImageKey,
+  roomListInclude,
+  toRoomDto,
+  toRoomImageDto,
+} from '../common/dto-mappers';
 import {
   dateRangeFilter,
   paginateArgs,
@@ -27,6 +36,64 @@ function n(v?: number | null) {
   if (v === null || v === undefined) return 0;
   const x = Number(v);
   return Number.isFinite(x) ? x : 0;
+}
+
+function uploadsRoot() {
+  return path.join(process.cwd(), 'uploads');
+}
+
+/** multer 文件名 UTF-8 修复（与单据模板一致） */
+function decodeMulterFilename(name: string): string {
+  const raw = s(name);
+  if (!raw) return raw;
+  try {
+    const decoded = Buffer.from(raw, 'latin1').toString('utf8');
+    if (decoded.includes('\uFFFD')) return raw;
+    const rawHasCjk = /[\u4e00-\u9fff]/.test(raw);
+    const decodedHasCjk = /[\u4e00-\u9fff]/.test(decoded);
+    if (!rawHasCjk && decodedHasCjk) return decoded;
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+function safeImageFileName(original: string): string {
+  const decoded = decodeMulterFilename(original) || 'image.jpg';
+  const base = path.basename(decoded).replace(/[\\/]/g, '_');
+  if (!base || base.includes('..')) {
+    throw new BadRequestException('非法文件名');
+  }
+  return base;
+}
+
+function assertImageFile(file: Express.Multer.File) {
+  if (!file?.buffer?.length) {
+    throw new BadRequestException('请上传图片文件');
+  }
+  const fileName = safeImageFileName(file.originalname);
+  const ext = path.extname(fileName).toLowerCase();
+  const okExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'].includes(ext);
+  const mime = (file.mimetype || '').toLowerCase();
+  const okMime = !mime || mime.startsWith('image/');
+  if (!okExt || !okMime) {
+    throw new BadRequestException('仅支持图片文件（jpg/png/gif/webp 等）');
+  }
+  return { fileName, buffer: file.buffer, mime: mime || 'application/octet-stream' };
+}
+
+function mimeFromFileName(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  const map: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+  };
+  return map[ext] || 'application/octet-stream';
 }
 
 function parseRoomStatuses(raw?: string[]): RoomStatus[] {
@@ -446,6 +513,7 @@ export class RoomsService {
         _count: {
           select: { contracts: true, leaseTerminations: true },
         },
+        images: true,
       },
     });
     if (!existing) throw new NotFoundException(`Room ${id} not found`);
@@ -455,10 +523,107 @@ export class RoomsService {
       );
     }
     await this.prisma.room.delete({ where: { id } });
+    for (const img of existing.images) {
+      await this.removeStoredImageFile(img.storageKey);
+    }
+    await this.removeRoomImageDir(id);
     return { success: true };
   }
 
   async removeMany(ids: string[]) {
     return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
+  private absPath(storageKey: string) {
+    return path.join(uploadsRoot(), storageKey);
+  }
+
+  private storageKeyForRoomImage(roomId: string, fileName: string) {
+    const id = s(roomId);
+    const base = path.basename(s(fileName));
+    if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) {
+      throw new BadRequestException('非法房间 ID');
+    }
+    if (!base || base.includes('..') || base.includes('/') || base.includes('\\')) {
+      throw new BadRequestException('非法文件名');
+    }
+    const unique = `${Date.now()}_${base}`;
+    return `rooms/${id}/${unique}`;
+  }
+
+  private async removeStoredImageFile(storageKey: string) {
+    if (!storageKey || isExternalRoomImageKey(storageKey)) return;
+    const abs = this.absPath(storageKey);
+    await fs.rm(abs, { force: true }).catch(() => undefined);
+  }
+
+  private async removeRoomImageDir(roomId: string) {
+    const dir = path.join(uploadsRoot(), 'rooms', roomId);
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  async uploadImages(roomId: string, files: Express.Multer.File[], actor = '') {
+    const room = await this.prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) throw new NotFoundException(`Room ${roomId} not found`);
+    if (!files?.length) throw new BadRequestException('请至少上传一张图片');
+
+    const maxSort = await this.prisma.roomImage.aggregate({
+      where: { roomId },
+      _max: { sortOrder: true },
+    });
+    let nextSort = (maxSort._max.sortOrder ?? -1) + 1;
+    const actorId = actor || null;
+    const created = [];
+
+    for (const file of files) {
+      const { fileName, buffer } = assertImageFile(file);
+      const storageKey = this.storageKeyForRoomImage(roomId, fileName);
+      const abs = this.absPath(storageKey);
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.writeFile(abs, buffer);
+      const row = await this.prisma.roomImage.create({
+        data: {
+          roomId,
+          fileName,
+          storageKey,
+          sortOrder: nextSort++,
+          createdById: actorId,
+          updatedById: actorId,
+        },
+      });
+      created.push(toRoomImageDto(row));
+    }
+    return created;
+  }
+
+  async removeImage(roomId: string, imageId: string) {
+    const row = await this.prisma.roomImage.findFirst({
+      where: { id: imageId, roomId },
+    });
+    if (!row) throw new NotFoundException(`Room image ${imageId} not found`);
+    await this.prisma.roomImage.delete({ where: { id: imageId } });
+    await this.removeStoredImageFile(row.storageKey);
+    return { success: true };
+  }
+
+  async getImageFile(roomId: string, imageId: string): Promise<StreamableFile> {
+    const row = await this.prisma.roomImage.findFirst({
+      where: { id: imageId, roomId },
+    });
+    if (!row) throw new NotFoundException(`Room image ${imageId} not found`);
+    if (isExternalRoomImageKey(row.storageKey)) {
+      throw new BadRequestException('该图片为外部地址，请直接使用 publicUrl');
+    }
+    const abs = this.absPath(row.storageKey);
+    try {
+      await fs.access(abs);
+    } catch {
+      throw new NotFoundException('图片文件不存在');
+    }
+    const stream = createReadStream(abs);
+    return new StreamableFile(stream, {
+      type: mimeFromFileName(row.fileName),
+      disposition: `inline; filename*=UTF-8''${encodeURIComponent(row.fileName)}`,
+    });
   }
 }

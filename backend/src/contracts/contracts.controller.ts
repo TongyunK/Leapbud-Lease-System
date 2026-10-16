@@ -36,6 +36,7 @@ export class ContractsController {
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'roomId', required: false })
   @ApiQuery({ name: 'requirementId', required: false })
+  @ApiQuery({ name: 'buildingIds', required: false, description: 'Comma-separated building ids' })
   @ApiQuery({ name: 'roomCodes', required: false, description: 'Comma-separated room codes' })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'salesManagers', required: false, description: 'Comma-separated sales manager labels' })
@@ -59,6 +60,7 @@ export class ContractsController {
     @Query('customerId') customerId?: string,
     @Query('roomId') roomId?: string,
     @Query('requirementId') requirementId?: string,
+    @Query('buildingIds') buildingIds?: string,
     @Query('roomCodes') roomCodes?: string,
     @Query('customerNames') customerNames?: string,
     @Query('salesManagers') salesManagers?: string,
@@ -82,6 +84,7 @@ export class ContractsController {
       customerId,
       roomId,
       requirementId,
+      buildingIds: splitCsv(buildingIds),
       roomCodes: splitCsv(roomCodes),
       customerNames: splitCsv(customerNames),
       salesManagers: splitCsv(salesManagers),
@@ -112,6 +115,12 @@ export class ContractsController {
   @ApiOkResponse({ description: 'Batch delete contracts by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.contractsService.removeMany(dto.ids);
+  }
+
+  @Get('building-counts')
+  @ApiOkResponse({ description: 'Contract counts grouped by building id' })
+  countByBuilding() {
+    return this.contractsService.countByBuilding();
   }
 
   @Get(':id')

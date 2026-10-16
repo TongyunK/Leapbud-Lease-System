@@ -414,6 +414,176 @@ button {
   max-width: max-content;
 }
 
+.admin-page-head .head-building-filter {
+  width: 200px;
+  flex: 0 1 200px;
+  min-width: 160px;
+  max-width: 260px;
+}
+
+/* 合约页：单胶囊大厦筛选（节省横向空间，下拉可选） */
+.admin-page-head .head-building-chip-select {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 108px;
+  max-width: 180px;
+}
+
+.admin-page-head .head-building-chip-select .el-select__wrapper {
+  border-radius: 999px !important;
+  min-height: 28px;
+  padding-left: 8px;
+  padding-right: 8px;
+  box-shadow: 0 0 0 1px #0f4a32 inset !important;
+  background: #e4efe9;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.admin-page-head .head-building-chip-select:hover .el-select__wrapper {
+  background: #d8ebe2;
+  box-shadow:
+    0 0 0 1px #0f4a32 inset,
+    0 2px 8px rgba(15, 74, 50, 0.14) !important;
+}
+
+.admin-page-head .head-building-chip-select .el-select__selection {
+  gap: 2px;
+}
+
+.admin-page-head .head-building-chip-select .el-select__selected-item,
+.admin-page-head .head-building-chip-select .el-select__placeholder {
+  color: #0f4a32;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.admin-page-head .head-building-chip-select .el-select__caret {
+  color: #0f4a32;
+  font-weight: 700;
+}
+
+.admin-page-head .head-building-chip-select__filter {
+  color: #0f4a32;
+  margin-right: 2px;
+}
+
+.admin-page-head .head-building-filter .el-select__wrapper {
+  border-radius: 999px !important;
+  min-height: 36px;
+  box-shadow: 0 0 0 1px #d7ded9 inset !important;
+  background: #fafbfa;
+  padding-left: 12px;
+  padding-right: 10px;
+}
+
+.admin-page-head .head-building-filter .el-select__selection {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.admin-page-head .head-building-filter .el-tag {
+  max-width: 96px;
+  border-radius: 999px;
+  border-color: #d7ded9;
+  background: #eef3f0;
+  color: #2a3d34;
+  --el-tag-text-color: #2a3d34;
+  --el-tag-bg-color: #eef3f0;
+  --el-tag-border-color: #d7ded9;
+  --el-tag-hover-color: #0f4a32;
+}
+
+.admin-page-head .head-building-filter .el-select__selected-item {
+  color: #5a6b62;
+}
+
+.admin-page-head .head-building-filter .el-select__placeholder {
+  color: #8a9690;
+}
+
+.head-building-filter-popper.el-select__popper,
+.head-building-filter-popper.el-popper {
+  min-width: 220px !important;
+  border: 1px solid #e2e8e5 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
+  overflow: hidden;
+}
+
+.head-building-filter-popper .el-select-dropdown__item {
+  padding: 0 12px;
+  height: 36px;
+  line-height: 36px;
+}
+
+.head-building-filter-popper .el-select-dropdown__item.is-selected {
+  color: #0f4a32;
+  font-weight: 600;
+  background: #f3f7f5;
+}
+
+/* 用左侧多选框示意，隐藏右侧默认对勾 */
+.head-building-filter-popper .el-select-dropdown__item.is-selected::after {
+  display: none !important;
+}
+
+.head-building-filter-popper .el-select-dropdown__item .el-icon {
+  display: none;
+}
+
+.head-building-filter-popper .el-select-dropdown__item.is-hovering,
+.head-building-filter-popper .el-select-dropdown__item:hover {
+  background: #f6f8f7;
+}
+
+.head-building-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.head-building-option .el-checkbox {
+  pointer-events: none;
+  height: auto;
+  margin-right: 0;
+  --el-checkbox-checked-bg-color: #0f4a32;
+  --el-checkbox-checked-input-border-color: #0f4a32;
+  --el-checkbox-checked-icon-color: #fff;
+  --el-checkbox-input-border-color-hover: #0f4a32;
+}
+
+.head-building-option__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.head-building-option__count {
+  flex: 0 0 auto;
+  /* 预留 4 位数字宽（含左右内边距），避免 1000+ 时挤压楼名 */
+  box-sizing: border-box;
+  min-width: calc(4ch + 12px);
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #eef3f0;
+  color: #5a6b62;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+.head-building-filter-popper .el-select-dropdown__item.is-selected .head-building-option__count {
+  background: #dce8e2;
+  color: #0f4a32;
+}
+
 .admin-page-head .head-search {
   width: 240px;
   flex: 0 1 240px;
@@ -473,6 +643,27 @@ button {
   height: var(--building-chip-h);
   overflow: visible;
   margin-left: 0;
+}
+
+/* 筛选提示：漏斗图标 + 文案，直观告知胶囊可点选 */
+.building-chips-hint {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+  padding: 0 2px;
+  color: #6a7a72;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.building-chips-hint .el-icon {
+  color: #0f4a32;
+  opacity: 0.75;
 }
 
 /* ????????????????? ? ?????? */
@@ -597,7 +788,13 @@ button {
   box-sizing: border-box;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 40, 30, 0.04);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
 .building-chip__name {
@@ -612,13 +809,20 @@ button {
 }
 
 .building-chip:hover {
-  border-color: #b7cbbf;
+  border-color: #8fb89f;
   background: #f3f8f5;
   color: #0f4a32;
+  box-shadow: 0 2px 8px rgba(15, 74, 50, 0.14);
+  transform: translateY(-1px);
 }
 
 .building-chip:hover .building-chip__count {
   color: #2a6b4d;
+}
+
+.building-chip:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(15, 74, 50, 0.1);
 }
 
 .building-chip.is-active {
@@ -626,6 +830,11 @@ button {
   background: #e4efe9;
   color: #0f4a32;
   box-shadow: inset 0 0 0 1px #0f4a32;
+}
+
+.building-chip.is-active:hover {
+  transform: none;
+  box-shadow: inset 0 0 0 1px #0f4a32, 0 2px 8px rgba(15, 74, 50, 0.12);
 }
 
 .building-chip.is-active .building-chip__count {
@@ -2260,6 +2469,13 @@ button {
     order: 3;
     flex: 1 1 100%;
     width: 100%;
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .building-chips-hint {
+    width: 100%;
   }
 
   .admin-page-head .head-actions {
@@ -2267,6 +2483,8 @@ button {
     margin-left: 0;
   }
 
+  .admin-page-head .head-building-filter,
+  .admin-page-head .head-building-chip-select,
   .admin-page-head .head-search {
     flex: 1 1 100%;
     width: 100%;

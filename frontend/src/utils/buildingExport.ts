@@ -13,7 +13,6 @@ export const BUILDING_IO_FIELD_KEYS = [
   'bankAccount',
   'apiTemplateSuffix',
   'useWbaNumber',
-  'buildingConfig',
   'chequePaymentBy',
   'paymentAdvice',
   'active',
@@ -42,14 +41,13 @@ const HEADER_ALIASES: Record<BuildingIoFieldKey, string[]> = {
   managerPhone: ['負責人電話', '负责人电话', '電話', '电话', 'Phone'],
   email: ['電郵', '郵箱', '邮箱', 'Email'],
   workingHours: ['工作時間', '工作时间', '營業時間', '营业时间'],
-  fpsId: ['FPS', 'FPS ID', '轉數快'],
+  fpsId: ['FPS', 'FPS ID', 'FPS_ID', '轉數快', '轉數快編號', '转数快编号'],
   bankAccountHolder: ['銀行戶名', '银行户名', '戶主', '户主'],
   bankAccount: ['銀行帳戶', '银行账户', '帳戶', '账户'],
   apiTemplateSuffix: ['API模板後綴', 'API模板后缀'],
   useWbaNumber: ['WBA_NUMBER', '使用WBA'],
-  buildingConfig: ['大廈配置', '大厦配置'],
-  chequePaymentBy: ['Cheque Payment By', '支票抬頭', '支票抬头'],
-  paymentAdvice: ['Payment Advice', '付款提示'],
+  chequePaymentBy: ['Cheque Payment By', '支票付款說明', '支票付款说明', '支票抬頭', '支票抬头'],
+  paymentAdvice: ['Payment Advice', '付款通知', '付款提示'],
   active: ['狀態', '状态', '啟用', '启用'],
   createdBy: ['創建人', '创建人'],
   createdAt: ['創建時間', '创建时间'],
@@ -75,7 +73,6 @@ export function buildingToIoRow(
     [h('bankAccount')]: b.bankAccount || '',
     [h('apiTemplateSuffix')]: b.apiTemplateSuffix || '',
     [h('useWbaNumber')]: b.useWbaNumber || '',
-    [h('buildingConfig')]: b.buildingConfig || '',
     [h('chequePaymentBy')]: b.chequePaymentBy || '',
     [h('paymentAdvice')]: b.paymentAdvice || '',
     [h('active')]: b.active ? t('user.status.active') : t('user.status.disabled'),
@@ -101,7 +98,6 @@ export function buildingIoTemplateExampleRow(t: Translate): Record<string, strin
     [h('bankAccount')]: '',
     [h('apiTemplateSuffix')]: '',
     [h('useWbaNumber')]: '',
-    [h('buildingConfig')]: '',
     [h('chequePaymentBy')]: '',
     [h('paymentAdvice')]: '',
     [h('active')]: t('user.status.active'),
@@ -164,7 +160,6 @@ export type BuildingIoPayload = {
   bankAccount: string
   apiTemplateSuffix: string
   useWbaNumber: string
-  buildingConfig: string
   chequePaymentBy: string
   paymentAdvice: string
   active: boolean
@@ -189,7 +184,6 @@ export function rowToBuildingIoPayload(
     bankAccount: pickBuildingIoValue(row, 'bankAccount', t),
     apiTemplateSuffix: pickBuildingIoValue(row, 'apiTemplateSuffix', t),
     useWbaNumber: pickBuildingIoValue(row, 'useWbaNumber', t),
-    buildingConfig: pickBuildingIoValue(row, 'buildingConfig', t),
     chequePaymentBy: pickBuildingIoValue(row, 'chequePaymentBy', t),
     paymentAdvice: pickBuildingIoValue(row, 'paymentAdvice', t),
     active: parseActive(pickBuildingIoValue(row, 'active', t), t),

@@ -47,46 +47,16 @@ export class NumberingRulesService {
     return toNumberingRuleDto(row);
   }
 
-  async create(dto: CreateNumberingRuleDto, actor = '') {
-    const name = dto.name.trim();
-    const format = dto.format.trim();
-    if (!name) throw new BadRequestException('Name is required');
-    if (!format) throw new BadRequestException('Format is required');
-    if (!format.includes('%d') && !/%0\d+d/.test(format)) {
-      throw new BadRequestException('Format must include a sequence token such as %04d');
-    }
-    const actorId = actor || null;
-    const startValue = dto.startValue ?? 1;
-
-    try {
-      const row = await this.prisma.numberingRule.create({
-        data: {
-          name,
-          format,
-          bizKey: dto.bizKey ?? null,
-          startValue,
-          resetCycle: dto.resetCycle ?? NumberingResetCycle.none,
-          currentSeq: startValue - 1,
-          periodKey: '',
-          active: dto.active ?? true,
-          sortOrder: dto.sortOrder ?? 0,
-          createdById: actorId,
-          updatedById: actorId,
-        },
-        include: numberingRuleAuditInclude,
-      });
-      return toNumberingRuleDto(row);
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException(`Business key「${dto.bizKey}」already exists`);
-      }
-      throw e;
-    }
+  async create(_dto: CreateNumberingRuleDto, _actor = '') {
+    throw new BadRequestException('System numbering rules cannot be created from the UI');
   }
 
   async update(id: string, dto: UpdateNumberingRuleDto, actor = '') {
     const existing = await this.prisma.numberingRule.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Numbering rule ${id} not found`);
+    if (!existing.bizKey) {
+      throw new BadRequestException('Only system numbering rules can be updated');
+    }
 
     const format = dto.format !== undefined ? dto.format.trim() : undefined;
     if (format !== undefined) {
@@ -96,35 +66,26 @@ export class NumberingRulesService {
       }
     }
 
-    try {
-      const row = await this.prisma.numberingRule.update({
-        where: { id },
-        data: {
-          name: dto.name !== undefined ? dto.name.trim() : undefined,
-          format,
-          bizKey: dto.bizKey === undefined ? undefined : dto.bizKey,
-          startValue: dto.startValue,
-          resetCycle: dto.resetCycle,
-          sortOrder: dto.sortOrder,
-          active: dto.active,
-          ...(actor ? { updatedById: actor } : {}),
-        },
-        include: numberingRuleAuditInclude,
-      });
-      return toNumberingRuleDto(row);
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException(`Business key「${dto.bizKey}」already exists`);
-      }
-      throw e;
-    }
+    const row = await this.prisma.numberingRule.update({
+      where: { id },
+      data: {
+        // 名称 / 业务键不可改；仅允许调整格式、序号与重置策略
+        format,
+        startValue: dto.startValue,
+        currentSeq: dto.currentSeq,
+        resetCycle: dto.resetCycle,
+        active: dto.active,
+        ...(actor ? { updatedById: actor } : {}),
+      },
+      include: numberingRuleAuditInclude,
+    });
+    return toNumberingRuleDto(row);
   }
 
   async remove(id: string) {
     const existing = await this.prisma.numberingRule.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Numbering rule ${id} not found`);
-    await this.prisma.numberingRule.delete({ where: { id } });
-    return { success: true };
+    throw new BadRequestException('System numbering rules cannot be deleted');
   }
 
   async removeMany(ids: string[]) {

@@ -1,5 +1,15 @@
 export type RoomStatus = 'idle' | 'signing' | 'leased' | 'terminating'
 
+/** 房间图片（不限数量） */
+export interface RoomImageRecord {
+  id: string
+  roomId: string
+  fileName: string
+  sortOrder: number
+  /** 公开/外部地址时可直接作 img src；上传文件无此字段 */
+  publicUrl?: string
+}
+
 export interface RoomRecord {
   id: string
   roomCode: string
@@ -13,9 +23,7 @@ export interface RoomRecord {
   dailyRent: number
   hourlyRent: number
   sizeSqft: number
-  image1?: string
-  image2?: string
-  image3?: string
+  images?: RoomImageRecord[]
   description?: string
   remark?: string
   windowConfig?: string

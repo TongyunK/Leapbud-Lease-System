@@ -45,6 +45,7 @@ export type ContractListQuery = {
   customerId?: string
   roomId?: string
   requirementId?: string
+  buildingIds?: string[]
   roomCodes?: string[]
   customerNames?: string[]
   salesManagers?: string[]
@@ -72,6 +73,7 @@ export function fetchContracts(params?: ContractListQuery) {
   if (params?.customerId) query.customerId = params.customerId
   if (params?.roomId) query.roomId = params.roomId
   if (params?.requirementId) query.requirementId = params.requirementId
+  if (params?.buildingIds?.length) query.buildingIds = params.buildingIds.join(',')
   if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')
@@ -90,6 +92,15 @@ export function fetchContracts(params?: ContractListQuery) {
   return request.get<ContractListPage>('/contracts', {
     params: Object.keys(query).length ? query : undefined,
   })
+}
+
+export type ContractBuildingCount = {
+  buildingId: string
+  count: number
+}
+
+export function fetchContractBuildingCounts() {
+  return request.get<ContractBuildingCount[]>('/contracts/building-counts')
 }
 
 export function fetchContract(id: string) {

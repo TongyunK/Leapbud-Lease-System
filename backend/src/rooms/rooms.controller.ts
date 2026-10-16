@@ -7,10 +7,21 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
+import { memoryStorage } from 'multer';
 import { RoomsService } from './rooms.service';
 import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -118,7 +129,7 @@ export class RoomsController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @Roles(UserRole.admin, UserRole.user)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateRoomDto,
@@ -127,10 +138,60 @@ export class RoomsController {
     return this.roomsService.update(id, dto, actorUserId(user));
   }
 
+  @Post(':id/images')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['files'],
+      properties: {
+        files: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FilesInterceptor('files', 30, {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  @ApiOkResponse({ description: 'Upload one or more room images' })
+  uploadImages(
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.roomsService.uploadImages(id, files || [], actorUserId(user));
+  }
+
+  @Get(':id/images/:imageId/file')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @ApiOkResponse({ description: 'Stream room image file' })
+  getImageFile(@Param('id') id: string, @Param('imageId') imageId: string) {
+    return this.roomsService.getImageFile(id, imageId);
+  }
+
+  @Delete(':id/images/:imageId')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @ApiOkResponse({ description: 'Delete one room image' })
+  removeImage(@Param('id') id: string, @Param('imageId') imageId: string) {
+    return this.roomsService.removeImage(id, imageId);
+  }
+
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @Roles(UserRole.admin, UserRole.user)
   remove(@Param('id') id: string) {
     return this.roomsService.remove(id);
   }

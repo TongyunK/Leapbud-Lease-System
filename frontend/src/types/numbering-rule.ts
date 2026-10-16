@@ -1,7 +1,6 @@
 export type NumberingBizKey =
   | 'customer'
   | 'customerRequirement'
-  | 'contract'
   | 'invoice'
   | 'receipt'
 

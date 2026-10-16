@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -43,12 +47,25 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
 
-    const ok = await bcrypt.compare(dto.currentPassword, user.passwordHash);
-    if (!ok) {
-      throw new UnauthorizedException('Current password is incorrect');
+    const current = (dto.currentPassword ?? '').trim();
+    const next = (dto.newPassword ?? '').trim();
+    if (!current) {
+      throw new BadRequestException('請輸入目前密碼');
+    }
+    if (!next || next.length < 6) {
+      throw new BadRequestException('新密碼至少 6 位');
     }
 
-    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    const ok = await bcrypt.compare(current, user.passwordHash);
+    if (!ok) {
+      // 使用 400，避免前端把 401 当成登录失效并强制退出
+      throw new BadRequestException('目前密碼不正確');
+    }
+    if (current === next) {
+      throw new BadRequestException('新密碼不能與目前密碼相同');
+    }
+
+    const passwordHash = await bcrypt.hash(next, 10);
     await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash, updatedById: user.id },

@@ -8,15 +8,12 @@ export interface BuildingRecord {
   agreementTemplateId?: string | null
   agreementTemplateName?: string
   agreementTemplateFileName?: string
-  agreementLogo?: string
   apiTemplateSuffix?: string
-  logo2?: string
   email: string
   workingHours: string
   invoiceTemplateId?: string | null
   invoiceTemplateName?: string
   invoiceTemplateFileName?: string
-  invoiceLogo?: string
   fpsId?: string
   bankAccountHolder?: string
   bankAccount?: string
@@ -25,11 +22,7 @@ export interface BuildingRecord {
   receiptTemplateId?: string | null
   receiptTemplateName?: string
   receiptTemplateFileName?: string
-  receiptTopLogo?: string
-  receiptLeftLogo?: string
-  receiptRightLogo?: string
   roomIds: string[]
-  buildingConfig?: string
   useWbaNumber?: string
   active: boolean
   createdBy: string

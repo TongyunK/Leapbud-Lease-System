@@ -234,7 +234,6 @@ const form = reactive({
   bankAccount: '',
   apiTemplateSuffix: '',
   useWbaNumber: '',
-  buildingConfig: '',
   chequePaymentBy: '',
   paymentAdvice: '',
   agreementTemplateId: '' as string,
@@ -456,7 +455,6 @@ function openCreate() {
     bankAccount: '',
     apiTemplateSuffix: '',
     useWbaNumber: '',
-    buildingConfig: '',
     chequePaymentBy: '',
     paymentAdvice: '',
     agreementTemplateId: '',
@@ -483,7 +481,6 @@ function openEdit(row: BuildingRecord) {
     bankAccount: row.bankAccount || '',
     apiTemplateSuffix: row.apiTemplateSuffix || '',
     useWbaNumber: row.useWbaNumber || '',
-    buildingConfig: row.buildingConfig || '',
     chequePaymentBy: row.chequePaymentBy || '',
     paymentAdvice: row.paymentAdvice || '',
     agreementTemplateId: row.agreementTemplateId || '',
@@ -889,8 +886,14 @@ async function saveForm() {
           <el-form-item :label="t('building.fields.name')" required>
             <el-input v-model="form.name" />
           </el-form-item>
+          <el-form-item :label="t('building.fields.email')">
+            <el-input v-model="form.email" />
+          </el-form-item>
           <el-form-item :label="t('building.fields.manager')">
             <el-input v-model="form.manager" />
+          </el-form-item>
+          <el-form-item :label="t('building.fields.managerPhone')">
+            <el-input v-model="form.managerPhone" />
           </el-form-item>
           <el-form-item :label="t('building.fields.address')" class="span-2">
             <el-input v-model="form.address" />
@@ -898,17 +901,8 @@ async function saveForm() {
           <el-form-item :label="t('building.fields.addressEn')" class="span-2">
             <el-input v-model="form.addressEn" />
           </el-form-item>
-          <el-form-item :label="t('building.fields.managerPhone')">
-            <el-input v-model="form.managerPhone" />
-          </el-form-item>
-          <el-form-item :label="t('building.fields.email')">
-            <el-input v-model="form.email" />
-          </el-form-item>
           <el-form-item :label="t('building.fields.workingHours')" class="span-2">
             <WorkingHoursField v-model="form.workingHours" />
-          </el-form-item>
-          <el-form-item :label="t('building.fields.buildingConfig')">
-            <el-input v-model="form.buildingConfig" />
           </el-form-item>
           <el-form-item :label="t('building.fields.active')">
             <el-switch v-model="form.active" />
@@ -917,26 +911,30 @@ async function saveForm() {
           <div class="form-section">
             <h3>{{ t('building.sections.finance') }}</h3>
           </div>
-          <el-form-item label="FPS_ID">
-            <el-input v-model="form.fpsId" />
+          <el-form-item :label="t('building.fields.bankAccount')">
+            <el-input v-model="form.bankAccount" />
           </el-form-item>
           <el-form-item :label="t('building.fields.bankAccountHolder')">
             <el-input v-model="form.bankAccountHolder" />
           </el-form-item>
-          <el-form-item :label="t('building.fields.bankAccount')">
-            <el-input v-model="form.bankAccount" />
+          <el-form-item :label="t('building.fields.fpsId')">
+            <el-input v-model="form.fpsId" />
           </el-form-item>
+          <el-form-item :label="t('building.fields.chequePaymentBy')" class="span-2">
+            <el-input v-model="form.chequePaymentBy" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item :label="t('building.fields.paymentAdvice')" class="span-2">
+            <el-input v-model="form.paymentAdvice" type="textarea" :rows="2" />
+          </el-form-item>
+
+          <div class="form-section">
+            <h3>{{ t('building.sections.whatsapp') }}</h3>
+          </div>
           <el-form-item :label="t('building.fields.useWbaNumber')">
             <el-input v-model="form.useWbaNumber" />
           </el-form-item>
           <el-form-item :label="t('building.fields.apiTemplateSuffix')">
             <el-input v-model="form.apiTemplateSuffix" />
-          </el-form-item>
-          <el-form-item label="Cheque Payment By">
-            <el-input v-model="form.chequePaymentBy" />
-          </el-form-item>
-          <el-form-item label="Payment Advice" class="span-2">
-            <el-input v-model="form.paymentAdvice" type="textarea" :rows="2" />
           </el-form-item>
 
           <div class="form-section form-section--with-hint">

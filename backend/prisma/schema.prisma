@@ -99,6 +99,10 @@ model User {
   createdRooms             Room[]             @relation("RoomCreatedBy")
   /// 作为更新人：房间
   updatedRooms             Room[]             @relation("RoomUpdatedBy")
+  /// 作为创建人：房间图片
+  createdRoomImages        RoomImage[]        @relation("RoomImageCreatedBy")
+  /// 作为更新人：房间图片
+  updatedRoomImages        RoomImage[]        @relation("RoomImageUpdatedBy")
   /// 作为创建人：客户
   createdCustomers         Customer[]         @relation("CustomerCreatedBy")
   /// 作为更新人：客户
@@ -312,12 +316,8 @@ model Building {
   agreementTemplateId String? @map("agreement_template_id")
   /// 协议书模板
   agreementTemplateRef DocumentTemplate? @relation("BuildingAgreementTemplate", fields: [agreementTemplateId], references: [id], onDelete: SetNull)
-  /// 协议书 Logo
-  agreementLogo     String?  @map("agreement_logo")
   /// API 模板名称后缀
   apiTemplateSuffix String?  @map("api_template_suffix")
-  /// 备用 Logo
-  logo2             String?
   /// 大厦邮箱
   email             String   @default("")
   /// 工作时间
@@ -326,8 +326,6 @@ model Building {
   invoiceTemplateId String?  @map("invoice_template_id")
   /// 发票模板
   invoiceTemplateRef DocumentTemplate? @relation("BuildingInvoiceTemplate", fields: [invoiceTemplateId], references: [id], onDelete: SetNull)
-  /// 发票 Logo
-  invoiceLogo       String?  @map("invoice_logo")
   /// FPS 收款标识
   fpsId             String?  @map("fps_id")
   /// 银行户主名称
@@ -342,14 +340,6 @@ model Building {
   receiptTemplateId String?  @map("receipt_template_id")
   /// 收据模板
   receiptTemplateRef DocumentTemplate? @relation("BuildingReceiptTemplate", fields: [receiptTemplateId], references: [id], onDelete: SetNull)
-  /// 收据顶部 Logo
-  receiptTopLogo    String?  @map("receipt_top_logo")
-  /// 收据左侧 Logo
-  receiptLeftLogo   String?  @map("receipt_left_logo")
-  /// 收据右侧 Logo
-  receiptRightLogo  String?  @map("receipt_right_logo")
-  /// 大厦配置（扩展 JSON/文本）
-  buildingConfig    String?  @map("building_config")
   /// 是否使用 WBA_NUMBER
   useWbaNumber      String?  @map("use_wba_number")
   /// 是否启用（停用后不出现在房间快捷胶囊等）
@@ -408,12 +398,6 @@ model Room {
   hourlyRent      Decimal    @default(0) @map("hourly_rent") @db.Decimal(12, 2)
   /// 房间呎寸（平方呎）
   sizeSqft        Decimal    @default(0) @map("size_sqft") @db.Decimal(12, 2)
-  /// 房间图片 1
-  image1          String?
-  /// 房间图片 2
-  image2          String?
-  /// 房间图片 3
-  image3          String?
   /// 房间描述
   description     String?
   /// 备注
@@ -448,12 +432,47 @@ model Room {
   depositRefunds    DepositRefund[]    @relation("DepositRefundBelongsToRoom")
   /// 下属发票
   invoices          Invoice[]          @relation("InvoiceBelongsToRoom")
+  /// 下属房间图片
+  images            RoomImage[]        @relation("RoomImageBelongsToRoom")
 
   @@index([buildingId])
   @@index([status])
   @@index([createdById])
   @@index([updatedById])
   @@map("rooms")
+}
+
+/// 房间图片（一房间多图，不限数量）
+model RoomImage {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 所属房间 ID
+  roomId      String   @map("room_id")
+  /// 所属房间
+  room        Room     @relation("RoomImageBelongsToRoom", fields: [roomId], references: [id], onDelete: Cascade)
+  /// 原始文件名
+  fileName    String   @map("file_name")
+  /// 存储相对路径（相对 uploads 根目录；或以 /、http 开头的公开/外部地址）
+  storageKey  String   @map("storage_key")
+  /// 展示排序（越小越靠前）
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("RoomImageCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("RoomImageUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([roomId, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("room_images")
 }
 
 /// 客户（咨询/签约主体；一个客户可对应多名使用者）
@@ -1430,14 +1449,12 @@ model DocumentTemplate {
   @@map("document_templates")
 }
 
-/// 自动编号业务键（与业务生成器绑定）
+/// 自动编号业务键（与业务生成器绑定；合约编号为房间编号+当日日期，不走本规则）
 enum NumberingBizKey {
   /// 客户编号
   customer
   /// 客户需求编号
   customerRequirement
-  /// 合约编号
-  contract
   /// 发票编号
   invoice
   /// 收据编号

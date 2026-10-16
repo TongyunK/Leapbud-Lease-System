@@ -105,9 +105,7 @@ async function main() {
     dailyRent: number;
     hourlyRent: number;
     sizeSqft: number;
-    image1: string | null;
-    image2: string | null;
-    image3: string | null;
+    images: string[];
     description: string | null;
     remark: string | null;
     windowConfig: string | null;
@@ -150,9 +148,9 @@ async function main() {
       dailyRent: num(row['日租']),
       hourlyRent: num(row['時租']),
       sizeSqft: num(row['房間呎寸']),
-      image1: str(row['房間圖片1']) || null,
-      image2: str(row['房間圖片2']) || null,
-      image3: str(row['房間圖片3']) || null,
+      images: [str(row['房間圖片1']), str(row['房間圖片2']), str(row['房間圖片3'])].filter(
+        Boolean,
+      ),
       description: str(row['房間描述']) || null,
       remark: str(row['備注']) || null,
       windowConfig: str(row['窗']) || null,
@@ -181,12 +179,23 @@ async function main() {
   const deleted = await prisma.room.deleteMany({});
   console.log('Cleared existing rooms:', deleted.count);
 
-  const batchSize = 50;
   let inserted = 0;
-  for (let i = 0; i < payload.length; i += batchSize) {
-    const chunk = payload.slice(i, i + batchSize);
-    const result = await prisma.room.createMany({ data: chunk });
-    inserted += result.count;
+  for (const item of payload) {
+    const { images, ...roomData } = item;
+    const room = await prisma.room.create({ data: roomData });
+    inserted += 1;
+    if (images.length) {
+      await prisma.roomImage.createMany({
+        data: images.map((storageKey, sortOrder) => ({
+          roomId: room.id,
+          fileName: storageKey.split('/').pop() || `image${sortOrder + 1}`,
+          storageKey,
+          sortOrder,
+          createdById: roomData.createdById,
+          updatedById: roomData.updatedById,
+        })),
+      });
+    }
   }
 
   const byBuilding = await prisma.room.groupBy({

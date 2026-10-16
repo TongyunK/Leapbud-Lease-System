@@ -122,6 +122,10 @@ async function submitPassword() {
     ElMessage.warning(t('account.passwordTooShort'))
     return
   }
+  if (pwdForm.current === pwdForm.next) {
+    ElMessage.warning(t('account.passwordSameAsCurrent'))
+    return
+  }
   try {
     await changePasswordApi({
       currentPassword: pwdForm.current,
@@ -129,8 +133,9 @@ async function submitPassword() {
     })
     pwdVisible.value = false
     ElMessage.success(t('account.passwordChanged'))
+    onLogout()
   } catch {
-    /* interceptor */
+    /* interceptor shows 目前密碼不正確 等业务错误；勿当 401 踢出 */
   }
 }
 

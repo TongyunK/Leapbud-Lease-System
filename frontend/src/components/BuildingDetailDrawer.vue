@@ -43,6 +43,10 @@ function templateLabel(name?: string, fileName?: string) {
 
 const roomCount = computed(() => props.building?.roomIds?.length ?? 0)
 
+function dash(v?: string | null) {
+  return v?.trim() ? v : '—'
+}
+
 function onRoomsClick() {
   const b = props.building
   if (!b?.roomIds?.length) return
@@ -63,18 +67,6 @@ async function onPreviewTemplate(id?: string | null) {
   }
 }
 
-const logoItems = computed(() => {
-  const b = props.building
-  if (!b) return []
-  return [
-    { label: t('building.fields.agreementLogo'), src: b.agreementLogo },
-    { label: 'logo2', src: b.logo2 },
-    { label: t('building.fields.invoiceLogo'), src: b.invoiceLogo },
-    { label: t('building.fields.receiptTopLogo'), src: b.receiptTopLogo },
-    { label: t('building.fields.receiptLeftLogo'), src: b.receiptLeftLogo },
-    { label: t('building.fields.receiptRightLogo'), src: b.receiptRightLogo },
-  ]
-})
 </script>
 
 <template>
@@ -91,31 +83,31 @@ const logoItems = computed(() => {
         <dl class="detail-grid">
           <div>
             <dt>{{ t('building.fields.name') }}</dt>
-            <dd>{{ building.name }}</dd>
+            <dd>{{ dash(building.name) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.address') }}</dt>
-            <dd>{{ building.address }}</dd>
+            <dd>{{ dash(building.address) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.addressEn') }}</dt>
-            <dd>{{ building.addressEn }}</dd>
+            <dd>{{ dash(building.addressEn) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.manager') }}</dt>
-            <dd>{{ building.manager }}</dd>
+            <dd>{{ dash(building.manager) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.managerPhone') }}</dt>
-            <dd>{{ building.managerPhone }}</dd>
+            <dd>{{ dash(building.managerPhone) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.email') }}</dt>
-            <dd>{{ building.email }}</dd>
+            <dd>{{ dash(building.email) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.workingHours') }}</dt>
-            <dd>{{ building.workingHours }}</dd>
+            <dd>{{ dash(building.workingHours) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.rooms') }}</dt>
@@ -127,14 +119,6 @@ const logoItems = computed(() => {
             <dt>{{ t('building.fields.active') }}</dt>
             <dd>{{ building.active ? t('user.status.active') : t('user.status.disabled') }}</dd>
           </div>
-          <div>
-            <dt>{{ t('building.fields.buildingConfig') }}</dt>
-            <dd>{{ building.buildingConfig || '—' }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('building.fields.useWbaNumber') }}</dt>
-            <dd>{{ building.useWbaNumber || '—' }}</dd>
-          </div>
         </dl>
       </section>
 
@@ -142,24 +126,38 @@ const logoItems = computed(() => {
         <h3>{{ t('building.sections.finance') }}</h3>
         <dl class="detail-grid">
           <div>
-            <dt>{{ t('building.fields.fpsId') }}</dt>
-            <dd>{{ building.fpsId || '—' }}</dd>
+            <dt>{{ t('building.fields.bankAccount') }}</dt>
+            <dd>{{ dash(building.bankAccount) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.bankAccountHolder') }}</dt>
-            <dd>{{ building.bankAccountHolder || '—' }}</dd>
+            <dd>{{ dash(building.bankAccountHolder) }}</dd>
           </div>
           <div>
-            <dt>{{ t('building.fields.bankAccount') }}</dt>
-            <dd>{{ building.bankAccount || '—' }}</dd>
+            <dt>{{ t('building.fields.fpsId') }}</dt>
+            <dd>{{ dash(building.fpsId) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.chequePaymentBy') }}</dt>
-            <dd>{{ building.chequePaymentBy || '—' }}</dd>
+            <dd>{{ dash(building.chequePaymentBy) }}</dd>
           </div>
           <div>
             <dt>{{ t('building.fields.paymentAdvice') }}</dt>
-            <dd>{{ building.paymentAdvice || '—' }}</dd>
+            <dd>{{ dash(building.paymentAdvice) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="detail-section">
+        <h3>{{ t('building.sections.whatsapp') }}</h3>
+        <dl class="detail-grid">
+          <div>
+            <dt>{{ t('building.fields.useWbaNumber') }}</dt>
+            <dd>{{ dash(building.useWbaNumber) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('building.fields.apiTemplateSuffix') }}</dt>
+            <dd>{{ dash(building.apiTemplateSuffix) }}</dd>
           </div>
         </dl>
       </section>
@@ -215,18 +213,7 @@ const logoItems = computed(() => {
               <span v-else>{{ t('common.none') }}</span>
             </dd>
           </div>
-          <div>
-            <dt>{{ t('building.fields.apiTemplateSuffix') }}</dt>
-            <dd>{{ building.apiTemplateSuffix || '—' }}</dd>
-          </div>
         </dl>
-        <div class="logo-row">
-          <div v-for="item in logoItems" :key="item.label" class="logo-item">
-            <span>{{ item.label }}</span>
-            <img v-if="item.src" :src="item.src" alt="" />
-            <em v-else>—</em>
-          </div>
-        </div>
       </section>
 
       <AuditDetailSection
@@ -264,34 +251,5 @@ const logoItems = computed(() => {
 .template-preview-link:disabled {
   cursor: wait;
   opacity: 0.7;
-}
-
-.logo-row {
-  margin-top: 14px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.logo-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--lb-muted);
-}
-
-.logo-item img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid var(--lb-border);
-}
-
-@media (max-width: 640px) {
-  .logo-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

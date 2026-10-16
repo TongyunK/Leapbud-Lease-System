@@ -192,7 +192,6 @@ export class BuildingsService {
         bankAccount: s(dto.bankAccount) || null,
         apiTemplateSuffix: s(dto.apiTemplateSuffix) || null,
         useWbaNumber: s(dto.useWbaNumber) || null,
-        buildingConfig: s(dto.buildingConfig) || null,
         chequePaymentBy: s(dto.chequePaymentBy) || null,
         paymentAdvice: s(dto.paymentAdvice) || null,
         agreementTemplateId: agreementTemplateId ?? null,
@@ -241,8 +240,6 @@ export class BuildingsService {
         apiTemplateSuffix:
           dto.apiTemplateSuffix !== undefined ? s(dto.apiTemplateSuffix) || null : undefined,
         useWbaNumber: dto.useWbaNumber !== undefined ? s(dto.useWbaNumber) || null : undefined,
-        buildingConfig:
-          dto.buildingConfig !== undefined ? s(dto.buildingConfig) || null : undefined,
         chequePaymentBy:
           dto.chequePaymentBy !== undefined ? s(dto.chequePaymentBy) || null : undefined,
         paymentAdvice: dto.paymentAdvice !== undefined ? s(dto.paymentAdvice) || null : undefined,

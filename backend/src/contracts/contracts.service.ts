@@ -4,12 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { NumberingBizKey, Prisma, RoomStatus } from '@prisma/client';
+import { Prisma, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContractDto, ContractPeriodInputDto, UpdateContractDto, ImportContractsDto } from './dto/contract.dto';
 import { contractInclude, toContractDto } from './contract.mapper';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
-import { NumberingRulesService } from '../numbering-rules/numbering-rules.service';
 import { userWhereActorLabels } from '../common/audit';
 import {
   dateRangeFilter,
@@ -117,8 +116,22 @@ export class ContractsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractConfigs: ContractConfigsService,
-    private readonly numberingRules: NumberingRulesService,
   ) {}
+
+  /** 按大厦聚合合约数量（一次 GROUP BY，供筛选下拉展示） */
+  async countByBuilding(): Promise<Array<{ buildingId: string; count: number }>> {
+    const rows = await this.prisma.$queryRaw<Array<{ building_id: string; count: bigint }>>`
+      SELECT r."building_id" AS building_id, COUNT(c."id")::bigint AS count
+      FROM "contracts" c
+      INNER JOIN "rooms" r ON r."id" = c."room_id"
+      WHERE r."building_id" IS NOT NULL
+      GROUP BY r."building_id"
+    `;
+    return rows.map((r) => ({
+      buildingId: r.building_id,
+      count: Number(r.count),
+    }));
+  }
 
   async findAll(params: {
     keyword?: string;
@@ -127,6 +140,7 @@ export class ContractsService {
     customerId?: string;
     roomId?: string;
     requirementId?: string;
+    buildingIds?: string[];
     roomCodes?: string[];
     customerNames?: string[];
     salesManagers?: string[];
@@ -173,6 +187,7 @@ export class ContractsService {
     customerId?: string;
     roomId?: string;
     requirementId?: string;
+    buildingIds?: string[];
     roomCodes?: string[];
     customerNames?: string[];
     salesManagers?: string[];
@@ -191,6 +206,12 @@ export class ContractsService {
     if (params.customerId?.trim()) where.customerId = params.customerId.trim();
     if (params.roomId?.trim()) where.roomId = params.roomId.trim();
     if (params.requirementId?.trim()) where.requirementId = params.requirementId.trim();
+    const buildingIds = (params.buildingIds || []).map((v) => s(v)).filter(Boolean);
+    if (buildingIds.length === 1) {
+      and.push({ room: { buildingId: buildingIds[0] } });
+    } else if (buildingIds.length > 1) {
+      and.push({ room: { buildingId: { in: buildingIds } } });
+    }
 
     const statuses = [
       ...new Set(
@@ -298,14 +319,33 @@ export class ContractsService {
     return toContractDto(row);
   }
 
-  private async nextContractCode() {
-    return this.numberingRules.nextCode(NumberingBizKey.contract, {
-      isTaken: async (code) =>
-        !!(await this.prisma.contract.findFirst({
-          where: { contractCode: code },
-          select: { id: true },
-        })),
-    });
+  /** 合约编号：房间编号 + 当日日期（YYYYMMDD）；同日冲突时再拼时分秒 */
+  private async nextContractCode(roomCode: string) {
+    const base = s(roomCode);
+    if (!base) throw new BadRequestException('roomCode is required for auto contract code');
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const y = String(now.getFullYear());
+    const m = pad(now.getMonth() + 1);
+    const d = pad(now.getDate());
+    const datePart = `${y}${m}${d}`;
+    const taken = async (code: string) =>
+      !!(await this.prisma.contract.findFirst({
+        where: { contractCode: code },
+        select: { id: true },
+      }));
+
+    let code = `${base}-${datePart}`;
+    if (!(await taken(code))) return code;
+
+    const timePart = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    code = `${base}-${datePart}${timePart}`;
+    let guard = 0;
+    while ((await taken(code)) && guard < 100) {
+      guard += 1;
+      code = `${base}-${datePart}${timePart}-${guard}`;
+    }
+    return code;
   }
 
   private async assertRoom(roomId: string) {
@@ -478,7 +518,7 @@ export class ContractsService {
     const requirementId = nullId(dto.requirementId);
     await this.assertRequirement(requirementId, customerId);
 
-    const contractCode = s(dto.contractCode) || (await this.nextContractCode());
+    const contractCode = s(dto.contractCode) || (await this.nextContractCode(room.roomCode));
     const status = this.normalizeStatus(dto.status);
     const actorId = actor || null;
     const roomNameText = s(dto.roomNameText) || room.name;

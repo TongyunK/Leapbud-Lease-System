@@ -1,5 +1,5 @@
 import request from './request'
-import type { RoomRecord, RoomStatus } from '@/types/room'
+import type { RoomImageRecord, RoomRecord, RoomStatus } from '@/types/room'
 import type { ImportBatchResult } from './customers'
 import type { PaginatedResult } from '@/types/pagination'
 
@@ -94,4 +94,23 @@ export function batchDeleteRoomsApi(ids: string[]) {
 
 export function importRoomsApi(items: RoomWritePayload[]) {
   return request.post<ImportBatchResult>('/rooms/import', { items })
+}
+
+export function uploadRoomImagesApi(roomId: string, files: File[]) {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  return request.post<RoomImageRecord[]>(`/rooms/${roomId}/images`, fd)
+}
+
+export function deleteRoomImageApi(roomId: string, imageId: string) {
+  return request.delete<{ success: boolean }>(`/rooms/${roomId}/images/${imageId}`)
+}
+
+/** 拉取房间图片二进制（需 JWT），用于 Auth 预览 */
+export async function fetchRoomImageBlob(roomId: string, imageId: string) {
+  const res = await request.get<Blob>(`/rooms/${roomId}/images/${imageId}/file`, {
+    responseType: 'blob',
+    silentError: true,
+  })
+  return res.data
 }

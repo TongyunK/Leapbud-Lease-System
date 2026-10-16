@@ -26,6 +26,7 @@ export function updateNumberingRuleApi(
     format?: string
     bizKey?: NumberingBizKey | null
     startValue?: number
+    currentSeq?: number
     resetCycle?: NumberingResetCycle
     sortOrder?: number
     active?: boolean

@@ -75,6 +75,12 @@ export class UpdateNumberingRuleDto {
   @Min(0)
   startValue?: number;
 
+  @ApiPropertyOptional({ description: '当前已用序号（下次生成取 currentSeq+1）' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  currentSeq?: number;
+
   @ApiPropertyOptional({ enum: NumberingResetCycle })
   @IsOptional()
   @IsEnum(NumberingResetCycle)

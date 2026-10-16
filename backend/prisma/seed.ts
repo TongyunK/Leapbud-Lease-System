@@ -181,7 +181,6 @@ const rooms: Array<{
   dailyRent: number;
   hourlyRent: number;
   sizeSqft: number;
-  image1?: string;
   createdAt: Date;
 }> = [
   {
@@ -196,7 +195,6 @@ const rooms: Array<{
     dailyRent: 1800,
     hourlyRent: 280,
     sizeSqft: 420,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-01-15T10:00:00+08:00'),
   },
   {
@@ -211,7 +209,6 @@ const rooms: Array<{
     dailyRent: 900,
     hourlyRent: 150,
     sizeSqft: 180,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-02-15T10:00:00+08:00'),
   },
   {
@@ -226,7 +223,6 @@ const rooms: Array<{
     dailyRent: 220,
     hourlyRent: 45,
     sizeSqft: 45,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-03-15T10:00:00+08:00'),
   },
   {
@@ -241,7 +237,6 @@ const rooms: Array<{
     dailyRent: 1400,
     hourlyRent: 220,
     sizeSqft: 260,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-04-15T10:00:00+08:00'),
   },
   {
@@ -256,7 +251,6 @@ const rooms: Array<{
     dailyRent: 850,
     hourlyRent: 140,
     sizeSqft: 160,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-05-15T10:00:00+08:00'),
   },
   {
@@ -271,7 +265,6 @@ const rooms: Array<{
     dailyRent: 2400,
     hourlyRent: 360,
     sizeSqft: 520,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-06-15T10:00:00+08:00'),
   },
   {
@@ -286,7 +279,6 @@ const rooms: Array<{
     dailyRent: 800,
     hourlyRent: 120,
     sizeSqft: 140,
-    image1: '/leapbud_logo.png',
     createdAt: new Date('2026-07-15T10:00:00+08:00'),
   },
 ];
@@ -349,6 +341,19 @@ async function main() {
       create: { ...r, createdById: admin.id, updatedById: admin.id },
       update: r,
     });
+    const imageCount = await prisma.roomImage.count({ where: { roomId: r.id } });
+    if (imageCount === 0) {
+      await prisma.roomImage.create({
+        data: {
+          roomId: r.id,
+          fileName: 'leapbud_logo.png',
+          storageKey: '/leapbud_logo.png',
+          sortOrder: 0,
+          createdById: admin.id,
+          updatedById: admin.id,
+        },
+      });
+    }
   }
 
   const configCount = await prisma.roomConfigOption.count();
@@ -813,7 +818,7 @@ async function seedRolesAndMenus(actorId: string) {
 
   const numberingSeeds: Array<{
     id: string;
-    bizKey: 'customer' | 'customerRequirement' | 'contract' | 'invoice' | 'receipt';
+    bizKey: 'customer' | 'customerRequirement' | 'invoice' | 'receipt';
     name: string;
     format: string;
     resetCycle: 'none' | 'daily' | 'monthly' | 'yearly';
@@ -836,20 +841,12 @@ async function seedRolesAndMenus(actorId: string) {
       sortOrder: 2,
     },
     {
-      id: 'nr_contract',
-      bizKey: 'contract',
-      name: '合約編號',
-      format: 'CTR%YY%MM%DD%04d',
-      resetCycle: 'daily',
-      sortOrder: 3,
-    },
-    {
       id: 'nr_invoice',
       bizKey: 'invoice',
       name: '發票編號',
       format: 'INV%YY%MM%DD%04d',
       resetCycle: 'daily',
-      sortOrder: 4,
+      sortOrder: 3,
     },
     {
       id: 'nr_receipt',
@@ -857,7 +854,7 @@ async function seedRolesAndMenus(actorId: string) {
       name: '收據編號',
       format: 'RCP%YY%MM%DD%04d',
       resetCycle: 'daily',
-      sortOrder: 5,
+      sortOrder: 4,
     },
   ];
 

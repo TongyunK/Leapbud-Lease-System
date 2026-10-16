@@ -6,6 +6,7 @@ import { useIsMobile } from '@/composables/useMediaQuery'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import RoomImageGallery from '@/components/RoomImageGallery.vue'
 import { roomStatusTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
 
@@ -147,17 +148,7 @@ function emitIfCount(
 
       <section class="detail-section">
         <h3>{{ t('room.sections.media') }}</h3>
-        <div class="image-row">
-          <div
-            v-for="(src, idx) in [room.image1, room.image2, room.image3]"
-            :key="idx"
-            class="image-item"
-          >
-            <span>{{ t('room.fields.image') }} {{ idx + 1 }}</span>
-            <img v-if="src" :src="src" alt="" />
-            <em v-else>—</em>
-          </div>
-        </div>
+        <RoomImageGallery :room-id="room.id" :images="room.images || []" />
         <dl class="detail-grid" style="margin-top: 14px">
           <div>
             <dt>{{ t('room.fields.description') }}</dt>

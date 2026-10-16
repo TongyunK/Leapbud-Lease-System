@@ -1,37 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, EditPen } from '@element-plus/icons-vue'
+import { EditPen } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  createNumberingRuleApi,
-  deleteNumberingRuleApi,
-  batchDeleteNumberingRulesApi,
   fetchNumberingRules,
   resetNumberingRuleApi,
   updateNumberingRuleApi,
 } from '@/api/numbering-rules'
-import type { NumberingBizKey, NumberingResetCycle, NumberingRule } from '@/types/numbering-rule'
+import type { NumberingResetCycle, NumberingRule } from '@/types/numbering-rule'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import AuditDetailSection from '@/components/AuditDetailSection.vue'
-import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
-import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
-import { useBatchProgress } from '@/composables/useBatchProgress'
-
-const BIZ_KEYS: NumberingBizKey[] = [
-  'customer',
-  'customerRequirement',
-  'contract',
-  'invoice',
-  'receipt',
-]
+import { renderNumberingFormat } from '@/utils/numberingFormat'
 
 const RESET_CYCLES: NumberingResetCycle[] = ['none', 'daily', 'monthly', 'yearly']
 
@@ -42,11 +28,7 @@ const { colW, codeColW, textColW, datetimeColWidth, auditUserColWidth, tableLayo
 
 const actionColWidth = computed(() => {
   void locale.value
-  return measureActionColWidth([
-    t('autoNumbering.copy'),
-    t('autoNumbering.reset'),
-    t('common.delete'),
-  ])
+  return measureActionColWidth([t('autoNumbering.edit'), t('autoNumbering.reset')])
 })
 
 const loading = ref(false)
@@ -69,15 +51,19 @@ const {
   sortOrder,
 } = useTableSortFilter<NumberingRule>()
 
+function displayName(row: NumberingRule) {
+  if (row.bizKey) return t(`autoNumbering.bizKey.${row.bizKey}`)
+  return row.name
+}
+
 const columnGetters = {
-  name: (o: NumberingRule) => o.name,
-  bizKey: (o: NumberingRule) => o.bizKey || '',
+  name: (o: NumberingRule) => displayName(o),
   format: (o: NumberingRule) => o.format,
   preview: (o: NumberingRule) => o.preview,
   startValue: (o: NumberingRule) => o.startValue,
+  currentSeq: (o: NumberingRule) => o.currentSeq,
   resetCycle: (o: NumberingRule) => o.resetCycle,
   active: (o: NumberingRule) => String(o.active),
-  createdAt: (o: NumberingRule) => o.createdAt,
   updatedAt: (o: NumberingRule) => o.updatedAt,
 }
 
@@ -86,10 +72,6 @@ const activeFilterOptions = computed(() => [
   { value: 'false', label: t('user.status.disabled') },
 ])
 
-const bizKeyFilterOptions = computed(() =>
-  BIZ_KEYS.map((k) => ({ value: k, label: t(`autoNumbering.bizKey.${k}`) })),
-)
-
 const resetCycleFilterOptions = computed(() =>
   RESET_CYCLES.map((k) => ({ value: k, label: t(`autoNumbering.resetCycle.${k}`) })),
 )
@@ -97,7 +79,9 @@ const resetCycleFilterOptions = computed(() =>
 const sorted = computed(() => {
   const applied = applySortFilter(list.value, columnGetters)
   if (!sortKey.value) {
-    return [...applied].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    return [...applied].sort(
+      (a, b) => a.sortOrder - b.sortOrder || displayName(a).localeCompare(displayName(b)),
+    )
   }
   return applied
 })
@@ -107,103 +91,35 @@ const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
 
 watch([filters, dateRanges, sortKey, sortOrder], () => resetPage(), { deep: true })
 
-const {
-  tableRef,
-  selectedCount,
-  selectedIds,
-  onSelectionChange,
-  clearSelection,
-  selectRows,
-} = useTableSelection<NumberingRule>()
-const batchDeleting = ref(false)
-const selectAllLoading = ref(false)
-const {
-  state: batchState,
-  percentage: batchPercentage,
-  begin: beginBatch,
-  setProgress: setBatchProgress,
-  finish: finishBatch,
-  close: closeBatch,
-} = useBatchProgress()
-
-watch([filters, dateRanges, sortKey, sortOrder], () => {
-  clearSelection()
-}, { deep: true })
-
-const usedBizKeys = computed(() => {
-  const keys = new Set<string>()
-  for (const row of list.value) {
-    if (row.bizKey && (!editing.value || editing.value.id !== row.id)) {
-      keys.add(row.bizKey)
-    }
-  }
-  return keys
-})
-
-const availableBizKeyOptions = computed(() =>
-  BIZ_KEYS.filter((k) => !usedBizKeys.value.has(k) || form.bizKey === k).map((k) => ({
-    value: k,
-    label: t(`autoNumbering.bizKey.${k}`),
-  })),
-)
-
-async function onSelectAll() {
-  if (selectAllLoading.value || total.value === 0) return
-  selectAllLoading.value = true
-  try {
-    await selectRows(sorted.value)
-  } finally {
-    selectAllLoading.value = false
-  }
-}
-
-async function onBatchDelete() {
-  if (!selectedIds.value.length) return
-  try {
-    await ElMessageBox.confirm(
-      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
-      t('common.deleteTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  const ids = [...selectedIds.value]
-  batchDeleting.value = true
-  beginBatch(ids.length)
-  try {
-    const { ok, fail } = await runServerBatchDelete(
-      ids,
-      (chunk) => batchDeleteNumberingRulesApi(chunk),
-      setBatchProgress,
-    )
-    finishBatch(ok, fail)
-    clearSelection()
-    await loadList()
-  } catch {
-    finishBatch(0, ids.length)
-  } finally {
-    batchDeleting.value = false
-  }
-}
-
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '520px'))
 
 const form = reactive({
-  name: '',
   format: '',
-  bizKey: null as NumberingBizKey | null,
   startValue: 1,
+  currentSeq: 0,
   resetCycle: 'none' as NumberingResetCycle,
-  sortOrder: 0,
   active: true,
+})
+
+/** 编辑弹窗：按当前格式 / 当前值实时预览下一编号 */
+const livePreview = computed(() => {
+  const format = form.format.trim()
+  if (!format) return '—'
+  const nextSeq = Math.max(Number(form.currentSeq) + 1, Number(form.startValue) || 0)
+  if (!Number.isFinite(nextSeq) || nextSeq < 0) return '—'
+  try {
+    return renderNumberingFormat(format, new Date(), nextSeq) || '—'
+  } catch {
+    return '—'
+  }
 })
 
 async function loadList() {
   loading.value = true
   try {
     const { data } = await fetchNumberingRules({ activeOnly: false })
-    list.value = data
+    // 仅展示已绑定业务的系统规则
+    list.value = data.filter((r) => !!r.bizKey)
   } finally {
     loading.value = false
   }
@@ -213,53 +129,20 @@ onMounted(() => {
   void loadList()
 })
 
-function openCreate() {
-  editing.value = null
-  Object.assign(form, {
-    name: '',
-    format: 'CSM%YY%04d',
-    bizKey: availableBizKeyOptions.value[0]?.value ?? null,
-    startValue: 1,
-    resetCycle: 'none' as NumberingResetCycle,
-    sortOrder: (sorted.value.at(-1)?.sortOrder ?? 0) + 1,
-    active: true,
-  })
-  formVisible.value = true
-}
-
 function openEdit(row: NumberingRule) {
   editing.value = row
   Object.assign(form, {
-    name: row.name,
     format: row.format,
-    bizKey: row.bizKey,
     startValue: row.startValue,
+    currentSeq: row.currentSeq,
     resetCycle: row.resetCycle,
-    sortOrder: row.sortOrder,
     active: row.active,
   })
   formVisible.value = true
 }
 
-function openCopy(row: NumberingRule) {
-  editing.value = null
-  Object.assign(form, {
-    name: `${row.name}_copy_${Date.now()}`,
-    format: row.format,
-    bizKey: null,
-    startValue: row.startValue,
-    resetCycle: row.resetCycle,
-    sortOrder: (sorted.value.at(-1)?.sortOrder ?? 0) + 1,
-    active: false,
-  })
-  formVisible.value = true
-}
-
 async function saveForm() {
-  if (!form.name.trim()) {
-    ElMessage.warning(t('autoNumbering.nameRequired'))
-    return
-  }
+  if (!editing.value) return
   if (!form.format.trim()) {
     ElMessage.warning(t('autoNumbering.formatRequired'))
     return
@@ -269,22 +152,14 @@ async function saveForm() {
     return
   }
   try {
-    const payload = {
-      name: form.name.trim(),
+    await updateNumberingRuleApi(editing.value.id, {
       format: form.format.trim(),
-      bizKey: form.bizKey,
       startValue: form.startValue,
+      currentSeq: form.currentSeq,
       resetCycle: form.resetCycle,
-      sortOrder: form.sortOrder,
       active: form.active,
-    }
-    if (editing.value) {
-      await updateNumberingRuleApi(editing.value.id, payload)
-      ElMessage.success(t('autoNumbering.updated'))
-    } else {
-      await createNumberingRuleApi(payload)
-      ElMessage.success(t('autoNumbering.created'))
-    }
+    })
+    ElMessage.success(t('autoNumbering.updated'))
     formVisible.value = false
     await loadList()
     resetPage()
@@ -293,25 +168,10 @@ async function saveForm() {
   }
 }
 
-async function onDelete(row: NumberingRule) {
-  try {
-    await ElMessageBox.confirm(
-      t('autoNumbering.deleteConfirm', { name: row.name }),
-      t('common.deleteTitle'),
-      { type: 'warning' },
-    )
-    await deleteNumberingRuleApi(row.id)
-    ElMessage.success(t('autoNumbering.deleted'))
-    await loadList()
-  } catch {
-    /* cancel */
-  }
-}
-
 async function onReset(row: NumberingRule) {
   try {
     await ElMessageBox.confirm(
-      t('autoNumbering.resetConfirm', { name: row.name }),
+      t('autoNumbering.resetConfirm', { name: displayName(row) }),
       t('autoNumbering.reset'),
       { type: 'warning' },
     )
@@ -331,11 +191,6 @@ async function toggleActive(row: NumberingRule) {
     /* interceptor */
   }
 }
-
-function bizKeyLabel(key: NumberingBizKey | null) {
-  if (!key) return '—'
-  return t(`autoNumbering.bizKey.${key}`)
-}
 </script>
 
 <template>
@@ -344,16 +199,12 @@ function bizKeyLabel(key: NumberingBizKey | null) {
       <h2>{{ t('menu.autoNumbering') }}</h2>
       <div class="head-actions">
         <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
-          {{ t('autoNumbering.create') }}
-        </el-button>
       </div>
     </div>
 
     <div class="table-card" v-loading="loading">
       <div class="table-scroll">
         <el-table
-          ref="tableRef"
           :key="tableLayoutKey"
           :data="paged"
           row-key="id"
@@ -362,16 +213,7 @@ function bizKeyLabel(key: NumberingBizKey | null) {
           border
           empty-text="—"
           style="width: 100%"
-          @selection-change="onSelectionChange"
         >
-          <el-table-column
-            type="selection"
-            width="48"
-            fixed="left"
-            align="center"
-            header-align="center"
-            reserve-selection
-          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -394,24 +236,10 @@ function bizKeyLabel(key: NumberingBizKey | null) {
             </template>
             <template #default="{ row }">
               <button type="button" class="name-edit-link" @click="openEdit(row)">
-                <span>{{ row.name }}</span>
+                <span>{{ displayName(row) }}</span>
                 <el-icon :size="14" class="name-edit-link__icon"><EditPen /></el-icon>
               </button>
             </template>
-          </el-table-column>
-          <el-table-column
-            :min-width="colW(t('autoNumbering.fields.bizKey'), { interactive: true, contentMin: 140 })"
-          >
-            <template #header>
-              <TableColumnHeader
-                :label="t('autoNumbering.fields.bizKey')"
-                filterable
-                :options="bizKeyFilterOptions"
-                :model-value="filters.bizKey || []"
-                @update:model-value="(v) => setFilter('bizKey', v)"
-              />
-            </template>
-            <template #default="{ row }">{{ bizKeyLabel(row.bizKey) }}</template>
           </el-table-column>
           <el-table-column
             :min-width="codeColW(t('autoNumbering.fields.format'), { interactive: true, samples: list.map((r) => r.format) })"
@@ -457,6 +285,19 @@ function bizKeyLabel(key: NumberingBizKey | null) {
             <template #default="{ row }">{{ row.startValue }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('autoNumbering.fields.currentSeq'), { interactive: true, contentMin: 100 })"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('autoNumbering.fields.currentSeq')"
+                sortable
+                :sort-order="sortOrderOf('currentSeq')"
+                @update:sort-order="(v) => setSort('currentSeq', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.currentSeq }}</template>
+          </el-table-column>
+          <el-table-column
             :min-width="colW(t('autoNumbering.fields.resetCycle'), { interactive: true, contentMin: 120 })"
           >
             <template #header>
@@ -486,30 +327,6 @@ function bizKeyLabel(key: NumberingBizKey | null) {
             </template>
             <template #default="{ row }">
               <el-switch :model-value="row.active" @change="() => toggleActive(row)" />
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
-            :min-width="auditUserColWidth"
-            show-overflow-tooltip
-          />
-          <el-table-column
-            prop="createdAt"
-            :width="datetimeColWidth"
-            class-name="col-datetime"
-            label-class-name="col-datetime"
-          >
-            <template #header>
-              <TableColumnHeader
-                :label="t('common.createdAt')"
-                sortable
-                date-range
-                :sort-order="sortOrderOf('createdAt')"
-                :date-range-value="dateRangeOf('createdAt')"
-                @update:sort-order="(v) => setSort('createdAt', v)"
-                @update:date-range-value="(v) => setDateRange('createdAt', v)"
-              />
             </template>
           </el-table-column>
           <el-table-column
@@ -545,14 +362,11 @@ function bizKeyLabel(key: NumberingBizKey | null) {
           >
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--edit" @click="openCopy(row)">
-                  {{ t('autoNumbering.copy') }}
+                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+                  {{ t('autoNumbering.edit') }}
                 </button>
                 <button type="button" class="action-pill action-pill--warn" @click="onReset(row)">
                   {{ t('autoNumbering.reset') }}
-                </button>
-                <button type="button" class="action-pill action-pill--danger" @click="onDelete(row)">
-                  {{ t('common.delete') }}
                 </button>
               </div>
             </template>
@@ -565,62 +379,52 @@ function bizKeyLabel(key: NumberingBizKey | null) {
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="pageSizes"
-          :selected-count="selectedCount"
-          enable-select-all
-          :select-all-loading="selectAllLoading"
-          @select-all="onSelectAll"
-          @clear-selection="clearSelection"
-        >
-          <template #batch>
-            <button
-              type="button"
-              class="lb-pager__batch-btn"
-              :disabled="batchDeleting || selectAllLoading"
-              @click="onBatchDelete"
-            >
-              {{ t('common.batchDelete') }}
-            </button>
-          </template>
-        </TablePagination>
+        />
       </div>
     </div>
 
     <el-dialog
       v-model="formVisible"
-      :title="editing ? t('autoNumbering.edit') : t('autoNumbering.create')"
+      :title="t('autoNumbering.edit')"
       :width="dialogWidth"
       destroy-on-close
     >
       <el-form label-position="top">
-        <el-form-item :label="t('autoNumbering.fields.name')" required>
-          <el-input v-model="form.name" />
+        <el-form-item :label="t('autoNumbering.fields.name')">
+          <el-input :model-value="editing ? displayName(editing) : ''" disabled />
         </el-form-item>
         <el-form-item :label="t('autoNumbering.fields.format')" required>
           <el-input v-model="form.format" />
           <div class="form-hint">{{ t('autoNumbering.formatHint') }}</div>
         </el-form-item>
-        <el-form-item :label="t('autoNumbering.fields.bizKey')">
-          <el-select
-            v-model="form.bizKey"
-            clearable
-            :placeholder="t('autoNumbering.bizKeyOptional')"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="opt in availableBizKeyOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('autoNumbering.fields.startValue')">
-          <el-input-number
-            v-model="form.startValue"
-            :min="0"
-            controls-position="right"
-            style="width: 100%"
-          />
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="t('autoNumbering.fields.startValue')">
+              <el-input-number
+                v-model="form.startValue"
+                :min="0"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="t('autoNumbering.fields.currentSeq')">
+              <el-input-number
+                v-model="form.currentSeq"
+                :min="0"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <div class="form-hint form-hint--row">{{ t('autoNumbering.currentSeqHint') }}</div>
+        <el-form-item :label="t('autoNumbering.livePreview')">
+          <div class="live-preview" aria-live="polite">
+            <code class="live-preview__code">{{ livePreview }}</code>
+            <span class="live-preview__hint">{{ t('autoNumbering.livePreviewHint') }}</span>
+          </div>
         </el-form-item>
         <el-form-item :label="t('autoNumbering.fields.resetCycle')">
           <el-select v-model="form.resetCycle" style="width: 100%">
@@ -632,24 +436,9 @@ function bizKeyLabel(key: NumberingBizKey | null) {
             />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('autoNumbering.fields.sortOrder')">
-          <el-input-number
-            v-model="form.sortOrder"
-            :min="0"
-            controls-position="right"
-            style="width: 100%"
-          />
-        </el-form-item>
         <el-form-item :label="t('autoNumbering.fields.active')">
           <el-switch v-model="form.active" />
         </el-form-item>
-        <AuditDetailSection
-          v-if="editing"
-          :created-by="editing.createdBy"
-          :created-at="editing.createdAt"
-          :updated-by="editing.updatedBy"
-          :updated-at="editing.updatedAt"
-        />
       </el-form>
       <template #footer>
         <div class="dialog-footer">
@@ -660,18 +449,6 @@ function bizKeyLabel(key: NumberingBizKey | null) {
         </div>
       </template>
     </el-dialog>
-
-    <BatchProgressDialog
-      v-model="batchState.visible"
-      :phase="batchState.phase"
-      :total="batchState.total"
-      :current="batchState.current"
-      :percentage="batchPercentage"
-      :ok="batchState.ok"
-      :fail="batchState.fail"
-      :result-tone="batchState.resultTone"
-      @close="closeBatch"
-    />
   </div>
 </template>
 
@@ -702,5 +479,32 @@ function bizKeyLabel(key: NumberingBizKey | null) {
   line-height: 1.45;
   color: var(--el-text-color-secondary);
   white-space: pre-line;
+}
+.form-hint--row {
+  margin-top: -10px;
+  margin-bottom: 14px;
+}
+.live-preview {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  background: #f6f8f7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.live-preview__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #0f4a32;
+  word-break: break-all;
+  line-height: 1.35;
+}
+.live-preview__hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
 }
 </style>

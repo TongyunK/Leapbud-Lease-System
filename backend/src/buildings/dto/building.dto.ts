@@ -74,11 +74,6 @@ export class CreateBuildingDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  buildingConfig?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
   chequePaymentBy?: string;
 
   @ApiPropertyOptional()
@@ -168,11 +163,6 @@ export class UpdateBuildingDto {
   @IsOptional()
   @IsString()
   useWbaNumber?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  buildingConfig?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

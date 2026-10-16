@@ -26,7 +26,8 @@ services:
     ports:
       - "3411:3410"
     volumes:
-      - leapbud_uploads_data_volumes:/app/uploads
+      # 宿主机根目录（蓝绿共用）。其下应有 upload/（旧附件）与 document-templates/（新模板）
+      - ${UPLOADS_HOST_PATH:-/opt/project-deployment/leapbud-lease}:/app/uploads
     networks:
       - leapbud-lease-network
     healthcheck:
@@ -58,11 +59,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
-
-volumes:
-  leapbud_uploads_data_volumes:
-    name: leapbud_uploads_data_volumes
-    driver: local
 
 networks:
   leapbud-lease-network:

@@ -4,14 +4,19 @@ import {
   fetchRooms,
   createRoomApi,
   updateRoomApi,
+  deleteRoomApi,
   batchDeleteRoomsApi,
   importRoomsApi,
+  uploadRoomImagesApi,
+  deleteRoomImageApi,
+  fetchRoomImageBlob,
 } from '@/api/rooms'
 import type { RoomListQuery, RoomWritePayload } from '@/api/rooms'
-import { fetchRoomConfigs } from '@/api/room-configs'
+import { fetchRoomConfigs, matchSizeOption } from '@/api/room-configs'
 import { fetchRoomTypes } from '@/api/room-types'
 import type { BuildingRecord } from '@/types/building'
-import type { RoomRecord, RoomStatus } from '@/types/room'
+import type { RoomImageRecord, RoomRecord, RoomStatus } from '@/types/room'
+import RoomImageGallery from '@/components/RoomImageGallery.vue'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { RoomTypeOption } from '@/types/room-type'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -54,9 +59,9 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search, CaretLeft, CaretRight, Upload, Download } from '@element-plus/icons-vue'
+import { Download, Filter, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
@@ -78,6 +83,116 @@ const relatedListRoom = ref<RoomRecord | null>(null)
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const formVisible = ref(false)
 const current = ref<RoomRecord | null>(null)
+const formExistingImages = ref<RoomImageRecord[]>([])
+const formPendingImages = ref<Array<{ key: string; file: File; previewUrl: string }>>([])
+const formRemovedImageIds = ref<string[]>([])
+const formExistingUrlById = ref<Record<string, string>>({})
+const formImagesExpanded = ref(false)
+const imageFileInput = ref<HTMLInputElement | null>(null)
+const formImageCollapseAt = 6
+const formExistingObjectUrls: string[] = []
+
+const formPreviewList = computed(() => {
+  const existing = formExistingImages.value
+    .map((img) => formExistingUrlById.value[img.id])
+    .filter(Boolean) as string[]
+  return [...existing, ...formPendingImages.value.map((p) => p.previewUrl)]
+})
+
+const formTotalImageCount = computed(
+  () => formExistingImages.value.length + formPendingImages.value.length,
+)
+
+const formVisibleExisting = computed(() => {
+  if (formImagesExpanded.value || formTotalImageCount.value <= formImageCollapseAt) {
+    return formExistingImages.value
+  }
+  return formExistingImages.value.slice(0, formImageCollapseAt)
+})
+
+const formVisiblePending = computed(() => {
+  if (formImagesExpanded.value || formTotalImageCount.value <= formImageCollapseAt) {
+    return formPendingImages.value
+  }
+  const remain = Math.max(0, formImageCollapseAt - formExistingImages.value.length)
+  return formPendingImages.value.slice(0, remain)
+})
+
+const formHiddenImageCount = computed(() =>
+  Math.max(0, formTotalImageCount.value - formImageCollapseAt),
+)
+
+async function loadFormExistingUrls() {
+  for (const u of formExistingObjectUrls) URL.revokeObjectURL(u)
+  formExistingObjectUrls.length = 0
+  const roomId = editing.value?.id
+  const next: Record<string, string> = {}
+  if (!roomId) {
+    formExistingUrlById.value = {}
+    return
+  }
+  await Promise.all(
+    formExistingImages.value.map(async (img) => {
+      if (img.publicUrl) {
+        next[img.id] = img.publicUrl
+        return
+      }
+      try {
+        const blob = await fetchRoomImageBlob(roomId, img.id)
+        const url = URL.createObjectURL(blob)
+        formExistingObjectUrls.push(url)
+        next[img.id] = url
+      } catch {
+        /* skip */
+      }
+    }),
+  )
+  formExistingUrlById.value = next
+}
+
+function resetFormImages() {
+  for (const p of formPendingImages.value) URL.revokeObjectURL(p.previewUrl)
+  for (const u of formExistingObjectUrls) URL.revokeObjectURL(u)
+  formExistingObjectUrls.length = 0
+  formExistingImages.value = []
+  formPendingImages.value = []
+  formRemovedImageIds.value = []
+  formExistingUrlById.value = {}
+  formImagesExpanded.value = false
+}
+
+function onPickRoomImages(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files || []).filter((f) => f.type.startsWith('image/'))
+  input.value = ''
+  for (const file of files) {
+    formPendingImages.value.push({
+      key: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    })
+  }
+}
+
+function removePendingImage(key: string) {
+  const idx = formPendingImages.value.findIndex((p) => p.key === key)
+  if (idx < 0) return
+  URL.revokeObjectURL(formPendingImages.value[idx].previewUrl)
+  formPendingImages.value.splice(idx, 1)
+}
+
+function removeExistingImage(id: string) {
+  formExistingImages.value = formExistingImages.value.filter((img) => img.id !== id)
+  if (!formRemovedImageIds.value.includes(id)) formRemovedImageIds.value.push(id)
+  const { [id]: _removed, ...rest } = formExistingUrlById.value
+  formExistingUrlById.value = rest
+}
+
+function formPreviewIndex(url?: string) {
+  if (!url) return 0
+  const idx = formPreviewList.value.indexOf(url)
+  return idx >= 0 ? idx : 0
+}
 const editing = ref<RoomRecord | null>(null)
 
 
@@ -106,7 +221,6 @@ const {
   dateRangeOf,
   dateRanges,
   sortOrderOf,
-  activeConditionCount,
   clearAll,
   sortKey,
   sortOrder,
@@ -235,6 +349,7 @@ async function onBatchDelete() {
     const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteRoomsApi(chunk), setBatchProgress)
     finishBatch(ok, fail)
     clearSelection()
+    await loadOptions()
     await loadList()
   } catch {
     finishBatch(0, ids.length)
@@ -243,76 +358,62 @@ async function onBatchDelete() {
   }
 }
 
-const buildingChips = computed(() =>
+const headBuildingOptions = computed(() =>
   buildings.value
-    .filter((b) => b.active && (b.roomIds?.length || 0) > 0)
-    .map((b) => ({ id: b.id, name: b.name, count: b.roomIds.length })),
+    .filter((b) => b.active)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    .map((b) => ({
+      id: b.id,
+      name: b.name,
+      count: b.roomIds?.length || 0,
+    })),
 )
 
 const allBuildingCount = computed(() =>
   buildings.value.reduce((sum, b) => sum + (b.roomIds?.length || 0), 0),
 )
 
-const activeBuildingChip = computed(() => {
-  const selected = filters.buildingId || []
-  return selected.length === 1 ? selected[0] : ''
+/** 单选大厦筛选：哨兵值表示「全部」 */
+const ALL_BUILDINGS = '__all__'
+
+const filterBuildingId = computed({
+  get: () => {
+    const selected = filters.buildingId || []
+    return selected.length === 1 ? selected[0]! : ALL_BUILDINGS
+  },
+  set: (id: string) => setFilter('buildingId', !id || id === ALL_BUILDINGS ? [] : [id]),
 })
 
-function selectBuildingChip(id: string) {
-  setFilter('buildingId', id ? [id] : [])
-}
-
-/** 自定义细滚动条 + 头尾箭头；系统滚动条不参与布局，胶囊与标题中线对齐 */
-const buildingChipsEl = ref<HTMLElement | null>(null)
-const buildingChipsOverflow = ref(false)
-const canScrollBuildingChipsLeft = ref(false)
-const canScrollBuildingChipsRight = ref(false)
-const buildingChipsThumbStyle = ref<Record<string, string>>({})
-let buildingChipsRo: ResizeObserver | null = null
-
-function syncBuildingChipsScroll() {
-  const el = buildingChipsEl.value
-  if (!el) return
-  const { scrollLeft, scrollWidth, clientWidth } = el
-  const overflow = scrollWidth > clientWidth + 1
-  buildingChipsOverflow.value = overflow
-  canScrollBuildingChipsLeft.value = overflow && scrollLeft > 1
-  canScrollBuildingChipsRight.value = overflow && scrollLeft < scrollWidth - clientWidth - 1
-  if (!overflow) {
-    buildingChipsThumbStyle.value = {}
-    return
+const selectedBuildingChipLabel = computed(() => {
+  const id = filterBuildingId.value
+  if (id === ALL_BUILDINGS) {
+    return `${t('room.filterAllBuildings')} (${allBuildingCount.value})`
   }
-  const widthPct = (clientWidth / scrollWidth) * 100
-  const leftPct = (scrollLeft / scrollWidth) * 100
-  buildingChipsThumbStyle.value = {
-    width: `${widthPct}%`,
-    left: `${leftPct}%`,
+  const hit = headBuildingOptions.value.find((b) => b.id === id)
+  const name = hit?.name || id
+  const count = hit?.count ?? 0
+  return `${name} (${count})`
+})
+
+/** 清空筛选只统计表头条件，不含顶部大厦筛选 */
+const tableHeaderConditionCount = computed(() => {
+  let n = 0
+  for (const [key, selected] of Object.entries(filters)) {
+    if (key === 'buildingId') continue
+    if (selected?.length) n += 1
   }
-}
+  for (const range of Object.values(dateRanges)) {
+    if (range?.[0] && range?.[1]) n += 1
+  }
+  if (sortKey.value && sortOrder.value) n += 1
+  return n
+})
 
-function scrollBuildingChips(dir: -1 | 1) {
-  const el = buildingChipsEl.value
-  if (!el) return
-  const step = Math.max(160, Math.floor(el.clientWidth * 0.55))
-  el.scrollBy({ left: dir * step, behavior: 'smooth' })
-}
-
-function onBuildingChipsWheel(e: WheelEvent) {
-  const el = buildingChipsEl.value
-  if (!el || !buildingChipsOverflow.value) return
-  const dominant =
-    Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-  if (dominant === 0) return
-  const max = el.scrollWidth - el.clientWidth
-  const next = Math.min(max, Math.max(0, el.scrollLeft + dominant))
-  if (next === el.scrollLeft) return
-  e.preventDefault()
-  el.scrollLeft = next
-  syncBuildingChipsScroll()
-}
-
-function selectRoomType(type: string) {
-  form.roomType = type
+function onClearTableHeaderFilters() {
+  const kept = filters.buildingId?.length ? [...filters.buildingId] : []
+  onClearFilters()
+  if (kept.length) setFilter('buildingId', kept)
 }
 
 function toneForLabel(label: string) {
@@ -334,37 +435,23 @@ async function loadOptions() {
 }
 
 onMounted(() => {
-  void loadOptions().then(() => nextTick(syncBuildingChipsScroll))
+  void loadOptions()
   void loadList()
-  void nextTick(() => {
-    const el = buildingChipsEl.value
-    if (el && typeof ResizeObserver !== 'undefined') {
-      buildingChipsRo = new ResizeObserver(() => syncBuildingChipsScroll())
-      buildingChipsRo.observe(el)
-    }
-    window.addEventListener('resize', syncBuildingChipsScroll)
-  })
 })
 
-onBeforeUnmount(() => {
-  buildingChipsRo?.disconnect()
-  window.removeEventListener('resize', syncBuildingChipsScroll)
+watch(formVisible, (open) => {
+  if (!open) resetFormImages()
 })
 
-watch(buildingChips, async () => {
-  await nextTick()
-  syncBuildingChipsScroll()
-})
-
-const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '860px'))
 const drawerSize = computed(() => (isMobile.value ? '92%' : '560px'))
 
 const form = reactive({
   roomCode: '',
   name: '',
-    roomType: roomTypeOptions.value[0]?.label || '辦公室',
-    buildingId: '',
-    status: 'idle' as RoomStatus,
+  roomType: '',
+  buildingId: '',
+  status: 'idle' as RoomStatus,
   serialNo: '',
   monthlyRent: 0,
   dailyRent: 0,
@@ -375,6 +462,12 @@ const form = reactive({
   windowConfig: '',
   acConfig: '',
   subleaseMark: '',
+})
+
+const matchedSizeOption = computed(() => {
+  const n = Number(form.sizeSqft)
+  if (!Number.isFinite(n) || n <= 0) return undefined
+  return matchSizeOption(sizeOptions.value, n)
 })
 
 const formBuildingOptions = computed(() => {
@@ -619,11 +712,19 @@ async function runImportFile(ev: Event) {
 
 function openCreate() {
   editing.value = null
+  resetFormImages()
+  const chipBuildingId = filterBuildingId.value
+  const defaultBuildingId =
+    chipBuildingId &&
+    chipBuildingId !== ALL_BUILDINGS &&
+    buildings.value.some((b) => b.id === chipBuildingId && b.active)
+      ? chipBuildingId
+      : ''
   Object.assign(form, {
     roomCode: '',
     name: '',
-    roomType: roomTypeOptions.value[0]?.label || '辦公室',
-    buildingId: buildings.value.find((b) => b.active)?.id || '',
+    roomType: '',
+    buildingId: defaultBuildingId,
     status: 'idle',
     serialNo: '',
     monthlyRent: 0,
@@ -641,6 +742,8 @@ function openCreate() {
 
 function openEdit(row: RoomRecord) {
   editing.value = row
+  resetFormImages()
+  formExistingImages.value = [...(row.images || [])]
   Object.assign(form, {
     roomCode: row.roomCode,
     name: row.name,
@@ -659,6 +762,31 @@ function openEdit(row: RoomRecord) {
     subleaseMark: row.subleaseMark || '',
   })
   formVisible.value = true
+  void loadFormExistingUrls()
+}
+
+function canDeleteRoom(row: RoomRecord) {
+  return !(row.contractCount ?? 0)
+}
+
+async function onDelete(row: RoomRecord) {
+  if (!canDeleteRoom(row)) {
+    ElMessage.warning(t('room.deleteBlockedHasContracts'))
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      t('room.deleteConfirm', { code: row.roomCode || row.name }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+    await deleteRoomApi(row.id)
+    ElMessage.success(t('room.deleted'))
+    await loadOptions()
+    await loadList()
+  } catch {
+    /* cancel or interceptor */
+  }
 }
 
 function acOptionLabel(opt: RoomConfigOption) {
@@ -668,8 +796,20 @@ function acOptionLabel(opt: RoomConfigOption) {
 
 async function saveForm() {
   if (!form.roomCode.trim() || !form.name.trim()) return
+  if (!form.roomType.trim()) {
+    ElMessage.warning(t('room.roomTypeRequired'))
+    return
+  }
   if (!form.buildingId) {
     ElMessage.warning(t('room.buildingRequired'))
+    return
+  }
+  if (!(Number(form.monthlyRent) > 0)) {
+    ElMessage.warning(t('room.monthlyRentRequired'))
+    return
+  }
+  if (!(Number(form.sizeSqft) > 0)) {
+    ElMessage.warning(t('room.sizeSqftRequired'))
     return
   }
   const payload: RoomWritePayload = {
@@ -690,16 +830,26 @@ async function saveForm() {
     subleaseMark: form.subleaseMark,
   }
   try {
+    let roomId = editing.value?.id || ''
     if (editing.value) {
       await updateRoomApi(editing.value.id, payload)
+      for (const imageId of formRemovedImageIds.value) {
+        await deleteRoomImageApi(editing.value.id, imageId)
+      }
     } else {
       if (!isAdmin.value) {
         ElMessage.warning(t('room.importAdminOnly'))
         return
       }
-      await createRoomApi(payload)
+      const created = await createRoomApi(payload)
+      roomId = created.data.id
+    }
+    const pendingFiles = formPendingImages.value.map((p) => p.file)
+    if (roomId && pendingFiles.length) {
+      await uploadRoomImagesApi(roomId, pendingFiles)
     }
     formVisible.value = false
+    resetFormImages()
     await loadOptions()
     await loadList()
   } catch {
@@ -710,74 +860,40 @@ async function saveForm() {
 
 <template>
   <div class="admin-page">
-    <div class="admin-page-head admin-page-head--with-chips">
+    <div class="admin-page-head">
       <h2>{{ t('menu.rooms') }}</h2>
-      <div
-        class="building-chips-rail"
-        :class="{ 'is-overflow': buildingChipsOverflow }"
-        @wheel="onBuildingChipsWheel"
+      <el-select
+        v-model="filterBuildingId"
+        filterable
+        class="head-building-chip-select"
+        popper-class="head-building-filter-popper"
+        :placeholder="t('room.filterBuilding')"
+        :title="selectedBuildingChipLabel"
       >
-        <button
-          v-show="buildingChipsOverflow"
-          type="button"
-          class="building-chips-nav is-prev"
-          :disabled="!canScrollBuildingChipsLeft"
-          :aria-label="t('room.scrollChipsLeft')"
-          @click="scrollBuildingChips(-1)"
+        <template #prefix>
+          <el-icon class="head-building-chip-select__filter"><Filter /></el-icon>
+        </template>
+        <el-option
+          :label="`${t('room.filterAllBuildings')} (${allBuildingCount})`"
+          :value="ALL_BUILDINGS"
         >
-          <el-icon :size="14"><CaretLeft /></el-icon>
-        </button>
-        <div
-          ref="buildingChipsEl"
-          class="building-chips"
-          role="tablist"
-          :aria-label="t('room.filterBuilding')"
-          @scroll="syncBuildingChipsScroll"
+          <div class="head-building-option">
+            <span class="head-building-option__label">{{ t('room.filterAllBuildings') }}</span>
+            <span class="head-building-option__count">{{ allBuildingCount }}</span>
+          </div>
+        </el-option>
+        <el-option
+          v-for="b in headBuildingOptions"
+          :key="b.id"
+          :label="`${b.name} (${b.count})`"
+          :value="b.id"
         >
-          <button
-            type="button"
-            role="tab"
-            class="building-chip"
-            :class="{ 'is-active': !activeBuildingChip }"
-            :aria-selected="!activeBuildingChip"
-            @click="selectBuildingChip('')"
-          >
-            {{ t('room.filterAllBuildings') }}
-            <span class="building-chip__count">({{ allBuildingCount }})</span>
-          </button>
-          <button
-            v-for="chip in buildingChips"
-            :key="chip.id"
-            type="button"
-            role="tab"
-            class="building-chip"
-            :class="{ 'is-active': activeBuildingChip === chip.id }"
-            :aria-selected="activeBuildingChip === chip.id"
-            :title="chip.name"
-            @click="selectBuildingChip(chip.id)"
-          >
-            <span class="building-chip__name">{{ chip.name }}</span>
-            <span class="building-chip__count">({{ chip.count }})</span>
-          </button>
-        </div>
-        <button
-          v-show="buildingChipsOverflow"
-          type="button"
-          class="building-chips-nav is-next"
-          :disabled="!canScrollBuildingChipsRight"
-          :aria-label="t('room.scrollChipsRight')"
-          @click="scrollBuildingChips(1)"
-        >
-          <el-icon :size="14"><CaretRight /></el-icon>
-        </button>
-        <div
-          v-show="buildingChipsOverflow"
-          class="building-chips-hscroll"
-          aria-hidden="true"
-        >
-          <div class="building-chips-hscroll__thumb" :style="buildingChipsThumbStyle" />
-        </div>
-      </div>
+          <div class="head-building-option">
+            <span class="head-building-option__label">{{ b.name }}</span>
+            <span class="head-building-option__count">{{ b.count }}</span>
+          </div>
+        </el-option>
+      </el-select>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -786,7 +902,7 @@ async function saveForm() {
           :prefix-icon="Search"
           :placeholder="t('room.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
+        <ClearTableFiltersButton :count="tableHeaderConditionCount" @clear="onClearTableHeaderFilters" />
         <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('room.create') }}
         </el-button>
@@ -1152,7 +1268,7 @@ async function saveForm() {
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="actionColWidth.three"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -1164,6 +1280,17 @@ async function saveForm() {
                 </button>
                 <button type="button" class="action-pill action-pill--edit" @click="openEdit(row as RoomRecord)">
                   {{ t('common.edit') }}
+                </button>
+                <button
+                  type="button"
+                  class="action-pill action-pill--danger"
+                  :disabled="!canDeleteRoom(row as RoomRecord)"
+                  :title="
+                    canDeleteRoom(row as RoomRecord) ? undefined : t('room.deleteBlockedHasContracts')
+                  "
+                  @click="onDelete(row as RoomRecord)"
+                >
+                  {{ t('common.delete') }}
                 </button>
               </div>
             </template>
@@ -1247,6 +1374,15 @@ async function saveForm() {
           <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
             {{ t('common.edit') }}
           </button>
+          <button
+            type="button"
+            class="action-pill action-pill--danger"
+            :disabled="!canDeleteRoom(row)"
+            :title="canDeleteRoom(row) ? undefined : t('room.deleteBlockedHasContracts')"
+            @click="onDelete(row)"
+          >
+            {{ t('common.delete') }}
+          </button>
         </div>
       </article>
       <el-empty v-if="!list.length" />
@@ -1305,13 +1441,7 @@ async function saveForm() {
 
         <section class="detail-section">
           <h3>{{ t('room.sections.media') }}</h3>
-          <div class="image-row">
-            <div v-for="(src, idx) in [current.image1, current.image2, current.image3]" :key="idx" class="image-item">
-              <span>{{ t('room.fields.image') }} {{ idx + 1 }}</span>
-              <img v-if="src" :src="src" alt="" />
-              <em v-else>—</em>
-            </div>
-          </div>
+          <RoomImageGallery :room-id="current.id" :images="current.images || []" />
           <dl class="detail-grid" style="margin-top: 14px">
             <div><dt>{{ t('room.fields.description') }}</dt><dd>{{ current.description || '—' }}</dd></div>
             <div><dt>{{ t('room.fields.remark') }}</dt><dd>{{ current.remark || '—' }}</dd></div>
@@ -1425,7 +1555,7 @@ async function saveForm() {
       class="lb-dialog"
     >
       <el-form label-position="top">
-        <div class="form-grid">
+        <div class="form-grid form-grid--3">
           <div class="form-section">
             <h3>{{ t('room.sections.basic') }}</h3>
           </div>
@@ -1435,27 +1565,20 @@ async function saveForm() {
           <el-form-item :label="t('room.fields.name')" required>
             <el-input v-model="form.name" />
           </el-form-item>
-          <el-form-item :label="t('room.fields.roomType')">
-            <div class="lb-room-type-picker" role="radiogroup" :aria-label="t('room.fields.roomType')">
-              <button
+          <el-form-item :label="t('room.fields.roomType')" required>
+            <el-select v-model="form.roomType" style="width: 100%" :placeholder="t('common.pleaseSelect')">
+              <el-option
                 v-for="opt in roomTypeOptions"
                 :key="opt.id"
-                type="button"
-                role="radio"
-                class="lb-room-type-picker__item"
-                :class="[
-                  `lb-room-type-picker__item--${opt.tone}`,
-                  { 'is-active': form.roomType === opt.label },
-                ]"
-                :aria-checked="form.roomType === opt.label"
-                @click="selectRoomType(opt.label)"
+                :label="opt.label"
+                :value="opt.label"
               >
                 <RoomTypeBadge :value="opt.label" :tone="opt.tone" />
-              </button>
-            </div>
+              </el-option>
+            </el-select>
           </el-form-item>
-          <el-form-item :label="t('room.fields.building')">
-            <el-select v-model="form.buildingId" style="width: 100%">
+          <el-form-item :label="t('room.fields.building')" required>
+            <el-select v-model="form.buildingId" style="width: 100%" :placeholder="t('common.pleaseSelect')">
               <el-option v-for="b in formBuildingOptions" :key="b.id" :label="b.name" :value="b.id" />
             </el-select>
           </el-form-item>
@@ -1464,14 +1587,14 @@ async function saveForm() {
               <el-option v-for="s in statusOptions" :key="s" :label="t(`room.status.${s}`)" :value="s" />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('room.fields.serialNo')">
-            <el-input v-model="form.serialNo" />
+          <el-form-item :label="t('room.fields.subleaseMark')">
+            <el-input v-model="form.subleaseMark" />
           </el-form-item>
 
           <div class="form-section">
             <h3>{{ t('room.sections.pricing') }}</h3>
           </div>
-          <el-form-item :label="t('room.fields.monthlyRent')">
+          <el-form-item :label="t('room.fields.monthlyRent')" required>
             <el-input-number v-model="form.monthlyRent" :min="0" :precision="2" :step="0.01" style="width: 100%" />
           </el-form-item>
           <el-form-item :label="t('room.fields.dailyRent')">
@@ -1480,7 +1603,11 @@ async function saveForm() {
           <el-form-item :label="t('room.fields.hourlyRent')">
             <el-input-number v-model="form.hourlyRent" :min="0" :precision="2" :step="0.01" style="width: 100%" />
           </el-form-item>
-          <el-form-item :label="t('room.fields.sizeSqft')">
+
+          <div class="form-section">
+            <h3>{{ t('room.sections.config') }}</h3>
+          </div>
+          <el-form-item :label="t('room.fields.sizeSqft')" required>
             <el-input-number
               v-model="form.sizeSqft"
               :min="0"
@@ -1488,11 +1615,13 @@ async function saveForm() {
               :step="0.01"
               style="width: 100%"
             />
+            <p v-if="matchedSizeOption" class="form-section-hint room-size-match-hint">
+              {{ t('room.sizeRangeMatched', { label: matchedSizeOption.label }) }}
+            </p>
+            <p v-else-if="form.sizeSqft > 0" class="form-section-hint room-size-match-hint">
+              {{ t('room.sizeRangeUnmatched') }}
+            </p>
           </el-form-item>
-
-          <div class="form-section">
-            <h3>{{ t('room.sections.config') }}</h3>
-          </div>
           <el-form-item :label="t('room.fields.windowConfig')">
             <el-select v-model="form.windowConfig" clearable filterable style="width: 100%">
               <el-option v-for="o in windowOptions" :key="o.id" :label="o.label" :value="o.label" />
@@ -1508,15 +1637,96 @@ async function saveForm() {
               />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('room.fields.subleaseMark')">
-            <el-input v-model="form.subleaseMark" />
-          </el-form-item>
-          <el-form-item :label="t('room.fields.description')" class="span-2">
+          <el-form-item :label="t('room.fields.description')" class="span-3">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
-          <el-form-item :label="t('room.fields.remark')" class="span-2">
+          <el-form-item :label="t('room.fields.remark')" class="span-3">
             <el-input v-model="form.remark" type="textarea" :rows="2" />
           </el-form-item>
+
+          <div class="form-section">
+            <h3>{{ t('room.sections.media') }}</h3>
+          </div>
+          <div class="span-3 room-image-editor">
+            <div class="room-image-grid">
+              <div
+                v-for="img in formVisibleExisting"
+                :key="img.id"
+                class="room-image-tile"
+              >
+                <el-image
+                  class="room-image-tile__img"
+                  :src="formExistingUrlById[img.id]"
+                  :alt="img.fileName"
+                  fit="cover"
+                  :preview-src-list="formPreviewList"
+                  :initial-index="formPreviewIndex(formExistingUrlById[img.id])"
+                  preview-teleported
+                  hide-on-click-modal
+                />
+                <button
+                  type="button"
+                  class="room-image-tile__remove"
+                  :aria-label="t('common.delete')"
+                  @click.stop="removeExistingImage(img.id)"
+                >
+                  ×
+                </button>
+              </div>
+              <div
+                v-for="p in formVisiblePending"
+                :key="p.key"
+                class="room-image-tile"
+              >
+                <el-image
+                  class="room-image-tile__img"
+                  :src="p.previewUrl"
+                  :alt="p.file.name"
+                  fit="cover"
+                  :preview-src-list="formPreviewList"
+                  :initial-index="formPreviewIndex(p.previewUrl)"
+                  preview-teleported
+                  hide-on-click-modal
+                />
+                <button
+                  type="button"
+                  class="room-image-tile__remove"
+                  :aria-label="t('common.delete')"
+                  @click.stop="removePendingImage(p.key)"
+                >
+                  ×
+                </button>
+              </div>
+              <button
+                type="button"
+                class="room-image-add"
+                @click="imageFileInput?.click()"
+              >
+                <span>+</span>
+                <em>{{ t('room.addImages') }}</em>
+              </button>
+              <input
+                ref="imageFileInput"
+                type="file"
+                class="room-io-file"
+                accept="image/*"
+                multiple
+                @change="onPickRoomImages"
+              />
+            </div>
+            <button
+              v-if="formHiddenImageCount > 0"
+              type="button"
+              class="room-image-fold"
+              @click="formImagesExpanded = !formImagesExpanded"
+            >
+              {{
+                formImagesExpanded
+                  ? t('room.imagesCollapse')
+                  : t('room.imagesExpand', { n: formHiddenImageCount })
+              }}
+            </button>
+          </div>
         </div>
       </el-form>
       <template #footer>
@@ -1600,6 +1810,97 @@ async function saveForm() {
   object-fit: cover;
   border-radius: 10px;
   border: 1px solid var(--lb-border);
+}
+
+.room-size-match-hint {
+  margin: 6px 0 0;
+}
+
+.room-image-editor {
+  margin-bottom: 8px;
+}
+
+.room-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.room-image-tile {
+  position: relative;
+}
+
+.room-image-tile__img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  border: 1px solid var(--lb-border);
+  display: block;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: #f5f7f6;
+}
+
+.room-image-tile__img :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.room-image-tile__remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.room-image-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 90px;
+  border: 1px dashed var(--lb-border);
+  border-radius: 10px;
+  background: #f8faf9;
+  color: var(--lb-muted);
+  cursor: pointer;
+}
+
+.room-image-add span {
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--lb-brand);
+}
+
+.room-image-add em {
+  font-style: normal;
+  font-size: 0.75rem;
+}
+
+.room-image-fold {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--lb-brand);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.room-image-fold:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 640px) {

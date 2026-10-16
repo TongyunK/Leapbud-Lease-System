@@ -1,6 +1,33 @@
 import { Building, Room, Prisma } from '@prisma/client';
 import { auditActorLabel, auditUserInclude, type AuditUserRef } from './audit';
 
+/** 房间图片行（与 Prisma RoomImage 对齐；避免客户端未 generate 时类型断裂） */
+export type RoomImageRow = {
+  id: string;
+  roomId: string;
+  fileName: string;
+  storageKey: string;
+  sortOrder: number;
+};
+
+/** 公开/外部地址：可直接作 img src；否则走鉴权下载接口 */
+export function isExternalRoomImageKey(storageKey: string): boolean {
+  const key = (storageKey || '').trim();
+  return key.startsWith('/') || /^https?:\/\//i.test(key);
+}
+
+export function toRoomImageDto(row: RoomImageRow) {
+  const storageKey = row.storageKey ?? '';
+  const external = isExternalRoomImageKey(storageKey);
+  return {
+    id: row.id,
+    roomId: row.roomId,
+    fileName: row.fileName,
+    sortOrder: row.sortOrder,
+    publicUrl: external ? storageKey : undefined,
+  };
+}
+
 function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number {
   if (value == null) return 0;
   if (typeof value === 'number') return value;
@@ -43,15 +70,12 @@ export function toBuildingDto(row: BuildingWithRooms) {
     agreementTemplateId: row.agreementTemplateId ?? null,
     agreementTemplateName: row.agreementTemplateRef?.name ?? '',
     agreementTemplateFileName: row.agreementTemplateRef?.fileName ?? '',
-    agreementLogo: row.agreementLogo ?? undefined,
     apiTemplateSuffix: row.apiTemplateSuffix ?? undefined,
-    logo2: row.logo2 ?? undefined,
     email: row.email,
     workingHours: row.workingHours,
     invoiceTemplateId: row.invoiceTemplateId ?? null,
     invoiceTemplateName: row.invoiceTemplateRef?.name ?? '',
     invoiceTemplateFileName: row.invoiceTemplateRef?.fileName ?? '',
-    invoiceLogo: row.invoiceLogo ?? undefined,
     fpsId: row.fpsId ?? undefined,
     bankAccountHolder: row.bankAccountHolder ?? undefined,
     bankAccount: row.bankAccount ?? undefined,
@@ -60,11 +84,7 @@ export function toBuildingDto(row: BuildingWithRooms) {
     receiptTemplateId: row.receiptTemplateId ?? null,
     receiptTemplateName: row.receiptTemplateRef?.name ?? '',
     receiptTemplateFileName: row.receiptTemplateRef?.fileName ?? '',
-    receiptTopLogo: row.receiptTopLogo ?? undefined,
-    receiptLeftLogo: row.receiptLeftLogo ?? undefined,
-    receiptRightLogo: row.receiptRightLogo ?? undefined,
     roomIds: (row.rooms ?? []).map((r) => r.id),
-    buildingConfig: row.buildingConfig ?? undefined,
     useWbaNumber: row.useWbaNumber ?? undefined,
     active: row.active,
     createdBy: auditActorLabel(row.createdByUser),
@@ -82,6 +102,7 @@ export type RoomWithBuilding = Room & {
     depositRefunds: number;
   };
   building?: Pick<Building, 'name'> | null;
+  images?: RoomImageRow[];
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
 };
@@ -96,8 +117,11 @@ export const roomListInclude = {
     },
   },
   building: { select: { name: true } },
+  images: {
+    orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+  },
   ...auditUserInclude,
-} as const;
+};
 
 /** 对齐前端 RoomRecord */
 export function toRoomDto(row: RoomWithBuilding) {
@@ -114,9 +138,7 @@ export function toRoomDto(row: RoomWithBuilding) {
     dailyRent: decimalToNumber(row.dailyRent),
     hourlyRent: decimalToNumber(row.hourlyRent),
     sizeSqft: decimalToNumber(row.sizeSqft),
-    image1: row.image1 ?? undefined,
-    image2: row.image2 ?? undefined,
-    image3: row.image3 ?? undefined,
+    images: (row.images ?? []).map(toRoomImageDto),
     description: row.description ?? undefined,
     remark: row.remark ?? undefined,
     windowConfig: row.windowConfig ?? undefined,

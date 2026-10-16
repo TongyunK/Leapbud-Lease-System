@@ -48,6 +48,18 @@ init_env_file() {
     fi
 }
 
+ensure_uploads_host_path() {
+    # shellcheck disable=SC1091
+    [ -f .env ] && set -a && . ./.env && set +a
+    local uploads_path="${UPLOADS_HOST_PATH:-/opt/project-deployment/leapbud-lease}"
+    log_info "确保上传目录存在: $uploads_path"
+    if mkdir -p "$uploads_path" 2>/dev/null; then
+        log_success "上传目录就绪: $uploads_path"
+    else
+        log_warning "无法创建 $uploads_path，请用 sudo mkdir -p 后重试"
+    fi
+}
+
 create_network() {
     log_info "创建 Docker 网络 $NETWORK_NAME ..."
     docker network create "$NETWORK_NAME" 2>/dev/null || log_warning "网络可能已存在"
@@ -178,6 +190,7 @@ main() {
         blue)
             check_dependencies
             init_env_file
+            ensure_uploads_host_path
             create_network
             start_base_services
             deploy_blue
@@ -187,6 +200,7 @@ main() {
         green)
             check_dependencies
             init_env_file
+            ensure_uploads_host_path
             create_network
             start_base_services
             deploy_green

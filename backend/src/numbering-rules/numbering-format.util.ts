@@ -112,11 +112,6 @@ export const NUMBERING_DEFAULTS: Record<NumberingBizKey, NumberingRuleDefaults> 
     startValue: 1,
     resetCycle: NumberingResetCycle.daily,
   },
-  [NumberingBizKey.contract]: {
-    format: 'CTR%YY%MM%DD%04d',
-    startValue: 1,
-    resetCycle: NumberingResetCycle.daily,
-  },
   [NumberingBizKey.invoice]: {
     format: 'INV%YY%MM%DD%04d',
     startValue: 1,
