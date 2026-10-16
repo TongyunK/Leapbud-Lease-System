@@ -12,6 +12,8 @@ dist
 
 # Nginx SSL 私钥与证书（在 docker/nginx/ssl 下自行生成）
 docker/nginx/ssl/*.pem
+# 运行时由 deploy / switch-nginx-env 从 nginx.blue|green(.https).conf 生成，勿入库
+docker/nginx/nginx.conf
 docker/nginx/nginx.conf.backup.*
 
 # 本地数据 / 备份
