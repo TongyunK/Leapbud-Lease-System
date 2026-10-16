@@ -140,6 +140,7 @@ export class ContractOtherFeesService {
   ): Prisma.ContractOtherFeeOrderByWithRelationInput[] {
     const dir = parseSortDir(sortDir) ?? 'asc';
     const key = s(sortBy);
+    if (!key) return [{ createdAt: 'desc' }, { contract: { contractCode: 'asc' } }, { sortOrder: 'asc' }];
     if (key === 'contractCode') {
       return [{ contract: { contractCode: dir } }, { sortOrder: 'asc' }, { createdAt: 'asc' }];
     }

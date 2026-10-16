@@ -18,6 +18,8 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      # 与后端同一宿主机目录，供 /files/ 静态加速（房间图、旧附件）
+      - ${UPLOADS_HOST_PATH:-/opt/project-deployment/leapbud-lease}:/var/uploads:ro
     networks:
       - leapbud-lease-network
     healthcheck:

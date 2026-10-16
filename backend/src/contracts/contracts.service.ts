@@ -283,6 +283,7 @@ export class ContractsService {
   ): Prisma.ContractOrderByWithRelationInput[] {
     const dir = parseSortDir(sortDir) ?? 'desc';
     const key = s(sortBy);
+    if (!key) return [{ createdAt: 'desc' }, { contractCode: 'desc' }];
     if (key === 'contractCode') return [{ contractCode: dir }];
     if (key === 'roomCode') return [{ room: { roomCode: dir } }];
     if (key === 'customerName') return [{ customer: { name: dir } }];

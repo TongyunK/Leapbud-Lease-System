@@ -12,6 +12,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   isExternalRoomImageKey,
+  roomImageStorageRel,
   roomListInclude,
   toRoomDto,
   toRoomImageDto,
@@ -268,6 +269,8 @@ export class RoomsService {
   ): Prisma.RoomOrderByWithRelationInput[] {
     const dir = parseSortDir(sortDir) ?? 'asc';
     const key = s(sortBy);
+    // 未指定排序：最新创建的在前
+    if (!key) return [{ createdAt: 'desc' }, { roomCode: 'asc' }];
     if (key === 'roomCode') return [{ roomCode: dir }];
     if (key === 'name') return [{ name: dir }, { roomCode: 'asc' }];
     if (key === 'roomType') return [{ roomType: dir }, { roomCode: 'asc' }];
@@ -535,7 +538,12 @@ export class RoomsService {
   }
 
   private absPath(storageKey: string) {
-    return path.join(uploadsRoot(), storageKey);
+    // 旧路径可能带前导 /；path.join 遇绝对段会丢掉 uploads 根，须先规范化
+    const rel = roomImageStorageRel(storageKey);
+    if (!rel || rel.includes('..')) {
+      throw new BadRequestException('非法图片路径');
+    }
+    return path.join(uploadsRoot(), rel);
   }
 
   private storageKeyForRoomImage(roomId: string, fileName: string) {

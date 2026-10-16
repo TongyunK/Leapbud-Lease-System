@@ -163,6 +163,7 @@ export class ContractPeriodsService {
   ): Prisma.ContractPeriodOrderByWithRelationInput[] {
     const dir: Prisma.SortOrder = sortDir === 'desc' ? 'desc' : 'asc';
     const key = s(sortBy);
+    if (!key) return [{ createdAt: 'desc' }, { contract: { contractCode: 'asc' } }, { sortOrder: 'asc' }];
     if (key === 'contractCode') return [{ contract: { contractCode: dir } }, { sortOrder: 'asc' }];
     if (key === 'dateType') return [{ dateType: dir }, { startDate: 'asc' }];
     if (key === 'startDate') return [{ startDate: dir }];

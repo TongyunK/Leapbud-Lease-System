@@ -34,6 +34,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:3410',
         changeOrigin: true,
       },
+      // 房间图 / 附件：与生产 Nginx /files/ 一致，转发到后端静态目录
+      '/files': {
+        target: 'http://127.0.0.1:3410',
+        changeOrigin: true,
+      },
     },
   },
   preview: {

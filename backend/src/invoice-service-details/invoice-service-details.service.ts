@@ -123,6 +123,7 @@ export class InvoiceServiceDetailsService {
   ): Prisma.InvoiceServiceDetailOrderByWithRelationInput[] {
     const dir = parseSortDir(sortDir) ?? 'asc';
     const key = s(sortBy);
+    if (!key) return [{ createdAt: 'desc' }, { invoice: { invoiceCode: 'asc' } }, { sortOrder: 'asc' }];
     if (key === 'invoiceCode') {
       return [{ invoice: { invoiceCode: dir } }, { sortOrder: 'asc' }, { createdAt: 'asc' }];
     }

@@ -164,6 +164,7 @@ export class LeaseTerminationsService {
   ): Prisma.LeaseTerminationOrderByWithRelationInput[] {
     const dir = parseSortDir(sortDir) ?? 'desc';
     const key = s(sortBy);
+    if (!key) return [{ createdAt: 'desc' }, { terminationCode: 'desc' }];
     if (key === 'terminationCode') return [{ terminationCode: dir }];
     if (key === 'contractCode') return [{ contract: { contractCode: dir } }];
     if (key === 'customerName') return [{ customer: { name: dir } }];

@@ -10,21 +10,38 @@ export type RoomImageRow = {
   sortOrder: number;
 };
 
-/** 公开/外部地址：可直接作 img src；否则走鉴权下载接口 */
+/** 真正外部地址（无本地文件）；相对/旧 /upload 路径都算本地 uploads 下文件 */
 export function isExternalRoomImageKey(storageKey: string): boolean {
   const key = (storageKey || '').trim();
-  return key.startsWith('/') || /^https?:\/\//i.test(key);
+  return /^https?:\/\//i.test(key);
+}
+
+/** 去掉前导 /，得到相对 uploads 根的路径 */
+export function roomImageStorageRel(storageKey: string): string {
+  return (storageKey || '').trim().replace(/^\/+/, '');
+}
+
+/**
+ * 浏览器可直链的图片 URL（由入口 Nginx /files/ 静态提供，带缓存）。
+ * 相对键 rooms/... → /files/rooms/...；旧 /upload/... → /files/upload/...
+ */
+export function roomImagePublicUrl(storageKey: string): string | undefined {
+  const key = (storageKey || '').trim();
+  if (!key) return undefined;
+  if (/^https?:\/\//i.test(key)) return key;
+  const rel = roomImageStorageRel(key);
+  if (!rel || rel.includes('..')) return undefined;
+  return `/files/${rel}`;
 }
 
 export function toRoomImageDto(row: RoomImageRow) {
   const storageKey = row.storageKey ?? '';
-  const external = isExternalRoomImageKey(storageKey);
   return {
     id: row.id,
     roomId: row.roomId,
     fileName: row.fileName,
     sortOrder: row.sortOrder,
-    publicUrl: external ? storageKey : undefined,
+    publicUrl: roomImagePublicUrl(storageKey),
   };
 }
 
