@@ -82,6 +82,7 @@ const relatedDepositRefundsDrawer = ref(false)
 const relatedListRoom = ref<RoomRecord | null>(null)
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const formVisible = ref(false)
+const saving = ref(false)
 const current = ref<RoomRecord | null>(null)
 const formExistingImages = ref<RoomImageRecord[]>([])
 const formPendingImages = ref<Array<{ key: string; file: File; previewUrl: string }>>([])
@@ -795,6 +796,7 @@ function acOptionLabel(opt: RoomConfigOption) {
 }
 
 async function saveForm() {
+  if (saving.value) return
   if (!form.roomCode.trim() || !form.name.trim()) return
   if (!form.roomType.trim()) {
     ElMessage.warning(t('room.roomTypeRequired'))
@@ -829,6 +831,7 @@ async function saveForm() {
     acConfig: form.acConfig,
     subleaseMark: form.subleaseMark,
   }
+  saving.value = true
   try {
     let roomId = editing.value?.id || ''
     if (editing.value) {
@@ -854,6 +857,8 @@ async function saveForm() {
     await loadList()
   } catch {
     /* interceptor */
+  } finally {
+    saving.value = false
   }
 }
 </script>
@@ -1730,8 +1735,8 @@ async function saveForm() {
         </div>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="saveForm">{{ t('common.save') }}</el-button>
+        <el-button :disabled="saving" @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="saveForm">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
 
