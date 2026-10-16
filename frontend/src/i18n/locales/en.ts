@@ -37,6 +37,8 @@ export default {
     perPage: '{n}/page',
     prevPage: 'Previous page',
     nextPage: 'Next page',
+    goToPage: 'Go to',
+    pageUnit: '',
     showing: 'Showing {from}–{to} of {total} records',
     none: 'None',
     pleaseSelect: 'Please select',

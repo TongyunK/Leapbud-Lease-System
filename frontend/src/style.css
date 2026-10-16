@@ -1652,12 +1652,58 @@ button {
   grid-column: 2;
 }
 
+.lb-pager__right {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  justify-self: end;
+  grid-column: 3;
+  min-width: 0;
+}
+
+.lb-pager__jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #4a5c54;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lb-pager__jump-input {
+  box-sizing: border-box;
+  width: 3.2rem;
+  height: 28px;
+  margin: 0;
+  padding: 0 6px;
+  border: 1px solid #d7ded9;
+  border-radius: 8px;
+  background: #fff;
+  color: #243029;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+}
+
+.lb-pager__jump-input:focus {
+  border-color: #0f4a32;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #0f4a32 16%, transparent);
+}
+
+.lb-pager__jump-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .lb-pager__size {
   width: 96px !important;
   max-width: 96px !important;
   min-width: 96px !important;
-  justify-self: end;
-  grid-column: 3;
 }
 
 .lb-pager__size.el-select,

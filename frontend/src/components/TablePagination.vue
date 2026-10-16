@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 
@@ -73,6 +73,39 @@ function onSizeChange(size: string | number) {
   pageSize.value = Number(size)
   page.value = 1
 }
+
+const jumpDraft = ref(String(page.value))
+
+watch(page, (n) => {
+  jumpDraft.value = String(n)
+})
+
+function onJumpInput(e: Event) {
+  jumpDraft.value = (e.target as HTMLInputElement).value.replace(/\D/g, '').slice(0, 6)
+}
+
+function commitJump() {
+  const raw = Number.parseInt(jumpDraft.value, 10)
+  if (!Number.isFinite(raw)) {
+    jumpDraft.value = String(page.value)
+    return
+  }
+  const next = Math.min(maxPage.value, Math.max(1, raw))
+  page.value = next
+  jumpDraft.value = String(next)
+}
+
+function onJumpKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    commitJump()
+    ;(e.target as HTMLInputElement).blur()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    jumpDraft.value = String(page.value)
+    ;(e.target as HTMLInputElement).blur()
+  }
+}
 </script>
 
 <template>
@@ -144,22 +177,40 @@ function onSizeChange(size: string | number) {
       </button>
     </div>
 
-    <el-select
-      class="lb-pager__size"
-      size="small"
-      style="width: 96px"
-      popper-class="lb-pager-size-popper"
-      :model-value="pageSize"
-      :teleported="true"
-      :fit-input-width="false"
-      @change="onSizeChange"
-    >
-      <el-option
-        v-for="size in pageSizes"
-        :key="size"
-        :label="t('common.perPage', { n: size })"
-        :value="size"
-      />
-    </el-select>
+    <div class="lb-pager__right">
+      <label class="lb-pager__jump">
+        <span>{{ t('common.goToPage') }}</span>
+        <input
+          class="lb-pager__jump-input"
+          type="text"
+          inputmode="numeric"
+          :value="jumpDraft"
+          :disabled="maxPage <= 1"
+          :aria-label="t('common.goToPage')"
+          @input="onJumpInput"
+          @keydown="onJumpKeydown"
+          @blur="commitJump"
+          @focus="($event.target as HTMLInputElement).select()"
+        />
+        <span v-if="t('common.pageUnit')">{{ t('common.pageUnit') }}</span>
+      </label>
+      <el-select
+        class="lb-pager__size"
+        size="small"
+        style="width: 96px"
+        popper-class="lb-pager-size-popper"
+        :model-value="pageSize"
+        :teleported="true"
+        :fit-input-width="false"
+        @change="onSizeChange"
+      >
+        <el-option
+          v-for="size in pageSizes"
+          :key="size"
+          :label="t('common.perPage', { n: size })"
+          :value="size"
+        />
+      </el-select>
+    </div>
   </div>
 </template>

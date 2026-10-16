@@ -37,6 +37,8 @@ export default {
     perPage: '{n}/頁',
     prevPage: '上一頁',
     nextPage: '下一頁',
+    goToPage: '跳至',
+    pageUnit: '頁',
     showing: '顯示 {from}–{to}，共 {total} 條',
     none: '無',
     pleaseSelect: '請選擇',
