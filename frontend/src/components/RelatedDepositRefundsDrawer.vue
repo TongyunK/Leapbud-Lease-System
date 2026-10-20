@@ -147,7 +147,6 @@ function statusLabel(status: string) {
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

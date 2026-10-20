@@ -16,12 +16,14 @@ import { CreateMenuDto, ReorderMenusDto, UpdateMenuDto } from './dto/menu.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 @ApiTags('menus')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('menus')
 export class MenusController {
   constructor(private readonly menusService: MenusService) {}
@@ -35,10 +37,10 @@ export class MenusController {
   }
 
   @Get()
-  @Roles(UserRole.admin)
+  @Roles(UserRole.admin, UserRole.user)
   @ApiQuery({ name: 'activeOnly', required: false })
   @ApiQuery({ name: 'flat', required: false, description: 'true=扁平列表，默认树' })
-  @ApiOkResponse({ description: 'Menu tree or flat list (admin only)' })
+  @ApiOkResponse({ description: 'Menu tree or flat list' })
   findAll(
     @Query('activeOnly') activeOnly?: string,
     @Query('flat') flat?: string,
@@ -50,26 +52,28 @@ export class MenusController {
   }
 
   @Get(':id')
-  @Roles(UserRole.admin)
+  @Roles(UserRole.admin, UserRole.user)
   findOne(@Param('id') id: string) {
     return this.menusService.findOne(id);
   }
 
+  @RequirePermissions('menus:create')
+  @Roles(UserRole.admin, UserRole.user)
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateMenuDto, @CurrentUser() user?: JwtPayload) {
     return this.menusService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('menus:update')
+  @Roles(UserRole.admin, UserRole.user)
   @Patch('reorder')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch update menu sortOrder (same parent)' })
   reorder(@Body() dto: ReorderMenusDto, @CurrentUser() user?: JwtPayload) {
     return this.menusService.reorder(dto, actorUserId(user));
   }
 
+  @RequirePermissions('menus:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateMenuDto,
@@ -78,8 +82,8 @@ export class MenusController {
     return this.menusService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('menus:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.menusService.remove(id);
   }

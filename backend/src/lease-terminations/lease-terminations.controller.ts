@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -28,7 +30,7 @@ import { splitCsv } from '../common/pagination';
 @ApiTags('lease-terminations')
 @Controller('lease-terminations')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class LeaseTerminationsController {
   constructor(private readonly leaseTerminationsService: LeaseTerminationsService) {}
@@ -80,15 +82,15 @@ export class LeaseTerminationsController {
     });
   }
 
+  @RequirePermissions('leaseTerminations:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import lease terminations' })
   importBatch(@Body() dto: ImportLeaseTerminationsDto, @CurrentUser() user?: JwtPayload) {
     return this.leaseTerminationsService.importBatch(dto, actorUserId(user));
   }
 
+  @RequirePermissions('leaseTerminations:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete lease terminations by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.leaseTerminationsService.removeMany(dto.ids);
@@ -99,14 +101,14 @@ export class LeaseTerminationsController {
     return this.leaseTerminationsService.findOne(id);
   }
 
+  @RequirePermissions('leaseTerminations:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateLeaseTerminationDto, @CurrentUser() user?: JwtPayload) {
     return this.leaseTerminationsService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('leaseTerminations:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateLeaseTerminationDto,
@@ -115,8 +117,8 @@ export class LeaseTerminationsController {
     return this.leaseTerminationsService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('leaseTerminations:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.leaseTerminationsService.remove(id);
   }

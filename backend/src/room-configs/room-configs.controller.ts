@@ -16,6 +16,8 @@ import { CreateRoomConfigDto, UpdateRoomConfigDto } from './dto/room-config.dto'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -45,8 +47,8 @@ export class RoomConfigsController {
 
   @Post('batch-delete')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomConfigs:batchDelete')
   @ApiOkResponse({ description: 'Batch delete room configs by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.roomConfigsService.removeMany(dto.ids);
@@ -54,16 +56,16 @@ export class RoomConfigsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomConfigs:create')
   create(@Body() dto: CreateRoomConfigDto, @CurrentUser() user?: JwtPayload) {
     return this.roomConfigsService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomConfigs:update')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateRoomConfigDto,
@@ -74,8 +76,8 @@ export class RoomConfigsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomConfigs:delete')
   remove(@Param('id') id: string) {
     return this.roomConfigsService.remove(id);
   }

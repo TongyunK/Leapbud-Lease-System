@@ -161,7 +161,6 @@ export function toRoomDto(row: RoomWithBuilding) {
     windowConfig: row.windowConfig ?? undefined,
     acConfig: row.acConfig ?? undefined,
     latestContract: row.latestContract ?? undefined,
-    contractRecords: row.contractRecords ?? [],
     contractCount: row._count?.contracts ?? 0,
     invoiceCount: row._count?.invoices ?? 0,
     terminationCount: row._count?.leaseTerminations ?? 0,

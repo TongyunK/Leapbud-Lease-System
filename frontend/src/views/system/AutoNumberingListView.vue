@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+const perms = useResourcePermissions('numberingRules')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EditPen } from '@element-plus/icons-vue'
@@ -211,7 +213,6 @@ async function toggleActive(row: NumberingRule) {
           height="100%"
           stripe
           border
-          empty-text="—"
           style="width: 100%"
         >
           <el-table-column
@@ -362,10 +363,10 @@ async function toggleActive(row: NumberingRule) {
           >
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
                   {{ t('autoNumbering.edit') }}
                 </button>
-                <button type="button" class="action-pill action-pill--warn" @click="onReset(row)">
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--warn" @click="onReset(row)">
                   {{ t('autoNumbering.reset') }}
                 </button>
               </div>

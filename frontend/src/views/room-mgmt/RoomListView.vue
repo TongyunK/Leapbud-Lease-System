@@ -52,6 +52,8 @@ import {
   rowToRoomIoPayload,
 } from '@/utils/roomExport'
 import { useUserStore } from '@/stores/user'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
@@ -61,13 +63,14 @@ import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Download, Filter, Plus, Search, Upload } from '@element-plus/icons-vue'
+import { Download, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 const { t } = useI18n()
 const userStore = useUserStore()
-const isAdmin = computed(() => userStore.isAdmin)
+const buildingScope = useBuildingScopeStore()
+const perms = useResourcePermissions('rooms')
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
@@ -279,7 +282,8 @@ const {
     const updated = range('updatedAt')
     return {
       keyword: kw,
-      buildingIds: f.buildingId?.length ? [...f.buildingId] : undefined,
+      buildingIds:
+        buildingScope.selectedId || !f.buildingId?.length ? undefined : [...f.buildingId],
       statuses: f.status?.length ? [...f.status] : undefined,
       roomTypes: f.roomType?.length ? [...f.roomType] : undefined,
       sizeRangeIds: f.sizeRange?.length ? [...f.sizeRange] : undefined,
@@ -333,7 +337,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!isAdmin.value || !selectedIds.value.length) return
+  if (!perms.batchDelete.value || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -359,49 +363,9 @@ async function onBatchDelete() {
   }
 }
 
-const headBuildingOptions = computed(() =>
-  buildings.value
-    .filter((b) => b.active)
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
-    .map((b) => ({
-      id: b.id,
-      name: b.name,
-      count: b.roomIds?.length || 0,
-    })),
-)
-
-const allBuildingCount = computed(() =>
-  buildings.value.reduce((sum, b) => sum + (b.roomIds?.length || 0), 0),
-)
-
-/** 单选大厦筛选：哨兵值表示「全部」 */
-const ALL_BUILDINGS = '__all__'
-
-const filterBuildingId = computed({
-  get: () => {
-    const selected = filters.buildingId || []
-    return selected.length === 1 ? selected[0]! : ALL_BUILDINGS
-  },
-  set: (id: string) => setFilter('buildingId', !id || id === ALL_BUILDINGS ? [] : [id]),
-})
-
-const selectedBuildingChipLabel = computed(() => {
-  const id = filterBuildingId.value
-  if (id === ALL_BUILDINGS) {
-    return `${t('room.filterAllBuildings')} (${allBuildingCount.value})`
-  }
-  const hit = headBuildingOptions.value.find((b) => b.id === id)
-  const name = hit?.name || id
-  const count = hit?.count ?? 0
-  return `${name} (${count})`
-})
-
-/** 清空筛选只统计表头条件，不含顶部大厦筛选 */
 const tableHeaderConditionCount = computed(() => {
   let n = 0
-  for (const [key, selected] of Object.entries(filters)) {
-    if (key === 'buildingId') continue
+  for (const selected of Object.values(filters)) {
     if (selected?.length) n += 1
   }
   for (const range of Object.values(dateRanges)) {
@@ -412,9 +376,7 @@ const tableHeaderConditionCount = computed(() => {
 })
 
 function onClearTableHeaderFilters() {
-  const kept = filters.buildingId?.length ? [...filters.buildingId] : []
   onClearFilters()
-  if (kept.length) setFilter('buildingId', kept)
 }
 
 function toneForLabel(label: string) {
@@ -614,7 +576,7 @@ async function runImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!isAdmin.value) {
+  if (!perms.import.value) {
     ElMessage.warning(t('room.importAdminOnly'))
     return
   }
@@ -714,12 +676,10 @@ async function runImportFile(ev: Event) {
 function openCreate() {
   editing.value = null
   resetFormImages()
-  const chipBuildingId = filterBuildingId.value
+  const selectedBuildingId = buildingScope.selectedId
   const defaultBuildingId =
-    chipBuildingId &&
-    chipBuildingId !== ALL_BUILDINGS &&
-    buildings.value.some((b) => b.id === chipBuildingId && b.active)
-      ? chipBuildingId
+    selectedBuildingId && buildings.value.some((b) => b.id === selectedBuildingId && b.active)
+      ? selectedBuildingId
       : ''
   Object.assign(form, {
     roomCode: '',
@@ -840,7 +800,7 @@ async function saveForm() {
         await deleteRoomImageApi(editing.value.id, imageId)
       }
     } else {
-      if (!isAdmin.value) {
+      if (!perms.import.value) {
         ElMessage.warning(t('room.importAdminOnly'))
         return
       }
@@ -867,38 +827,6 @@ async function saveForm() {
   <div class="admin-page">
     <div class="admin-page-head">
       <h2>{{ t('menu.rooms') }}</h2>
-      <el-select
-        v-model="filterBuildingId"
-        filterable
-        class="head-building-chip-select"
-        popper-class="head-building-filter-popper"
-        :placeholder="t('room.filterBuilding')"
-        :title="selectedBuildingChipLabel"
-      >
-        <template #prefix>
-          <el-icon class="head-building-chip-select__filter"><Filter /></el-icon>
-        </template>
-        <el-option
-          :label="`${t('room.filterAllBuildings')} (${allBuildingCount})`"
-          :value="ALL_BUILDINGS"
-        >
-          <div class="head-building-option">
-            <span class="head-building-option__label">{{ t('room.filterAllBuildings') }}</span>
-            <span class="head-building-option__count">{{ allBuildingCount }}</span>
-          </div>
-        </el-option>
-        <el-option
-          v-for="b in headBuildingOptions"
-          :key="b.id"
-          :label="`${b.name} (${b.count})`"
-          :value="b.id"
-        >
-          <div class="head-building-option">
-            <span class="head-building-option__label">{{ b.name }}</span>
-            <span class="head-building-option__count">{{ b.count }}</span>
-          </div>
-        </el-option>
-      </el-select>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -908,7 +836,13 @@ async function saveForm() {
           :placeholder="t('room.searchPlaceholder')"
         />
         <ClearTableFiltersButton :count="tableHeaderConditionCount" @clear="onClearTableHeaderFilters" />
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
+        <el-button
+          v-if="perms.create" v-admin-glow="perms.codes.create"
+          type="primary"
+          :icon="Plus"
+          class="lb-btn-primary"
+          @click="openCreate"
+        >
           {{ t('room.create') }}
         </el-button>
         <el-dropdown
@@ -922,7 +856,7 @@ async function saveForm() {
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="isAdmin" command="import">
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('room.import') }}</span>
               </el-dropdown-item>
@@ -1024,6 +958,7 @@ async function saveForm() {
             </template>
           </el-table-column>
           <el-table-column
+            v-if="!buildingScope.selectedId"
             prop="buildingName"
             :min-width="textColW(t('room.fields.building'), { interactive: true, kind: 'name' })"
           >
@@ -1283,10 +1218,16 @@ async function saveForm() {
                 <button type="button" class="action-pill action-pill--view" @click="openDetail(row as RoomRecord)">
                   {{ t('common.detail') }}
                 </button>
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row as RoomRecord)">
+                <button
+                  v-if="perms.update" v-admin-glow="perms.codes.update"
+                  type="button"
+                  class="action-pill action-pill--edit"
+                  @click="openEdit(row as RoomRecord)"
+                >
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="perms.delete" v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   :disabled="!canDeleteRoom(row as RoomRecord)"
@@ -1314,8 +1255,9 @@ async function saveForm() {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="isAdmin" #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"
@@ -1334,10 +1276,13 @@ async function saveForm() {
           <div>
             <h3 class="data-card__title">{{ row.name }}</h3>
             <p class="data-card__meta">
-              {{ row.roomCode }} ·
-              <button type="button" class="fk-link" @click="openBuildingDetail(row.buildingId)">
-                {{ row.buildingName }}
-              </button>
+              {{ row.roomCode }}
+              <template v-if="!buildingScope.selectedId">
+                ·
+                <button type="button" class="fk-link" @click="openBuildingDetail(row.buildingId)">
+                  {{ row.buildingName }}
+                </button>
+              </template>
             </p>
           </div>
           <StatusBadge :tone="roomStatusTone(row.status)" :label="t(`room.status.${row.status}`)" />
@@ -1376,10 +1321,16 @@ async function saveForm() {
           <button type="button" class="action-pill action-pill--view" @click="openDetail(row)">
             {{ t('common.detail') }}
           </button>
-          <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+          <button
+            v-if="perms.update" v-admin-glow="perms.codes.update"
+            type="button"
+            class="action-pill action-pill--edit"
+            @click="openEdit(row)"
+          >
             {{ t('common.edit') }}
           </button>
           <button
+            v-if="perms.delete" v-admin-glow="perms.codes.delete"
             type="button"
             class="action-pill action-pill--danger"
             :disabled="!canDeleteRoom(row)"
@@ -1454,19 +1405,9 @@ async function saveForm() {
         </section>
 
         <section class="detail-section">
-          <h3>{{ t('room.sections.contract') }}</h3>
-          <dl class="detail-grid two">
-            <div><dt>{{ t('room.fields.latestContract') }}</dt><dd>{{ current.latestContract || '—' }}</dd></div>
-            <div>
-              <dt>{{ t('room.fields.contractRecords') }}</dt>
-              <dd>{{ current.contractRecords?.join(', ') || '—' }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
           <h3>{{ t('room.sections.relatedRecords') }}</h3>
           <dl class="detail-grid two">
+            <div><dt>{{ t('room.fields.latestContract') }}</dt><dd>{{ current.latestContract || '—' }}</dd></div>
             <div>
               <dt>{{ t('room.fields.contractCount') }}</dt>
               <dd>

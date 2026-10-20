@@ -166,7 +166,6 @@ function onRowClick(row: ReceiptRecord, column?: { type?: string }, event?: Even
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

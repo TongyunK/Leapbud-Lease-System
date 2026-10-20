@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { NumberingBizKey, Prisma, RoomConfigType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import { NumberingRulesService } from '../numbering-rules/numbering-rules.service';
 import {
   CreateCustomerRequirementDto,
@@ -66,6 +67,7 @@ export class CustomerRequirementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly numberingRules: NumberingRulesService,
+    private readonly access: BuildingAccessService,
   ) {}
 
   async findAll(params: {
@@ -90,6 +92,7 @@ export class CustomerRequirementsService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaCustomer');
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.customerRequirement.count({ where }),
@@ -229,6 +232,7 @@ export class CustomerRequirementsService {
       include: customerRequirementInclude,
     });
     if (!row) throw new NotFoundException(`Customer requirement ${id} not found`);
+    await this.access.assertCustomerId(row.customerId);
     return toCustomerRequirementDto(row);
   }
 

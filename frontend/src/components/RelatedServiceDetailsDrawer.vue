@@ -133,7 +133,6 @@ function onRowClick(row: InvoiceServiceDetailListRecord, column?: { type?: strin
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

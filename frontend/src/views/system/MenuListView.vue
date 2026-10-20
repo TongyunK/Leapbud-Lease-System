@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+const perms = useResourcePermissions('menus')
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -324,7 +326,13 @@ async function toggleActive(row: MenuRecord) {
     <div class="admin-page-head">
       <h2>{{ t('menu.menus') }}</h2>
       <div class="head-actions">
-        <el-button type="primary" class="lb-btn-primary" :loading="saving" @click="saveMatrix">
+        <el-button
+          v-if="perms.update" v-admin-glow="perms.codes.update"
+          type="primary"
+          class="lb-btn-primary"
+          :loading="saving"
+          @click="saveMatrix"
+        >
           {{ t('common.save') }}
         </el-button>
       </div>
@@ -341,7 +349,6 @@ async function toggleActive(row: MenuRecord) {
           default-expand-all
           :tree-props="{ children: 'children' }"
           :row-class-name="tableRowClassName"
-          empty-text="—"
           style="width: 100%"
           class="menu-matrix-table"
         >
@@ -411,14 +418,14 @@ async function toggleActive(row: MenuRecord) {
             <template #default="{ row }">
               <div class="action-pills">
                 <button
-                  v-if="row.type === 'directory'"
+                  v-if="perms.create && row.type === 'directory'" v-admin-glow="perms.codes.create"
                   type="button"
                   class="action-pill action-pill--view"
                   @click="openCreate(row.id)"
                 >
                   {{ t('sysMenu.addChild') }}
                 </button>
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
                   {{ t('common.edit') }}
                 </button>
               </div>

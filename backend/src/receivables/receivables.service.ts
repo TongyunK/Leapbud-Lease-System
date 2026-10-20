@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { BuildingAccessService } from '../building-access/building-access.service'
 import {
   CreateReceivableDto,
   ImportReceivablesDto,
@@ -58,7 +59,10 @@ function amountDupKey(
 
 @Injectable()
 export class ReceivablesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   async findAll(params: {
     keyword?: string
@@ -81,6 +85,7 @@ export class ReceivablesService {
     const page = parsePage(params.page)
     const pageSize = parsePageSize(params.pageSize)
     const where = this.buildListWhere(params)
+    await this.access.constrain(where, 'viaCustomer')
     const { skip, take } = paginateArgs(page, pageSize)
 
     const [total, rows] = await this.prisma.$transaction([
@@ -178,6 +183,7 @@ export class ReceivablesService {
       include: receivableInclude,
     })
     if (!row) throw new NotFoundException('Receivable not found')
+    await this.access.assertCustomerId(row.customerId)
     return toReceivableDto(row)
   }
 

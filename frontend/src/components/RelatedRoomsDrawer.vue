@@ -134,7 +134,6 @@ function onRowClick(row: RoomRecord, column?: { type?: string }, event?: Event) 
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

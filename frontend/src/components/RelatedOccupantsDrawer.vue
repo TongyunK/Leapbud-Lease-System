@@ -158,7 +158,6 @@ function onRowClick(row: OccupantRecord, column?: { type?: string }, event?: Eve
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

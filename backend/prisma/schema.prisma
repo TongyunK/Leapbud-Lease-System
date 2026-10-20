@@ -15,10 +15,10 @@ enum RoomStatus {
   terminating // 退租中
 }
 
-/// 用户角色
+/// API 权限级别（控制器 @Roles 用；与 roles.code 对齐：admin=全权限，其余按普通用户门控）
 enum UserRole {
-  admin // 工程师 / 管理员
-  user // 普通用户
+  admin // 管理员（全大厦、系统写操作）
+  user // 普通用户（业务读写，受大厦范围限制）
 }
 
 /// 用户状态
@@ -53,8 +53,10 @@ model User {
   passwordHash String     @map("password_hash")
   /// 显示名称
   displayName  String     @default("") @map("display_name")
-  /// 角色：admin=管理员，user=普通用户
-  role         UserRole   @default(user)
+  /// 角色编码（对应 roles.code）
+  role         String     @default("user")
+  /// 所属系统角色
+  assignedRole Role       @relation("UserAssignedRole", fields: [role], references: [code], onUpdate: Cascade, onDelete: Restrict)
   /// 账号状态：active=启用，disabled=停用
   status       UserStatus @default(active)
   /// 联系电话
@@ -91,6 +93,8 @@ model User {
   createdCustomerSourceOptions CustomerSourceOption[] @relation("CustomerSourceOptionCreatedBy")
   /// 作为更新人：客户来源
   updatedCustomerSourceOptions CustomerSourceOption[] @relation("CustomerSourceOptionUpdatedBy")
+  /// 可访问的大厦（管理员不使用此表，默认可看全部）
+  userBuildings            UserBuilding[]
   /// 作为创建人：大厦
   createdBuildings         Building[]         @relation("BuildingCreatedBy")
   /// 作为更新人：大厦
@@ -360,6 +364,8 @@ model Building {
   rooms             Room[]
   /// 关联客户
   customers         Customer[]
+  /// 被授权访问的用户
+  userAccess        UserBuilding[]
 
   @@index([active])
   @@index([createdById])
@@ -368,6 +374,22 @@ model Building {
   @@index([invoiceTemplateId])
   @@index([receiptTemplateId])
   @@map("buildings")
+}
+
+/// 用户可访问的大厦。管理员不写入此表，视为可访问全部大厦。
+model UserBuilding {
+  /// 用户 ID
+  userId     String   @map("user_id")
+  /// 用户
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 大厦 ID
+  buildingId String   @map("building_id")
+  /// 大厦
+  building   Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+
+  @@id([userId, buildingId])
+  @@index([buildingId])
+  @@map("user_buildings")
 }
 
 /// 房间信息
@@ -408,8 +430,6 @@ model Room {
   acConfig        String?    @map("ac_config")
   /// 最新合约标识 / 编号
   latestContract  String?    @map("latest_contract")
-  /// 历史合约记录列表
-  contractRecords String[]   @default([]) @map("contract_records")
   /// 创建人用户 ID
   createdById     String?    @map("created_by")
   /// 创建人用户
@@ -1287,11 +1307,11 @@ enum MenuType {
   menu
 }
 
-/// 系统角色（可配置；与 User.role 枚举并存，后续可关联）
+/// 系统角色（可配置；用户 User.role 存 code 并外键关联）
 model Role {
   /// 主键
   id          String   @id @default(cuid())
-  /// 角色编码（唯一，如 admin / user）
+  /// 角色编码（唯一，如 admin / user；用户表直接引用）
   code        String   @unique
   /// 角色名称
   name        String
@@ -1317,6 +1337,10 @@ model Role {
   updatedAt   DateTime @updatedAt @map("updated_at")
   /// 下属角色菜单权限
   roleMenus   RoleMenu[]
+  /// 下属角色功能按钮权限
+  rolePermissions RolePermission[]
+  /// 使用该角色的用户
+  assignedUsers User[] @relation("UserAssignedRole")
 
   @@index([active])
   @@index([sortOrder])
@@ -1394,6 +1418,51 @@ model RoleMenu {
   @@id([roleId, menuId])
   @@index([menuId])
   @@map("role_menus")
+}
+
+/// 功能按钮权限（稳定 code，如 customers:create）
+model Permission {
+  /// 主键
+  id        String   @id @default(cuid())
+  /// 权限编码（唯一，如 customers:create）
+  code      String   @unique
+  /// 业务模块编码（如 customers）
+  module    String
+  /// 操作编码：create / update / delete / import / batchDelete
+  action    String
+  /// 显示名称（繁中）
+  name      String
+  /// 排序（越小越靠前）
+  sortOrder Int      @default(0) @map("sort_order")
+  /// 创建时间
+  createdAt DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt DateTime @updatedAt @map("updated_at")
+  /// 下属角色功能权限
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@index([action])
+  @@index([sortOrder])
+  @@map("permissions")
+}
+
+/// 角色-功能按钮权限（多对多）
+model RolePermission {
+  /// 所属角色 ID
+  roleId       String     @map("role_id")
+  /// 所属角色
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  /// 所属权限 ID
+  permissionId String     @map("permission_id")
+  /// 所属权限
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  /// 创建时间
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
 }
 
 /// 单据打印模板类型

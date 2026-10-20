@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { NumberingBizKey, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import { NumberingRulesService } from '../numbering-rules/numbering-rules.service';
 import {
   CreateCustomerDto,
@@ -48,6 +49,7 @@ export class CustomersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly numberingRules: NumberingRulesService,
+    private readonly access: BuildingAccessService,
   ) {}
 
   private async assertBuilding(buildingId: string | null | undefined) {
@@ -142,6 +144,7 @@ export class CustomersService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'customer');
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.customer.count({ where }),
@@ -284,6 +287,7 @@ export class CustomersService {
       include: customerInclude,
     });
     if (!row) throw new NotFoundException(`Customer ${id} not found`);
+    await this.access.assertCustomerId(row.id);
     return toCustomerDto(row);
   }
 

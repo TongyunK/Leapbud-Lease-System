@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, Download, Filter, Plus, Rank, Search, Upload } from '@element-plus/icons-vue'
+import { Delete, Download, Plus, Rank, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import {
@@ -9,19 +9,16 @@ import {
   deleteContractApi,
   batchDeleteContractsApi,
   fetchContract,
-  fetchContractBuildingCounts,
   fetchContracts,
   importContractsApi,
   updateContractApi,
 } from '@/api/contracts'
 import type { ContractListQuery } from '@/api/contracts'
-import { fetchBuildings } from '@/api/buildings'
 import { fetchCustomers } from '@/api/customers'
 import { fetchCustomerRequirements } from '@/api/customer-requirements'
 import { fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
-import type { BuildingRecord } from '@/types/building'
 import type { ContractPeriodRecord, ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { ReceivableRecord } from '@/types/receivable'
@@ -67,6 +64,7 @@ import { useActionColWidth, measureActionColWidth } from '@/composables/useActio
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { useUserStore } from '@/stores/user'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import {
   contractIoPayloadToImportItem,
@@ -83,14 +81,14 @@ import { previewAgreementPdfApi, prefetchAgreementPdfApi, previewAgreementDraftP
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
-const isAdmin = computed(() => userStore.isAdmin)
+const perms = useResourcePermissions('contracts')
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
   useTableColWidth()
 
 const contractActionColWidth = computed(() => {
   void locale.value
-  if (isAdmin.value) {
+  if (perms.canEditOrDelete.value) {
     return Math.max(
       actionColWidth.value.three,
       measureActionColWidth([
@@ -168,9 +166,6 @@ async function onPreviewAgreementDraft() {
 
 const formVisible = ref(false)
 const editing = ref<ContractRecord | null>(null)
-const buildings = ref<BuildingRecord[]>([])
-/** buildingId -> 合约数量（筛选下拉右侧展示） */
-const buildingContractCountMap = ref<Record<string, number>>({})
 const customers = ref<CustomerRecord[]>([])
 const rooms = ref<RoomRecord[]>([])
 const users = ref<UserRecord[]>([])
@@ -268,53 +263,9 @@ const {
   fetchPage: fetchContracts,
 })
 
-function buildingContractCount(buildingId: string) {
-  return buildingContractCountMap.value[buildingId] ?? 0
-}
-
-const buildingFilterOptions = computed(() =>
-  buildings.value
-    .filter((b) => b.active)
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
-    .map((b) => ({
-      id: b.id,
-      name: b.name,
-      count: buildingContractCount(b.id),
-    })),
-)
-
-const allBuildingsContractCount = computed(() =>
-  Object.values(buildingContractCountMap.value).reduce((sum, n) => sum + n, 0),
-)
-
-/** 单选大厦筛选：哨兵值表示「全部」 */
-const ALL_BUILDINGS = '__all__'
-
-const filterBuildingId = computed({
-  get: () => {
-    const selected = filters.buildingId || []
-    return selected.length === 1 ? selected[0]! : ALL_BUILDINGS
-  },
-  set: (id: string) => setFilter('buildingId', !id || id === ALL_BUILDINGS ? [] : [id]),
-})
-
-const selectedBuildingChipLabel = computed(() => {
-  const id = filterBuildingId.value
-  if (id === ALL_BUILDINGS) {
-    return `${t('contract.filterAllBuildings')} (${allBuildingsContractCount.value})`
-  }
-  const hit = buildingFilterOptions.value.find((b) => b.id === id)
-  const name = hit?.name || id
-  const count = hit?.count ?? buildingContractCount(id)
-  return `${name} (${count})`
-})
-
-/** 清空筛选只统计表头条件，不含顶部大厦筛选 */
 const tableHeaderConditionCount = computed(() => {
   let n = 0
-  for (const [key, selected] of Object.entries(filters)) {
-    if (key === 'buildingId') continue
+  for (const selected of Object.values(filters)) {
     if (selected?.length) n += 1
   }
   for (const range of Object.values(dateRanges)) {
@@ -325,22 +276,7 @@ const tableHeaderConditionCount = computed(() => {
 })
 
 function onClearTableHeaderFilters() {
-  const kept = filters.buildingId?.length ? [...filters.buildingId] : []
   onClearFilters()
-  if (kept.length) setFilter('buildingId', kept)
-}
-
-async function loadBuildingContractCounts() {
-  try {
-    const { data } = await fetchContractBuildingCounts()
-    const map: Record<string, number> = {}
-    for (const row of data) {
-      if (row.buildingId) map[row.buildingId] = row.count
-    }
-    buildingContractCountMap.value = map
-  } catch {
-    buildingContractCountMap.value = {}
-  }
 }
 
 const {
@@ -378,7 +314,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!isAdmin.value || !selectedIds.value.length) return
+  if (!perms.batchDelete.value || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -396,7 +332,6 @@ async function onBatchDelete() {
     finishBatch(ok, fail)
     clearSelection()
     await loadList()
-    void loadBuildingContractCounts()
   } catch {
     finishBatch(0, ids.length)
   } finally {
@@ -658,7 +593,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!isAdmin.value) {
+  if (!perms.import.value) {
     ElMessage.warning(t('contract.importAdminOnly'))
     return
   }
@@ -734,7 +669,6 @@ async function onImportFile(ev: Event) {
     }
 
     await loadList()
-    void loadBuildingContractCounts()
     finishImport()
   } catch {
     failImport(t('contract.importFailed'))
@@ -742,8 +676,7 @@ async function onImportFile(ev: Event) {
 }
 
 async function loadOptions() {
-  const [buildingRes, custRes, roomRes, userRes, periodRes, leaseRes, keyRes] = await Promise.all([
-    fetchBuildings({ activeOnly: true, pageSize: 500 }),
+  const [custRes, roomRes, userRes, periodRes, leaseRes, keyRes] = await Promise.all([
     fetchCustomers(),
     fetchRooms(),
     fetchUsers(),
@@ -751,14 +684,12 @@ async function loadOptions() {
     fetchContractConfigs({ type: 'leaseType', activeOnly: true }),
     fetchContractConfigs({ type: 'keyDeposit', activeOnly: true }),
   ])
-  buildings.value = buildingRes.data.items
   customers.value = custRes.data.items
   rooms.value = roomRes.data.items
   users.value = userRes.data.filter((u) => u.status === 'active')
   periodTypeOptions.value = periodRes.data
   leaseTypeOptions.value = leaseRes.data
   keyDepositOptions.value = keyRes.data
-  void loadBuildingContractCounts()
 }
 
 onMounted(() => {
@@ -767,7 +698,7 @@ onMounted(() => {
 })
 
 function openCreate() {
-  if (!isAdmin.value) return
+  if (!perms.create.value) return
   editing.value = null
   Object.assign(form, emptyForm())
   form.leaseType = leaseTypeOptions.value[0]?.label || ''
@@ -926,7 +857,7 @@ function onPeriodDragEnd() {
 }
 
 async function openEdit(row: ContractRecord) {
-  if (!isAdmin.value) return
+  if (!perms.update.value) return
   editing.value = row
   Object.assign(form, {
     contractCode: row.contractCode,
@@ -1025,14 +956,13 @@ async function saveForm() {
     }
     formVisible.value = false
     await loadList()
-    void loadBuildingContractCounts()
   } catch {
     /* interceptor */
   }
 }
 
 async function onDelete(row: ContractRecord) {
-  if (!isAdmin.value) return
+  if (!perms.delete.value) return
   try {
     await ElMessageBox.confirm(
       t('contract.deleteConfirm', { code: row.contractCode }),
@@ -1042,7 +972,6 @@ async function onDelete(row: ContractRecord) {
     await deleteContractApi(row.id)
     ElMessage.success(t('contract.deleted'))
     await loadList()
-    void loadBuildingContractCounts()
   } catch {
     /* cancel */
   }
@@ -1172,38 +1101,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   <div class="admin-page">
     <div class="admin-page-head">
       <h2>{{ t('menu.contracts') }}</h2>
-      <el-select
-        v-model="filterBuildingId"
-        filterable
-        class="head-building-chip-select"
-        popper-class="head-building-filter-popper"
-        :placeholder="t('contract.filterBuilding')"
-        :title="selectedBuildingChipLabel"
-      >
-        <template #prefix>
-          <el-icon class="head-building-chip-select__filter"><Filter /></el-icon>
-        </template>
-        <el-option
-          :label="`${t('contract.filterAllBuildings')} (${allBuildingsContractCount})`"
-          :value="ALL_BUILDINGS"
-        >
-          <div class="head-building-option">
-            <span class="head-building-option__label">{{ t('contract.filterAllBuildings') }}</span>
-            <span class="head-building-option__count">{{ allBuildingsContractCount }}</span>
-          </div>
-        </el-option>
-        <el-option
-          v-for="b in buildingFilterOptions"
-          :key="b.id"
-          :label="`${b.name} (${b.count})`"
-          :value="b.id"
-        >
-          <div class="head-building-option">
-            <span class="head-building-option__label">{{ b.name }}</span>
-            <span class="head-building-option__count">{{ b.count }}</span>
-          </div>
-        </el-option>
-      </el-select>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -1214,7 +1111,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
         />
         <ClearTableFiltersButton :count="tableHeaderConditionCount" @clear="onClearTableHeaderFilters" />
         <el-button
-          v-if="isAdmin"
+          v-if="perms.create" v-admin-glow="perms.codes.create"
           type="primary"
           :icon="Plus"
           class="lb-btn-primary"
@@ -1233,7 +1130,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="isAdmin" command="import">
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('contract.import') }}</span>
               </el-dropdown-item>
@@ -1276,7 +1173,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           height="100%"
           stripe
           border
-          empty-text="—"
           style="width: 100%"
           class="contract-table--clickable"
           @selection-change="onSelectionChange"
@@ -1684,7 +1580,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   {{ t('contract.printAgreement') }}
                 </button>
                 <button
-                  v-if="isAdmin"
+                  v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click="openEdit(row as ContractRecord)"
@@ -1692,7 +1588,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   {{ t('common.edit') }}
                 </button>
                 <button
-                  v-if="isAdmin"
+                  v-if="perms.delete" v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click="onDelete(row as ContractRecord)"
@@ -1716,8 +1612,9 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="isAdmin" #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"

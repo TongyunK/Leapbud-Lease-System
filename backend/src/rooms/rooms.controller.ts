@@ -28,6 +28,8 @@ import { BatchDeleteDto } from '../common/batch-delete';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import { parseSortDir, splitCsv } from '../common/pagination';
 
@@ -37,6 +39,9 @@ export class RoomsController {
   constructor(private readonly roomsService: RoomsService) {}
 
   @Get()
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'buildingId', required: false })
   @ApiQuery({ name: 'buildingIds', required: false, description: 'Comma-separated building IDs' })
@@ -96,14 +101,17 @@ export class RoomsController {
   }
 
   @Get(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
   findOne(@Param('id') id: string) {
     return this.roomsService.findOne(id);
   }
 
   @Post('import')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('rooms:import')
   @ApiOkResponse({ description: 'Batch import rooms (upsert by roomCode)' })
   importBatch(@Body() dto: ImportRoomsDto, @CurrentUser() user?: JwtPayload) {
     return this.roomsService.importBatch(dto, actorUserId(user));
@@ -111,8 +119,8 @@ export class RoomsController {
 
   @Post('batch-delete')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('rooms:batchDelete')
   @ApiOkResponse({ description: 'Batch delete rooms by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.roomsService.removeMany(dto.ids);
@@ -120,15 +128,16 @@ export class RoomsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('rooms:create')
   create(@Body() dto: CreateRoomDto, @CurrentUser() user?: JwtPayload) {
     return this.roomsService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('rooms:update')
   @Roles(UserRole.admin, UserRole.user)
   update(
     @Param('id') id: string,
@@ -140,7 +149,7 @@ export class RoomsController {
 
   @Post(':id/images')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(UserRole.admin, UserRole.user)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -161,6 +170,7 @@ export class RoomsController {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
+  @RequirePermissions('rooms:update')
   @ApiOkResponse({ description: 'Upload one or more room images' })
   uploadImages(
     @Param('id') id: string,
@@ -172,7 +182,7 @@ export class RoomsController {
 
   @Get(':id/images/:imageId/file')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(UserRole.admin, UserRole.user)
   @ApiOkResponse({ description: 'Stream room image file' })
   getImageFile(@Param('id') id: string, @Param('imageId') imageId: string) {
@@ -181,7 +191,8 @@ export class RoomsController {
 
   @Delete(':id/images/:imageId')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('rooms:update')
   @Roles(UserRole.admin, UserRole.user)
   @ApiOkResponse({ description: 'Delete one room image' })
   removeImage(@Param('id') id: string, @Param('imageId') imageId: string) {
@@ -190,7 +201,8 @@ export class RoomsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('rooms:delete')
   @Roles(UserRole.admin, UserRole.user)
   remove(@Param('id') id: string) {
     return this.roomsService.remove(id);

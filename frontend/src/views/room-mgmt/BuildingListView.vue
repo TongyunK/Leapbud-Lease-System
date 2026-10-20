@@ -36,6 +36,7 @@ import {
   rowToBuildingIoPayload,
 } from '@/utils/buildingExport'
 import { useUserStore } from '@/stores/user'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
@@ -51,7 +52,7 @@ import * as XLSX from 'xlsx'
 
 const { t } = useI18n()
 const userStore = useUserStore()
-const isAdmin = computed(() => userStore.isAdmin)
+const perms = useResourcePermissions('buildings')
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
@@ -180,7 +181,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!isAdmin.value || !selectedIds.value.length) return
+  if (!perms.batchDelete.value || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -366,7 +367,7 @@ async function runImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!isAdmin.value) {
+  if (!perms.import.value) {
     ElMessage.warning(t('building.importAdminOnly'))
     return
   }
@@ -503,7 +504,7 @@ async function toggleActive(row: BuildingRecord) {
 
 async function saveForm() {
   if (!form.name.trim()) return
-  if (!editing.value && !isAdmin.value) {
+  if (!editing.value && !perms.create.value) {
     ElMessage.warning(t('building.importAdminOnly'))
     return
   }
@@ -541,7 +542,13 @@ async function saveForm() {
           :placeholder="t('building.searchPlaceholder')"
         />
         <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
+        <el-button
+          v-if="perms.create" v-admin-glow="perms.codes.create"
+          type="primary"
+          :icon="Plus"
+          class="lb-btn-primary"
+          @click="openCreate"
+        >
           {{ t('building.create') }}
         </el-button>
         <el-dropdown
@@ -555,7 +562,7 @@ async function saveForm() {
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="isAdmin" command="import">
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('building.import') }}</span>
               </el-dropdown-item>
@@ -598,7 +605,6 @@ async function saveForm() {
           height="100%"
           stripe
           border
-          empty-text="—"
           class="building-table--clickable"
           style="width: 100%"
           @selection-change="onSelectionChange"
@@ -755,7 +761,12 @@ async function saveForm() {
                 <button type="button" class="action-pill action-pill--view" @click.stop="openDetail(row as BuildingRecord)">
                   {{ t('common.detail') }}
                 </button>
-                <button type="button" class="action-pill action-pill--edit" @click.stop="openEdit(row as BuildingRecord)">
+                <button
+                  v-if="perms.update" v-admin-glow="perms.codes.update"
+                  type="button"
+                  class="action-pill action-pill--edit"
+                  @click.stop="openEdit(row as BuildingRecord)"
+                >
                   {{ t('common.edit') }}
                 </button>
               </div>
@@ -775,8 +786,9 @@ async function saveForm() {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="isAdmin" #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"
@@ -845,7 +857,12 @@ async function saveForm() {
           <button type="button" class="action-pill action-pill--view" @click="openDetail(row)">
             {{ t('common.detail') }}
           </button>
-          <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+          <button
+            v-if="perms.update" v-admin-glow="perms.codes.update"
+            type="button"
+            class="action-pill action-pill--edit"
+            @click="openEdit(row)"
+          >
             {{ t('common.edit') }}
           </button>
         </div>

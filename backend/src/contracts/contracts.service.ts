@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import { CreateContractDto, ContractPeriodInputDto, UpdateContractDto, ImportContractsDto } from './dto/contract.dto';
 import { contractInclude, toContractDto } from './contract.mapper';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
@@ -116,6 +117,7 @@ export class ContractsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractConfigs: ContractConfigsService,
+    private readonly access: BuildingAccessService,
   ) {}
 
   /** 按大厦聚合合约数量（一次 GROUP BY，供筛选下拉展示） */
@@ -127,10 +129,13 @@ export class ContractsService {
       WHERE r."building_id" IS NOT NULL
       GROUP BY r."building_id"
     `;
-    return rows.map((r) => ({
-      buildingId: r.building_id,
-      count: Number(r.count),
-    }));
+    const allowed = await this.access.allowedIds();
+    return rows
+      .filter((r) => allowed == null || allowed.includes(r.building_id))
+      .map((r) => ({
+        buildingId: r.building_id,
+        count: Number(r.count),
+      }));
   }
 
   async findAll(params: {
@@ -160,6 +165,7 @@ export class ContractsService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaRoom');
     const { skip, take } = paginateArgs(page, pageSize);
 
     const [total, rows] = await this.prisma.$transaction([
@@ -317,6 +323,7 @@ export class ContractsService {
       include: contractInclude,
     });
     if (!row) throw new NotFoundException(`Contract ${id} not found`);
+    await this.access.assertContractId(row.id);
     return toContractDto(row);
   }
 

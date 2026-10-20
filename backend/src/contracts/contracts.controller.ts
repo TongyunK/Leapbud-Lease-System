@@ -16,6 +16,8 @@ import { CreateContractDto, UpdateContractDto, ImportContractsDto } from './dto/
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { parseSortDir, splitCsv } from '../common/pagination';
@@ -24,7 +26,7 @@ import { BatchDeleteDto } from '../common/batch-delete';
 @ApiTags('contracts')
 @Controller('contracts')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ContractsController {
   constructor(private readonly contractsService: ContractsService) {}
@@ -103,15 +105,15 @@ export class ContractsController {
     });
   }
 
+  @RequirePermissions('contracts:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import contracts' })
   importBatch(@Body() dto: ImportContractsDto, @CurrentUser() user?: JwtPayload) {
     return this.contractsService.importBatch(dto, actorUserId(user));
   }
 
+  @RequirePermissions('contracts:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete contracts by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.contractsService.removeMany(dto.ids);
@@ -128,14 +130,14 @@ export class ContractsController {
     return this.contractsService.findOne(id);
   }
 
+  @RequirePermissions('contracts:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateContractDto, @CurrentUser() user?: JwtPayload) {
     return this.contractsService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('contracts:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateContractDto,
@@ -144,8 +146,8 @@ export class ContractsController {
     return this.contractsService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('contracts:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.contractsService.remove(id);
   }

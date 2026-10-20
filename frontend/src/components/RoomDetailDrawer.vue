@@ -162,22 +162,12 @@ function emitIfCount(
       </section>
 
       <section class="detail-section">
-        <h3>{{ t('room.sections.contract') }}</h3>
+        <h3>{{ t('room.sections.relatedRecords') }}</h3>
         <dl class="detail-grid two">
           <div>
             <dt>{{ t('room.fields.latestContract') }}</dt>
             <dd>{{ dash(room.latestContract) }}</dd>
           </div>
-          <div>
-            <dt>{{ t('room.fields.contractRecords') }}</dt>
-            <dd>{{ room.contractRecords?.join(', ') || '—' }}</dd>
-          </div>
-        </dl>
-      </section>
-
-            <section class="detail-section">
-        <h3>{{ t('room.sections.relatedRecords') }}</h3>
-        <dl class="detail-grid two">
           <div>
             <dt>{{ t('room.fields.contractCount') }}</dt>
             <dd>

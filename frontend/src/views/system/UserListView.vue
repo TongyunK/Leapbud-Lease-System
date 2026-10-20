@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+const perms = useResourcePermissions('users')
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { OfficeBuilding, Plus, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { fetchBuildings } from '@/api/buildings'
+import { fetchRoles } from '@/api/roles'
 import {
   createUserApi,
   deleteUserApi,
@@ -10,16 +14,16 @@ import {
   fetchUsers,
   updateUserApi,
 } from '@/api/users'
-import type { UserRecord, UserRole, UserStatus } from '@/types/user'
+import type { UserRecord, UserStatus } from '@/types/user'
+import type { BuildingRecord } from '@/types/building'
+import type { RoleRecord } from '@/types/role'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
-import { userStatusTone } from '@/constants/statusBadges'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -29,8 +33,10 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
-const { actionColWidth } = useActionColWidth()
-const { colW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+const userActionColWidth = computed(() =>
+  measureActionColWidth([t('common.edit'), t('user.resetPassword'), t('common.delete')]),
+)
+const { colW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
 const loading = ref(false)
@@ -38,9 +44,20 @@ const formVisible = ref(false)
 const editing = ref<UserRecord | null>(null)
 
 const list = ref<UserRecord[]>([])
+const buildingOptions = ref<BuildingRecord[]>([])
+const roleCatalog = ref<RoleRecord[]>([])
 
-const roleOptions: UserRole[] = ['admin', 'user']
 const statusOptions: UserStatus[] = ['active', 'disabled']
+const ADMIN_ROLE_CODE = 'admin'
+const DEFAULT_ROLE_CODE = 'user'
+
+function roleLabel(code: string) {
+  const fromCatalog = roleCatalog.value.find((r) => r.code === code)?.name
+  if (fromCatalog) return fromCatalog
+  const fromList = list.value.find((u) => u.role === code)?.roleName
+  return fromList || code
+}
+
 const {
   filters,
   setFilter,
@@ -67,9 +84,13 @@ const columnGetters = {
   updatedAt: (u: UserRecord) => u.updatedAt,
 }
 
-const roleFilterOptions = computed(() =>
-  roleOptions.map((r) => ({ value: r, label: t(`user.role.${r}`) })),
-)
+const roleFilterOptions = computed(() => {
+  const codes = new Set<string>([
+    ...roleCatalog.value.map((r) => r.code),
+    ...list.value.map((u) => u.role),
+  ])
+  return [...codes].map((code) => ({ value: code, label: roleLabel(code) }))
+})
 const statusFilterOptions = computed(() =>
   statusOptions.map((s) => ({ value: s, label: t(`user.status.${s}`) })),
 )
@@ -79,7 +100,16 @@ const filtered = computed(() => {
   const base = !q
     ? list.value
     : list.value.filter((u) =>
-        [u.account, u.displayName, u.phone, u.email, u.role, u.status]
+        [
+          u.account,
+          u.displayName,
+          u.phone,
+          u.email,
+          u.role,
+          u.roleName,
+          u.status,
+          ...(u.buildings || []).map((b) => b.name),
+        ]
           .join(' ')
           .toLowerCase()
           .includes(q),
@@ -151,23 +181,105 @@ async function onBatchDelete() {
   }
 }
 
-const dialogWidth = computed(() => (isMobile.value ? '94%' : '520px'))
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
+const buildingSelectRef = ref<{ $el?: HTMLElement } | null>(null)
+const buildingTagLimit = ref(4)
+let buildingSelectObserver: ResizeObserver | null = null
 
 const form = reactive({
   account: '',
   password: '',
   displayName: '',
-  role: 'user' as UserRole,
+  role: DEFAULT_ROLE_CODE,
   status: 'active' as UserStatus,
   phone: '',
   email: '',
+  buildingIds: [] as string[],
 })
+
+const formRoleOptions = computed(() => {
+  const active = roleCatalog.value.filter((r) => r.active)
+  if (!editing.value) return active
+  const current = roleCatalog.value.find((r) => r.code === form.role)
+  if (current && !current.active && !active.some((r) => r.code === current.code)) {
+    return [current, ...active]
+  }
+  return active
+})
+
+function fitBuildingTags() {
+  const root = buildingSelectRef.value?.$el
+  if (!root) return
+  const names = form.buildingIds.map(
+    (id) => buildingOptions.value.find((b) => b.id === id)?.name || id,
+  )
+  if (!names.length) {
+    buildingTagLimit.value = 1
+    return
+  }
+  const available = Math.max(0, root.clientWidth - 40)
+  const measure = document.createElement('span')
+  measure.style.cssText =
+    'position:absolute;left:-9999px;visibility:hidden;white-space:nowrap;font-size:12px;'
+  document.body.appendChild(measure)
+  const widths = names.map((name) => {
+    measure.textContent = name
+    return Math.ceil(measure.offsetWidth) + 40
+  })
+  measure.textContent = `+${names.length}`
+  const plusWidth = Math.ceil(measure.offsetWidth) + 24
+  measure.remove()
+
+  let used = 0
+  let count = 0
+  for (let i = 0; i < widths.length; i += 1) {
+    const hasMore = i < widths.length - 1
+    const next = used + widths[i] + (hasMore ? plusWidth + 6 : 0)
+    if (count > 0 && next > available) break
+    used += widths[i] + 6
+    count += 1
+  }
+  buildingTagLimit.value = Math.max(1, count)
+}
+
+watch(
+  () => [formVisible.value, form.role, form.buildingIds.join('|')] as const,
+  async ([open, role]) => {
+    buildingSelectObserver?.disconnect()
+    buildingSelectObserver = null
+    if (!open || role === ADMIN_ROLE_CODE) return
+    await nextTick()
+    fitBuildingTags()
+    const el = buildingSelectRef.value?.$el
+    if (!el || typeof ResizeObserver === 'undefined') return
+    buildingSelectObserver = new ResizeObserver(() => fitBuildingTags())
+    buildingSelectObserver.observe(el)
+  },
+)
+
+onBeforeUnmount(() => buildingSelectObserver?.disconnect())
+
+function buildingLabel(row: UserRecord) {
+  if (row.role === ADMIN_ROLE_CODE) return t('user.allBuildings')
+  const names = (row.buildings || []).map((b) => b.name)
+  return names.length ? names.join('、') : '—'
+}
 
 async function loadList() {
   loading.value = true
   try {
-    const { data } = await fetchUsers()
-    list.value = data
+    const [usersRes, buildingsRes, rolesRes] = await Promise.all([
+      fetchUsers(),
+      fetchBuildings(),
+      fetchRoles(),
+    ])
+    list.value = usersRes.data
+    buildingOptions.value = (buildingsRes.data.items ?? [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    roleCatalog.value = (rolesRes.data ?? [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code))
   } finally {
     loading.value = false
   }
@@ -183,10 +295,13 @@ function openCreate() {
     account: '',
     password: '',
     displayName: '',
-    role: 'user',
+    role: roleCatalog.value.some((r) => r.code === DEFAULT_ROLE_CODE && r.active)
+      ? DEFAULT_ROLE_CODE
+      : formRoleOptions.value[0]?.code || DEFAULT_ROLE_CODE,
     status: 'active',
     phone: '',
     email: '',
+    buildingIds: [],
   })
   formVisible.value = true
 }
@@ -201,6 +316,7 @@ function openEdit(row: UserRecord) {
     status: row.status,
     phone: row.phone || '',
     email: row.email || '',
+    buildingIds: [...(row.buildingIds || [])],
   })
   formVisible.value = true
 }
@@ -214,10 +330,6 @@ async function saveForm() {
     ElMessage.warning(t('account.passwordTooShort'))
     return
   }
-  if (editing.value && form.password && form.password.length < 6) {
-    ElMessage.warning(t('account.passwordTooShort'))
-    return
-  }
 
   try {
     if (editing.value) {
@@ -227,8 +339,8 @@ async function saveForm() {
         status: form.status,
         phone: form.phone.trim(),
         email: form.email.trim(),
+        buildingIds: form.role === ADMIN_ROLE_CODE ? [] : [...form.buildingIds],
       }
-      if (form.password) payload.password = form.password
       await updateUserApi(editing.value.id, payload)
       ElMessage.success(t('user.updated'))
     } else {
@@ -240,6 +352,7 @@ async function saveForm() {
         status: form.status,
         phone: form.phone.trim(),
         email: form.email.trim(),
+        buildingIds: form.role === ADMIN_ROLE_CODE ? [] : [...form.buildingIds],
       })
       ElMessage.success(t('user.created'))
     }
@@ -247,6 +360,51 @@ async function saveForm() {
     await loadList()
   } catch {
     /* axios interceptor shows error */
+  }
+}
+
+const resetVisible = ref(false)
+const resetTarget = ref<UserRecord | null>(null)
+const resetForm = reactive({ password: '', confirm: '' })
+
+function openReset(row: UserRecord) {
+  resetTarget.value = row
+  resetForm.password = ''
+  resetForm.confirm = ''
+  resetVisible.value = true
+}
+
+async function saveReset() {
+  const row = resetTarget.value
+  if (!row) return
+  if (resetForm.password.length < 6) {
+    ElMessage.warning(t('account.passwordTooShort'))
+    return
+  }
+  if (resetForm.password !== resetForm.confirm) {
+    ElMessage.warning(t('account.passwordMismatch'))
+    return
+  }
+  try {
+    await updateUserApi(row.id, { password: resetForm.password })
+    ElMessage.success(t('user.passwordReset'))
+    resetVisible.value = false
+  } catch {
+    /* axios interceptor shows error */
+  }
+}
+
+async function toggleStatus(row: UserRecord) {
+  if (row.account === 'admin') {
+    ElMessage.warning(t('user.adminStatusProtected'))
+    return
+  }
+  const next: UserStatus = row.status === 'active' ? 'disabled' : 'active'
+  try {
+    await updateUserApi(row.id, { status: next })
+    row.status = next
+  } catch {
+    /* interceptor */
   }
 }
 
@@ -277,7 +435,7 @@ async function onDelete(row: UserRecord) {
           :placeholder="t('user.searchPlaceholder')"
         />
         <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
+        <el-button v-if="perms.create" v-admin-glow="perms.codes.create" type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('user.create') }}
         </el-button>
       </div>
@@ -293,7 +451,6 @@ async function onDelete(row: UserRecord) {
           height="100%"
           stripe
           border
-          empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >
@@ -349,15 +506,17 @@ async function onDelete(row: UserRecord) {
                 @update:sort-order="(v) => setSort('role', v)"
               />
             </template>
-            <template #default="{ row }">{{ t(`user.role.${row.role}`) }}</template>
+            <template #default="{ row }">{{ row.roleName || roleLabel(row.role) }}</template>
           </el-table-column>
           <el-table-column
-            :min-width="
-              statusColW(
-                t('user.fields.status'),
-                statusFilterOptions.map((o) => o.label),
-              )
-            "
+            :min-width="colW(t('user.fields.buildings'), { contentMin: 160 })"
+            :label="t('user.fields.buildings')"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">{{ buildingLabel(row) }}</template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('user.fields.status'), { interactive: true, contentMin: 110 })"
           >
             <template #header>
               <TableColumnHeader
@@ -372,7 +531,11 @@ async function onDelete(row: UserRecord) {
               />
             </template>
             <template #default="{ row }">
-              <StatusBadge :tone="userStatusTone(row.status)" :label="t(`user.status.${row.status}`)" />
+              <el-switch
+                :model-value="row.status === 'active'"
+                :disabled="row.account === 'admin'"
+                @change="() => toggleStatus(row)"
+              />
             </template>
           </el-table-column>
           <el-table-column
@@ -385,25 +548,6 @@ async function onDelete(row: UserRecord) {
             :label="t('user.fields.email')"
             :min-width="colW(t('user.fields.email'), { contentMin: 180 })"
           />
-          <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
-            :min-width="auditUserColWidth"
-            show-overflow-tooltip
-          />
-          <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
-            <template #header>
-              <TableColumnHeader
-                :label="t('common.createdAt')"
-                sortable
-                date-range
-                :sort-order="sortOrderOf('createdAt')"
-                :date-range-value="dateRangeOf('createdAt')"
-                @update:sort-order="(v) => setSort('createdAt', v)"
-                @update:date-range-value="(v) => setDateRange('createdAt', v)"
-              />
-            </template>
-          </el-table-column>
           <el-table-column
             prop="updatedBy"
             :label="t('common.updatedBy')"
@@ -424,18 +568,41 @@ async function onDelete(row: UserRecord) {
             </template>
           </el-table-column>
           <el-table-column
+            prop="createdBy"
+            :label="t('common.createdBy')"
+            :min-width="auditUserColWidth"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('createdAt')"
+                :date-range-value="dateRangeOf('createdAt')"
+                @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:date-range-value="(v) => setDateRange('createdAt', v)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="userActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
           >
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
                   {{ t('common.edit') }}
                 </button>
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--key" @click="openReset(row)">
+                  {{ t('user.resetPassword') }}
+                </button>
                 <button
+                  v-if="perms.delete" v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   :disabled="row.account === 'admin'"
@@ -460,8 +627,9 @@ async function onDelete(row: UserRecord) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"
@@ -479,9 +647,13 @@ async function onDelete(row: UserRecord) {
         <div class="data-card__head">
           <div>
             <h3 class="data-card__title">{{ row.displayName || row.account }}</h3>
-            <p class="data-card__meta">{{ row.account }} · {{ t(`user.role.${row.role}`) }}</p>
+            <p class="data-card__meta">{{ row.account }} · {{ row.roleName || roleLabel(row.role) }} · {{ buildingLabel(row) }}</p>
           </div>
-          <StatusBadge :tone="userStatusTone(row.status)" :label="t(`user.status.${row.status}`)" />
+          <el-switch
+            :model-value="row.status === 'active'"
+            :disabled="row.account === 'admin'"
+            @change="() => toggleStatus(row)"
+          />
         </div>
         <dl class="data-card__grid">
           <div>
@@ -493,14 +665,6 @@ async function onDelete(row: UserRecord) {
             <dd>{{ row.email || '—' }}</dd>
           </div>
           <div>
-            <dt>{{ t('common.createdBy') }}</dt>
-            <dd>{{ row.createdBy || '—' }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('common.createdAt') }}</dt>
-            <dd>{{ row.createdAt || '—' }}</dd>
-          </div>
-          <div>
             <dt>{{ t('common.updatedBy') }}</dt>
             <dd>{{ row.updatedBy || '—' }}</dd>
           </div>
@@ -508,12 +672,24 @@ async function onDelete(row: UserRecord) {
             <dt>{{ t('common.updatedAt') }}</dt>
             <dd>{{ row.updatedAt || '—' }}</dd>
           </div>
+          <div>
+            <dt>{{ t('common.createdBy') }}</dt>
+            <dd>{{ row.createdBy || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('common.createdAt') }}</dt>
+            <dd>{{ row.createdAt || '—' }}</dd>
+          </div>
         </dl>
         <div class="data-card__actions action-pills">
-          <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+          <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
             {{ t('common.edit') }}
           </button>
+          <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--key" @click="openReset(row)">
+            {{ t('user.resetPassword') }}
+          </button>
           <button
+            v-if="perms.delete" v-admin-glow="perms.codes.delete"
             type="button"
             class="action-pill action-pill--danger"
             :disabled="row.account === 'admin'"
@@ -532,34 +708,68 @@ async function onDelete(row: UserRecord) {
       v-model="formVisible"
       :title="editing ? t('user.edit') : t('user.create')"
       :width="dialogWidth"
+      align-center
       destroy-on-close
+      class="user-form-dialog"
     >
-      <el-form label-position="top">
-        <el-form-item :label="t('user.fields.account')" required>
-          <el-input v-model="form.account" :disabled="Boolean(editing)" />
-        </el-form-item>
-        <el-form-item :label="editing ? t('user.fields.passwordOptional') : t('user.fields.password')" :required="!editing">
-          <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
-        </el-form-item>
-        <el-form-item :label="t('user.fields.displayName')">
-          <el-input v-model="form.displayName" />
-        </el-form-item>
-        <el-form-item :label="t('user.fields.role')">
-          <el-select v-model="form.role" style="width: 100%">
-            <el-option v-for="r in roleOptions" :key="r" :label="t(`user.role.${r}`)" :value="r" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('user.fields.status')">
-          <el-select v-model="form.status" style="width: 100%">
-            <el-option v-for="s in statusOptions" :key="s" :label="t(`user.status.${s}`)" :value="s" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('user.fields.phone')">
-          <el-input v-model="form.phone" />
-        </el-form-item>
-        <el-form-item :label="t('user.fields.email')">
-          <el-input v-model="form.email" />
-        </el-form-item>
+      <el-form label-position="top" class="user-form">
+        <div class="form-grid">
+          <el-form-item :label="t('user.fields.account')" required>
+            <el-input v-model="form.account" :disabled="Boolean(editing)" />
+          </el-form-item>
+          <el-form-item :label="t('user.fields.displayName')">
+            <el-input v-model="form.displayName" />
+          </el-form-item>
+          <el-form-item :label="t('user.fields.role')">
+            <el-select v-model="form.role" style="width: 100%" filterable>
+              <el-option
+                v-for="r in formRoleOptions"
+                :key="r.code"
+                :label="r.name"
+                :value="r.code"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('user.fields.status')">
+            <el-select v-model="form.status" style="width: 100%">
+              <el-option v-for="s in statusOptions" :key="s" :label="t(`user.status.${s}`)" :value="s" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('user.fields.phone')">
+            <el-input v-model="form.phone" />
+          </el-form-item>
+          <el-form-item :label="t('user.fields.email')">
+            <el-input v-model="form.email" />
+          </el-form-item>
+          <el-form-item v-if="!editing" class="span-2" :label="t('user.fields.password')" required>
+            <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
+          </el-form-item>
+          <el-form-item :label="t('user.fields.buildings')" class="span-2">
+            <p v-if="form.role === ADMIN_ROLE_CODE" class="form-hint">{{ t('user.buildingsAdminHint') }}</p>
+            <template v-else>
+              <el-select
+                ref="buildingSelectRef"
+                v-model="form.buildingIds"
+                class="user-building-select"
+                popper-class="user-building-popper"
+                multiple
+                filterable
+                collapse-tags
+                collapse-tags-tooltip
+                :max-collapse-tags="buildingTagLimit"
+                style="width: 100%"
+              >
+                <el-option v-for="b in buildingOptions" :key="b.id" :label="b.name" :value="b.id">
+                  <span class="user-building-option">
+                    <el-icon><OfficeBuilding /></el-icon>
+                    <span>{{ b.name }}</span>
+                  </span>
+                </el-option>
+              </el-select>
+              <p class="form-hint">{{ t('user.buildingsHint') }}</p>
+            </template>
+          </el-form-item>
+        </div>
         <AuditDetailSection
           v-if="editing"
           :created-by="editing.createdBy"
@@ -572,6 +782,30 @@ async function onDelete(row: UserRecord) {
         <div class="dialog-footer">
           <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
           <el-button type="primary" class="lb-btn-primary" @click="saveForm">{{ t('common.save') }}</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="resetVisible"
+      :title="t('user.resetPasswordTitle')"
+      :width="isMobile ? '94%' : '420px'"
+      align-center
+      destroy-on-close
+    >
+      <p class="form-hint reset-hint">{{ t('user.resetPasswordHint', { account: resetTarget?.account || '' }) }}</p>
+      <el-form label-position="top">
+        <el-form-item :label="t('account.newPassword')" required>
+          <el-input v-model="resetForm.password" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item :label="t('account.confirmPassword')" required>
+          <el-input v-model="resetForm.confirm" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="resetVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" class="lb-btn-primary" @click="saveReset">{{ t('common.save') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -589,3 +823,53 @@ async function onDelete(row: UserRecord) {
     />
   </div>
 </template>
+
+<style scoped>
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.user-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+
+.reset-hint {
+  margin: 0 0 12px;
+}
+
+.form-hint {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.user-building-select :deep(.el-tag) {
+  border-radius: 999px;
+  height: 24px;
+  padding: 0 8px;
+  background: #e4efe9;
+  border-color: #c9ddd2;
+  color: #0f4a32;
+  --el-tag-bg-color: #e4efe9;
+  --el-tag-border-color: #c9ddd2;
+  --el-tag-text-color: #0f4a32;
+  --el-tag-hover-color: #0f4a32;
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid .span-2 {
+    grid-column: auto;
+  }
+}
+</style>

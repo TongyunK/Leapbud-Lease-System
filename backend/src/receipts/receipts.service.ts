@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { NumberingBizKey, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { BuildingAccessService } from '../building-access/building-access.service'
 import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/receipt.dto'
 import { receiptInclude, toReceiptDto } from './receipt.mapper'
@@ -49,6 +50,7 @@ export class ReceiptsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly numberingRules: NumberingRulesService,
+    private readonly access: BuildingAccessService,
   ) {}
 
   async findAll(params: {
@@ -74,6 +76,7 @@ export class ReceiptsService {
     const page = parsePage(params.page)
     const pageSize = parsePageSize(params.pageSize)
     const where = this.buildListWhere(params)
+    await this.access.constrain(where, 'viaCustomer')
     const { skip, take } = paginateArgs(page, pageSize)
 
     const [total, rows] = await this.prisma.$transaction([
@@ -201,6 +204,7 @@ export class ReceiptsService {
       include: receiptInclude,
     })
     if (!row) throw new NotFoundException('Receipt not found')
+    await this.access.assertCustomerId(row.customerId)
     return toReceiptDto(row)
   }
 

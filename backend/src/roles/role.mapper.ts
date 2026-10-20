@@ -4,12 +4,12 @@ import { auditActorLabel, auditUserInclude, type AuditUserRef } from '../common/
 export type RoleWithAudit = Role & {
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
-  _count?: { roleMenus?: number };
+  _count?: { roleMenus?: number; rolePermissions?: number };
 };
 
 export const roleAuditInclude = {
   ...auditUserInclude,
-  _count: { select: { roleMenus: true } },
+  _count: { select: { roleMenus: true, rolePermissions: true } },
 } as const;
 
 function formatDateTime(date: Date): string {
@@ -27,6 +27,7 @@ export function toRoleDto(row: RoleWithAudit) {
     active: row.active,
     isSystem: row.isSystem,
     menuCount: row._count?.roleMenus ?? 0,
+    permissionCount: row._count?.rolePermissions ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),
     updatedBy: auditActorLabel(row.updatedByUser),

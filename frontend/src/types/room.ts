@@ -29,7 +29,6 @@ export interface RoomRecord {
   windowConfig?: string
   acConfig?: string
   latestContract?: string
-  contractRecords?: string[]
   contractCount?: number
   invoiceCount?: number
   terminationCount?: number

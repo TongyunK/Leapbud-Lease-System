@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { parseSortDir, splitCsv } from '../common/pagination';
@@ -28,7 +30,7 @@ import { BatchDeleteDto } from '../common/batch-delete';
 @ApiTags('customer-requirements')
 @Controller('customer-requirements')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class CustomerRequirementsController {
   constructor(private readonly customerRequirementsService: CustomerRequirementsService) {}
@@ -97,28 +99,28 @@ export class CustomerRequirementsController {
     return this.customerRequirementsService.findOne(id);
   }
 
+  @RequirePermissions('customerRequirements:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import customer requirements (upsert by requirementCode)' })
   importBatch(@Body() dto: ImportCustomerRequirementsDto, @CurrentUser() user?: JwtPayload) {
     return this.customerRequirementsService.importBatch(dto, actorUserId(user));
   }
 
+  @RequirePermissions('customerRequirements:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete customer requirements by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.customerRequirementsService.removeMany(dto.ids);
   }
 
+  @RequirePermissions('customerRequirements:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateCustomerRequirementDto, @CurrentUser() user?: JwtPayload) {
     return this.customerRequirementsService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('customerRequirements:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCustomerRequirementDto,
@@ -127,8 +129,8 @@ export class CustomerRequirementsController {
     return this.customerRequirementsService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('customerRequirements:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.customerRequirementsService.remove(id);
   }

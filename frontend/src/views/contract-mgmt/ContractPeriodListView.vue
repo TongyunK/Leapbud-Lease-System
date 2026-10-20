@@ -34,6 +34,7 @@ import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
 import { useActionColWidth } from '@/composables/useActionColWidth'
@@ -54,7 +55,7 @@ const EXPORT_PAGE_SIZE = 500
 const { t } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
-const isAdmin = computed(() => userStore.isAdmin)
+const perms = useResourcePermissions('contractPeriods')
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, codeColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 
@@ -161,7 +162,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!isAdmin.value || !selectedIds.value.length) return
+  if (!perms.batchDelete.value || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -523,7 +524,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!isAdmin.value) {
+  if (!perms.import.value) {
     ElMessage.warning(t('contractPeriod.importAdminOnly'))
     return
   }
@@ -618,7 +619,7 @@ async function onImportFile(ev: Event) {
         />
         <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button
-          v-if="isAdmin"
+          v-if="perms.create" v-admin-glow="perms.codes.create"
           type="primary"
           :icon="Plus"
           class="lb-btn-primary"
@@ -637,7 +638,7 @@ async function onImportFile(ev: Event) {
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="isAdmin" command="import">
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('contractPeriod.import') }}</span>
               </el-dropdown-item>
@@ -681,7 +682,6 @@ async function onImportFile(ev: Event) {
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
           @row-click="onRowClick"
@@ -907,7 +907,7 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="isAdmin"
+            v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
             :width="actionColWidth.two"
             fixed="right"
@@ -947,8 +947,9 @@ async function onImportFile(ev: Event) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="isAdmin" #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"

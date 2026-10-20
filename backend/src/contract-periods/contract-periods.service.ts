@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
 import {
   CreateContractPeriodDto,
@@ -66,6 +67,7 @@ export class ContractPeriodsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractConfigs: ContractConfigsService,
+    private readonly access: BuildingAccessService,
   ) {}
 
   async findAll(params: {
@@ -89,6 +91,7 @@ export class ContractPeriodsService {
     const page = Math.max(1, Math.floor(Number(params.page) || 1));
     const pageSize = Math.min(500, Math.max(1, Math.floor(Number(params.pageSize) || 20)));
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaContractRoom');
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.contractPeriod.count({ where }),
@@ -191,6 +194,7 @@ export class ContractPeriodsService {
       include: contractPeriodInclude,
     });
     if (!row) throw new NotFoundException(`Contract period ${id} not found`);
+    await this.access.assertContractId(row.contractId);
     return toContractPeriodListDto(row);
   }
 

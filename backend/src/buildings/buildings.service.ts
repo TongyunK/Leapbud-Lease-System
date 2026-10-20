@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DocumentTemplateType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import { buildingListInclude, toBuildingDto } from '../common/dto-mappers';
 import {
   dateRangeFilter,
@@ -37,7 +38,10 @@ function optionalTemplateId(v: string | null | undefined): string | null | undef
 
 @Injectable()
 export class BuildingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   private async assertTemplateId(
     id: string | null | undefined,
@@ -73,6 +77,7 @@ export class BuildingsService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'building');
     const { skip, take } = paginateArgs(page, pageSize);
 
     const [total, rows] = await this.prisma.$transaction([
@@ -158,6 +163,7 @@ export class BuildingsService {
       include: buildingListInclude,
     });
     if (!row) throw new NotFoundException(`Building ${id} not found`);
+    await this.access.assertBuildingId(row.id);
     return toBuildingDto(row);
   }
 

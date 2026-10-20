@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+const perms = useResourcePermissions('contractConfigs')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Calendar, House, Key, Plus } from '@element-plus/icons-vue'
@@ -290,7 +292,7 @@ async function toggleActive(row: ContractConfigOption) {
       </div>
       <div class="head-actions">
         <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
+        <el-button v-if="perms.create" v-admin-glow="perms.codes.create" type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t(`contractConfig.createFor.${activeTab}`) }}
         </el-button>
       </div>
@@ -306,7 +308,6 @@ async function toggleActive(row: ContractConfigOption) {
           height="100%"
           stripe
           border
-          empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >
@@ -452,7 +453,7 @@ async function toggleActive(row: ContractConfigOption) {
           >
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
                   {{ t('common.edit') }}
                 </button>
                 <button
@@ -483,8 +484,9 @@ async function toggleActive(row: ContractConfigOption) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"

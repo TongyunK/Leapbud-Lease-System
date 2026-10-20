@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
 import { BatchDeleteDto } from '../common/batch-delete'
@@ -28,7 +30,7 @@ import { splitCsv } from '../common/pagination'
 @ApiTags('receivables')
 @Controller('receivables')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ReceivablesController {
   constructor(private readonly receivablesService: ReceivablesService) {}
@@ -89,15 +91,15 @@ export class ReceivablesController {
     })
   }
 
+  @RequirePermissions('receivables:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import receivables' })
   importBatch(@Body() dto: ImportReceivablesDto, @CurrentUser() user?: JwtPayload) {
     return this.receivablesService.importBatch(dto, actorUserId(user))
   }
 
   @Post('batch-delete')
-  @Roles(UserRole.admin)
+  @RequirePermissions('receivables:batchDelete')
   @ApiOkResponse({ description: 'Batch delete receivables' })
   batchDelete(@Body() dto: BatchDeleteDto) {
     return this.receivablesService.removeMany(dto.ids || [])
@@ -109,15 +111,15 @@ export class ReceivablesController {
     return this.receivablesService.findOne(id)
   }
 
+  @RequirePermissions('receivables:create')
   @Post()
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Create receivable' })
   create(@Body() dto: CreateReceivableDto, @CurrentUser() user?: JwtPayload) {
     return this.receivablesService.create(dto, actorUserId(user))
   }
 
+  @RequirePermissions('receivables:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Update receivable' })
   update(
     @Param('id') id: string,
@@ -127,8 +129,8 @@ export class ReceivablesController {
     return this.receivablesService.update(id, dto, actorUserId(user))
   }
 
+  @RequirePermissions('receivables:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Delete receivable' })
   remove(@Param('id') id: string) {
     return this.receivablesService.remove(id)

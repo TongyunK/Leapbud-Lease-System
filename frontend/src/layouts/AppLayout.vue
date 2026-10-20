@@ -8,13 +8,16 @@ import {
   Menu as MenuIcon,
   Close,
   ArrowDown,
+  Filter,
   Lock,
+  OfficeBuilding,
   SwitchButton,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import SidebarMenuNodes from '@/components/SidebarMenuNodes.vue'
 import { useUserStore } from '@/stores/user'
+import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useNavStore } from '@/stores/nav'
 import { changePasswordApi } from '@/api/auth'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
@@ -24,10 +27,16 @@ const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const buildingScope = useBuildingScopeStore()
 const navStore = useNavStore()
+const ALL_BUILDINGS = '__all__'
 const isMobile = useIsMobile()
 const isCompact = useIsCompact()
 const { shortcuts, removeShortcut } = useFrequentRoutes()
+/** 小屏最多 6 个快捷，给大厦筛选留出完整显示空间 */
+const visibleShortcuts = computed(() =>
+  shortcuts.value.slice(0, isCompact.value || isMobile.value ? 6 : 8),
+)
 
 const collapsed = ref(false)
 const mobileOpen = ref(false)
@@ -77,14 +86,28 @@ watch(
 watch(
   () => userStore.isLoggedIn,
   (ok) => {
-    if (ok) void navStore.loadNav()
-    else navStore.clear()
+    if (ok) {
+      void navStore.loadNav()
+      void buildingScope.load()
+      void userStore.loadPermissions()
+    } else {
+      navStore.clear()
+      buildingScope.clear()
+    }
   },
 )
 
 onMounted(() => {
-  if (userStore.isLoggedIn) void navStore.loadNav()
+  if (userStore.isLoggedIn) {
+    void navStore.loadNav()
+    void buildingScope.load()
+    void userStore.loadPermissions()
+  }
 })
+
+function onBuildingChange(id: string) {
+  buildingScope.select(!id || id === ALL_BUILDINGS ? null : id)
+}
 
 function onSelect(index: string) {
   if (!index) return
@@ -95,6 +118,7 @@ function onSelect(index: string) {
 function onLogout() {
   userStore.logout()
   navStore.clear()
+  buildingScope.clear()
   router.replace({ name: 'login' })
 }
 
@@ -226,7 +250,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
         </button>
 
         <nav class="quick-nav" :aria-label="t('layout.shortcuts')">
-          <template v-for="(name, idx) in shortcuts" :key="name">
+          <template v-for="(name, idx) in visibleShortcuts" :key="name">
             <span v-if="idx > 0" class="quick-sep" aria-hidden="true">|</span>
             <span class="quick-item">
               <button
@@ -248,10 +272,50 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
               </button>
             </span>
           </template>
-          <span v-if="!shortcuts.length" class="quick-empty">{{ t('layout.shortcutsEmpty') }}</span>
+          <span v-if="!visibleShortcuts.length" class="quick-empty">{{ t('layout.shortcutsEmpty') }}</span>
         </nav>
 
         <div class="utility-spacer" />
+        <el-select
+          v-if="buildingScope.loaded && buildingScope.options.length"
+          :model-value="buildingScope.selectedId || ALL_BUILDINGS"
+          class="utility-building"
+          :class="{ 'utility-building--locked': buildingScope.locked }"
+          popper-class="utility-building-popper"
+          filterable
+          :disabled="buildingScope.locked"
+          :aria-label="t('layout.currentBuilding')"
+          :title="buildingScope.selectedId ? buildingScope.options.find((b) => b.id === buildingScope.selectedId)?.name : t('layout.allBuildings')"
+          @update:model-value="onBuildingChange"
+        >
+          <template #prefix>
+            <el-icon class="utility-building__icon"><OfficeBuilding /></el-icon>
+          </template>
+          <el-option
+            v-if="!buildingScope.locked"
+            :label="t('layout.allBuildings')"
+            :value="ALL_BUILDINGS"
+          >
+            <span class="utility-building-option">
+              <el-icon><Filter /></el-icon>
+              <span>{{ t('layout.allBuildings') }}</span>
+            </span>
+          </el-option>
+          <el-option
+            v-for="b in buildingScope.options"
+            :key="b.id"
+            :label="b.name"
+            :value="b.id"
+          >
+            <span class="utility-building-option">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>{{ b.name }}</span>
+            </span>
+          </el-option>
+        </el-select>
+        <span v-else-if="buildingScope.loaded && !userStore.isAdmin" class="utility-building-empty">
+          {{ t('layout.noBuildingAccess') }}
+        </span>
         <LanguageSwitcher tone="on-light" />
         <el-dropdown
           trigger="click"
@@ -281,7 +345,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
       </header>
 
       <div class="content-shell">
-        <router-view />
+        <router-view :key="buildingScope.viewKey" />
       </div>
     </div>
 
@@ -618,8 +682,9 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   padding: 0 !important;
 }
 
-.nav-label {
-  font-size: 0.84rem;
+/* 与 Element Plus 菜单默认一致（约 14px）；此前未 :deep，大屏实际一直是这档 */
+.sidebar-menu :deep(.nav-label) {
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
   overflow: hidden;
@@ -638,10 +703,6 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
     line-height: 42px;
   }
 
-  .nav-label {
-    font-size: 0.88rem;
-  }
-
   .sidebar-menu :deep(.nav-icon) {
     width: 1.35em;
     height: 1.35em;
@@ -657,10 +718,6 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   .sidebar-menu :deep(.el-sub-menu__title) {
     height: 44px;
     line-height: 44px;
-  }
-
-  .nav-label {
-    font-size: 0.92rem;
   }
 }
 
@@ -701,6 +758,71 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .utility-spacer {
   flex: 1;
   min-width: 4px;
+}
+
+.utility-building {
+  width: 200px;
+  min-width: 200px;
+  max-width: 200px;
+  flex: 0 0 200px;
+}
+
+.utility-building :deep(.el-select__wrapper) {
+  border-radius: 999px !important;
+  min-height: 32px;
+  padding: 0 10px 0 8px;
+  background: #e4efe9;
+  box-shadow: 0 0 0 1px #0f4a32 inset !important;
+}
+
+.utility-building :deep(.el-select__wrapper.is-hovering:not(.is-disabled)),
+.utility-building :deep(.el-select__wrapper.is-focused) {
+  background: #d8ebe2;
+  box-shadow:
+    0 0 0 1px #0f4a32 inset,
+    0 2px 8px rgba(15, 74, 50, 0.14) !important;
+}
+
+.utility-building :deep(.el-select__wrapper.is-disabled) {
+  background: #eef3f0;
+  box-shadow: 0 0 0 1px #c5d5cc inset !important;
+  cursor: default;
+}
+
+.utility-building--locked :deep(.el-select__wrapper) {
+  padding-right: 10px;
+}
+
+.utility-building--locked :deep(.el-select__suffix) {
+  display: none;
+}
+
+.utility-building :deep(.el-select__selected-item),
+.utility-building :deep(.el-select__placeholder) {
+  color: #0f4a32;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.utility-building :deep(.el-select__caret),
+.utility-building__icon {
+  color: #0f4a32;
+}
+
+.utility-building :deep(.el-select__selection) {
+  flex-wrap: nowrap;
+}
+
+.utility-building :deep(.el-select__selected-item) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.utility-building-empty {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: #8a978f;
+  white-space: nowrap;
 }
 
 .header-fold-btn {
@@ -885,6 +1007,22 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .content-shell > * {
   flex: 1;
   min-height: 0;
+}
+
+@media (max-width: 1279.98px) {
+  .utility-building {
+    width: 168px;
+    min-width: 168px;
+    max-width: 168px;
+    flex: 0 0 168px;
+  }
+}
+
+/* 含常见 14 寸笔记本最大化视口（约 1366～1439） */
+@media (max-width: 1439.98px) {
+  .sidebar-menu :deep(.nav-label) {
+    font-size: 13px;
+  }
 }
 
 @media (max-width: 959.98px) {

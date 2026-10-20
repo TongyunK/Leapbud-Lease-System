@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+const perms = useResourcePermissions('documentTemplates')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Document, Plus } from '@element-plus/icons-vue'
@@ -465,7 +467,7 @@ function onClearFilters() {
         <el-button :icon="Document" @click="openFieldGuide">
           {{ t('documentTemplate.actions.fieldGuide') }}
         </el-button>
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
+        <el-button v-if="perms.create" v-admin-glow="perms.codes.create" type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('documentTemplate.create') }}
         </el-button>
       </div>
@@ -481,7 +483,6 @@ function onClearFilters() {
           height="100%"
           stripe
           border
-          empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >
@@ -642,6 +643,7 @@ function onClearFilters() {
             <template #default="{ row }">
               <div class="action-pills">
                 <button
+                  v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click="onDownload(row as DocumentTemplateRecord)"
@@ -649,6 +651,7 @@ function onClearFilters() {
                   {{ t('documentTemplate.actions.download') }}
                 </button>
                 <button
+                  v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click="openEdit(row as DocumentTemplateRecord)"
@@ -656,6 +659,7 @@ function onClearFilters() {
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="perms.delete" v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click="onDelete(row as DocumentTemplateRecord)"
@@ -679,8 +683,9 @@ function onClearFilters() {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"
@@ -801,7 +806,6 @@ function onClearFilters() {
         :data="fieldDict"
         stripe
         border
-        empty-text="—"
         max-height="480"
         style="width: 100%"
       >

@@ -16,6 +16,8 @@ import { CreateCustomerSourceDto, UpdateCustomerSourceDto } from './dto/customer
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -40,8 +42,8 @@ export class CustomerSourcesController {
 
   @Post('batch-delete')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('customerSources:batchDelete')
   @ApiOkResponse({ description: 'Batch delete customer sources by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.customerSourcesService.removeMany(dto.ids);
@@ -49,16 +51,16 @@ export class CustomerSourcesController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('customerSources:create')
   create(@Body() dto: CreateCustomerSourceDto, @CurrentUser() user?: JwtPayload) {
     return this.customerSourcesService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('customerSources:update')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCustomerSourceDto,
@@ -69,8 +71,8 @@ export class CustomerSourcesController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('customerSources:delete')
   remove(@Param('id') id: string) {
     return this.customerSourcesService.remove(id);
   }

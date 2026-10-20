@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+const perms = useResourcePermissions('roomTypes')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus } from '@element-plus/icons-vue'
@@ -247,7 +249,7 @@ async function toggleActive(row: RoomTypeOption) {
       <h2>{{ t('menu.roomTypes') }}</h2>
       <div class="head-actions">
         <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
-        <el-button type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
+        <el-button v-if="perms.create" v-admin-glow="perms.codes.create" type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('roomType.create') }}
         </el-button>
       </div>
@@ -263,7 +265,6 @@ async function toggleActive(row: RoomTypeOption) {
           height="100%"
           stripe
           border
-          empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >
@@ -399,10 +400,10 @@ async function toggleActive(row: RoomTypeOption) {
           >
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
+                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
                   {{ t('common.edit') }}
                 </button>
-                <button type="button" class="action-pill action-pill--danger" @click="onDelete(row)">
+                <button v-if="perms.delete" v-admin-glow="perms.codes.delete" type="button" class="action-pill action-pill--danger" @click="onDelete(row)">
                   {{ t('common.delete') }}
                 </button>
               </div>
@@ -422,8 +423,9 @@ async function toggleActive(row: RoomTypeOption) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"

@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -27,7 +29,7 @@ import { BatchDeleteDto } from '../common/batch-delete';
 @ApiTags('invoice-service-details')
 @Controller('invoice-service-details')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class InvoiceServiceDetailsController {
   constructor(private readonly invoiceServiceDetailsService: InvoiceServiceDetailsService) {}
@@ -64,15 +66,15 @@ export class InvoiceServiceDetailsController {
     });
   }
 
+  @RequirePermissions('invoiceServiceDetails:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import invoice service details' })
   importBatch(@Body() dto: ImportInvoiceServiceDetailsDto, @CurrentUser() user?: JwtPayload) {
     return this.invoiceServiceDetailsService.importBatch(dto, actorUserId(user));
   }
 
+  @RequirePermissions('invoiceServiceDetails:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete invoice service details by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.invoiceServiceDetailsService.removeMany(dto.ids);
@@ -83,14 +85,14 @@ export class InvoiceServiceDetailsController {
     return this.invoiceServiceDetailsService.findOne(id);
   }
 
+  @RequirePermissions('invoiceServiceDetails:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateInvoiceServiceDetailDto, @CurrentUser() user?: JwtPayload) {
     return this.invoiceServiceDetailsService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('invoiceServiceDetails:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateInvoiceServiceDetailDto,
@@ -99,8 +101,8 @@ export class InvoiceServiceDetailsController {
     return this.invoiceServiceDetailsService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('invoiceServiceDetails:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.invoiceServiceDetailsService.remove(id);
   }

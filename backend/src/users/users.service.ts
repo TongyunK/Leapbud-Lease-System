@@ -4,13 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole, UserStatus } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { toUserDto, userAuditInclude } from './user.mapper';
 import { runBatchRemove } from '../common/batch-delete';
+
+const ADMIN_ROLE_CODE = 'admin';
+const DEFAULT_ROLE_CODE = 'user';
 
 @Injectable()
 export class UsersService {
@@ -25,6 +28,7 @@ export class UsersService {
             { displayName: { contains: q, mode: 'insensitive' } },
             { phone: { contains: q, mode: 'insensitive' } },
             { email: { contains: q, mode: 'insensitive' } },
+            { assignedRole: { name: { contains: q, mode: 'insensitive' } } },
           ],
         }
       : {};
@@ -53,12 +57,13 @@ export class UsersService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const actorId = actor || null;
+    const role = await this.resolveRoleCode(dto.role);
     const row = await this.prisma.user.create({
       data: {
         account,
         passwordHash,
         displayName: dto.displayName?.trim() || account,
-        role: dto.role ?? UserRole.user,
+        role,
         status: dto.status ?? UserStatus.active,
         phone: dto.phone?.trim() || '',
         email: dto.email?.trim() || '',
@@ -67,7 +72,10 @@ export class UsersService {
       },
       include: userAuditInclude,
     });
-    return toUserDto(row);
+    if (role !== ADMIN_ROLE_CODE) {
+      await this.replaceBuildings(row.id, dto.buildingIds);
+    }
+    return this.findOne(row.id);
   }
 
   async update(id: string, dto: UpdateUserDto, actor = '') {
@@ -76,19 +84,53 @@ export class UsersService {
 
     const data: Prisma.UserUncheckedUpdateInput = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName.trim();
-    if (dto.role !== undefined) data.role = dto.role;
+    if (dto.role !== undefined) data.role = await this.resolveRoleCode(dto.role);
     if (dto.status !== undefined) data.status = dto.status;
     if (dto.phone !== undefined) data.phone = dto.phone.trim();
     if (dto.email !== undefined) data.email = dto.email.trim();
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
     if (actor) data.updatedById = actor;
 
-    const row = await this.prisma.user.update({
+    await this.prisma.user.update({
       where: { id },
       data,
       include: userAuditInclude,
     });
-    return toUserDto(row);
+    const nextRole = (data.role as string | undefined) ?? existing.role;
+    if (nextRole === ADMIN_ROLE_CODE) {
+      await this.replaceBuildings(id, []);
+    } else if (dto.buildingIds !== undefined || dto.role !== undefined) {
+      await this.replaceBuildings(id, dto.buildingIds ?? undefined);
+    }
+    return this.findOne(id);
+  }
+
+  private async resolveRoleCode(code?: string): Promise<string> {
+    const resolved = (code ?? DEFAULT_ROLE_CODE).trim();
+    if (!resolved) throw new BadRequestException('請選擇角色');
+    const role = await this.prisma.role.findUnique({ where: { code: resolved } });
+    if (!role) throw new BadRequestException(`角色「${resolved}」不存在`);
+    if (!role.active) throw new BadRequestException(`角色「${role.name}」已停用`);
+    return role.code;
+  }
+
+  private async replaceBuildings(userId: string, buildingIds?: string[]) {
+    const ids = [...new Set((buildingIds ?? []).map((id) => id.trim()).filter(Boolean))];
+    if (ids.length) {
+      const found = await this.prisma.building.findMany({
+        where: { id: { in: ids } },
+        select: { id: true },
+      });
+      if (found.length !== ids.length) {
+        throw new BadRequestException('存在无效的大厦');
+      }
+    }
+    await this.prisma.userBuilding.deleteMany({ where: { userId } });
+    if (ids.length) {
+      await this.prisma.userBuilding.createMany({
+        data: ids.map((buildingId) => ({ userId, buildingId })),
+      });
+    }
   }
 
   async remove(id: string) {

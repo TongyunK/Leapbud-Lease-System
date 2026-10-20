@@ -7,6 +7,7 @@ export type RoleRecord = {
   active: boolean
   isSystem: boolean
   menuCount: number
+  permissionCount: number
   createdBy: string
   createdAt: string
   updatedBy: string

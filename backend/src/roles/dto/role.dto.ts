@@ -65,6 +65,13 @@ export class AssignRoleMenusDto {
   menuIds!: string[];
 }
 
+export class AssignRolePermissionsDto {
+  @ApiProperty({ type: [String], description: '功能权限 code 列表，如 customers:create' })
+  @IsArray()
+  @IsString({ each: true })
+  codes!: string[];
+}
+
 export class RoleMenuGrantDto {
   @ApiProperty()
   @IsString()

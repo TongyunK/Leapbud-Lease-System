@@ -21,10 +21,19 @@ export class RolesGuard implements CanActivate {
     if (!roles?.length) return true;
 
     const req = context.switchToHttp().getRequest<{ user?: JwtPayload }>();
-    const role = req.user?.role as UserRole | undefined;
-    if (!role || !roles.includes(role)) {
+    const role = (req.user?.role || '').trim();
+    if (!role) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    return true;
+
+    // 精确匹配（如 admin）
+    if (roles.includes(role as UserRole)) return true;
+
+    // 控制器大量使用 @Roles(admin, user) 表示「已登录即可」；自定义角色按普通用户放行
+    const allowsAnyAuthenticated =
+      roles.includes(UserRole.admin) && roles.includes(UserRole.user);
+    if (allowsAnyAuthenticated) return true;
+
+    throw new ForbiddenException('Insufficient permissions');
   }
 }

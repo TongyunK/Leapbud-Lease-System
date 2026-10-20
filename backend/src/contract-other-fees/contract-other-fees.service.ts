@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import {
   CreateContractOtherFeeDto,
   ImportContractOtherFeesDto,
@@ -57,7 +58,10 @@ function numOrZero(v: unknown): number {
 
 @Injectable()
 export class ContractOtherFeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   async findAll(params: {
     keyword?: string;
@@ -76,6 +80,7 @@ export class ContractOtherFeesService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaContractRoom');
     const { skip, take } = paginateArgs(page, pageSize);
 
     const [total, rows] = await this.prisma.$transaction([
@@ -176,6 +181,7 @@ export class ContractOtherFeesService {
       include: contractOtherFeeInclude,
     });
     if (!row) throw new NotFoundException(`Contract other fee ${id} not found`);
+    await this.access.assertContractId(row.contractId);
     return toContractOtherFeeListDto(row);
   }
 

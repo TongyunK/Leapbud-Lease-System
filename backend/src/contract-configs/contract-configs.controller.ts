@@ -16,6 +16,8 @@ import { CreateContractConfigDto, UpdateContractConfigDto } from './dto/contract
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -44,8 +46,8 @@ export class ContractConfigsController {
 
   @Post('batch-delete')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('contractConfigs:batchDelete')
   @ApiOkResponse({ description: 'Batch delete contract configs by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.contractConfigsService.removeMany(dto.ids);
@@ -53,16 +55,16 @@ export class ContractConfigsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('contractConfigs:create')
   create(@Body() dto: CreateContractConfigDto, @CurrentUser() user?: JwtPayload) {
     return this.contractConfigsService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('contractConfigs:update')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateContractConfigDto,
@@ -73,8 +75,8 @@ export class ContractConfigsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('contractConfigs:delete')
   remove(@Param('id') id: string) {
     return this.contractConfigsService.remove(id);
   }

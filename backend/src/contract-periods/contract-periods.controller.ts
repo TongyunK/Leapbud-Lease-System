@@ -20,13 +20,15 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { BatchDeleteDto } from '../common/batch-delete';
 import { splitCsv } from '../common/pagination';
 
 @ApiTags('contract-periods')
 @Controller('contract-periods')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ContractPeriodsController {
   constructor(private readonly contractPeriodsService: ContractPeriodsService) {}
@@ -92,15 +94,15 @@ export class ContractPeriodsController {
     });
   }
 
+  @RequirePermissions('contractPeriods:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import contract periods' })
   importBatch(@Body() dto: ImportContractPeriodsDto) {
     return this.contractPeriodsService.importBatch(dto);
   }
 
+  @RequirePermissions('contractPeriods:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete contract periods by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.contractPeriodsService.removeMany(dto.ids);
@@ -111,20 +113,20 @@ export class ContractPeriodsController {
     return this.contractPeriodsService.findOne(id);
   }
 
+  @RequirePermissions('contractPeriods:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateContractPeriodDto) {
     return this.contractPeriodsService.create(dto);
   }
 
+  @RequirePermissions('contractPeriods:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(@Param('id') id: string, @Body() dto: UpdateContractPeriodDto) {
     return this.contractPeriodsService.update(id, dto);
   }
 
+  @RequirePermissions('contractPeriods:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.contractPeriodsService.remove(id);
   }

@@ -31,6 +31,7 @@ function onCommand(value: string) {
 
 <template>
   <el-dropdown
+    class="lang-dropdown"
     trigger="click"
     :teleported="true"
     popper-class="lang-dropdown-popper"
@@ -70,6 +71,10 @@ function onCommand(value: string) {
 </template>
 
 <style scoped>
+.lang-dropdown {
+  flex-shrink: 0;
+}
+
 .lang-switcher {
   border: 0;
   cursor: pointer;
@@ -79,6 +84,8 @@ function onCommand(value: string) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
   font-family: inherit;
   line-height: 1;
   outline: none;
@@ -108,6 +115,7 @@ function onCommand(value: string) {
   font-size: 0.86rem;
   font-weight: 600;
   letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .lang-caret {

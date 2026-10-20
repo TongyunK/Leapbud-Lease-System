@@ -41,6 +41,7 @@ import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { invoiceStatusTone } from '@/constants/statusBadges'
 import { useUserStore } from '@/stores/user'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
@@ -70,7 +71,7 @@ type FeeFormRow = {
 const { t, locale } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
-const isAdmin = computed(() => userStore.isAdmin)
+const perms = useResourcePermissions('invoices')
 const { actionColWidth } = useActionColWidth()
 const {
   colW,
@@ -84,7 +85,7 @@ const {
 
 const invoiceActionColWidth = computed(() => {
   void locale.value
-  if (isAdmin.value) {
+  if (perms.canEditOrDelete.value) {
     return Math.max(
       actionColWidth.value.three,
       measureActionColWidth([
@@ -231,7 +232,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!isAdmin.value || !selectedIds.value.length) return
+  if (!perms.batchDelete.value || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -629,7 +630,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!isAdmin.value) {
+  if (!perms.import.value) {
     ElMessage.warning(t('invoice.importAdminOnly'))
     return
   }
@@ -721,7 +722,7 @@ async function onImportFile(ev: Event) {
         />
         <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button
-          v-if="isAdmin"
+          v-if="perms.create" v-admin-glow="perms.codes.create"
           type="primary"
           :icon="Plus"
           class="lb-btn-primary"
@@ -740,7 +741,7 @@ async function onImportFile(ev: Event) {
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="isAdmin" command="import">
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
                 <el-icon><Upload /></el-icon>
                 <span>{{ t('invoice.import') }}</span>
               </el-dropdown-item>
@@ -784,7 +785,6 @@ async function onImportFile(ev: Event) {
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @selection-change="onSelectionChange"
           @row-click="onRowClick"
@@ -1121,7 +1121,7 @@ async function onImportFile(ev: Event) {
                   {{ t('invoice.printInvoice') }}
                 </button>
                 <button
-                  v-if="isAdmin"
+                  v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
@@ -1129,7 +1129,7 @@ async function onImportFile(ev: Event) {
                   {{ t('common.edit') }}
                 </button>
                 <button
-                  v-if="isAdmin"
+                  v-if="perms.delete" v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"
@@ -1153,8 +1153,9 @@ async function onImportFile(ev: Event) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="isAdmin" #batch>
+          <template v-if="perms.batchDelete" #batch>
             <button
+              v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"

@@ -95,7 +95,6 @@ const router = createRouter({
           component: () => import('@/views/contract-mgmt/ContractConfigListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.contractConfigs',
             subtitleKey: 'contractConfig.subtitle',
           },
@@ -196,7 +195,6 @@ const router = createRouter({
           component: () => import('@/views/system/UserListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.users',
             subtitleKey: 'user.subtitle',
           },
@@ -207,7 +205,6 @@ const router = createRouter({
           component: () => import('@/views/system/RoomConfigListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.roomConfigs',
             subtitleKey: 'roomConfig.subtitle',
           },
@@ -218,7 +215,6 @@ const router = createRouter({
           component: () => import('@/views/system/RoomTypeListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.roomTypes',
             subtitleKey: 'roomType.subtitle',
           },
@@ -229,7 +225,6 @@ const router = createRouter({
           component: () => import('@/views/system/CustomerSourceListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.customerSources',
             subtitleKey: 'customerSource.subtitle',
           },
@@ -240,7 +235,6 @@ const router = createRouter({
           component: () => import('@/views/system/DocumentTemplateListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.documentTemplates',
             subtitleKey: 'documentTemplate.subtitle',
           },
@@ -251,7 +245,6 @@ const router = createRouter({
           component: () => import('@/views/system/AutoNumberingListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.autoNumbering',
             subtitleKey: 'autoNumbering.subtitle',
           },
@@ -266,7 +259,6 @@ const router = createRouter({
           component: () => import('@/views/system/RoleListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.roles',
             subtitleKey: 'role.subtitle',
           },
@@ -277,7 +269,6 @@ const router = createRouter({
           component: () => import('@/views/system/MenuListView.vue'),
           meta: {
             requiresAuth: true,
-            requiresAdmin: true,
             titleKey: 'menu.menus',
             subtitleKey: 'sysMenu.subtitle',
           },
@@ -305,10 +296,6 @@ router.beforeEach((to) => {
 
   if (!isPublicRoute(routeName) && to.meta.requiresAuth && !userStore.isLoggedIn) {
     return { name: 'login' }
-  }
-
-  if (to.meta.requiresAdmin && !userStore.isAdmin) {
-    return { name: 'buildings' }
   }
 
   return true

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import {
   CreateInvoiceServiceDetailDto,
   ImportInvoiceServiceDetailsDto,
@@ -53,7 +54,10 @@ function numOrZero(v: unknown): number {
 
 @Injectable()
 export class InvoiceServiceDetailsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   async findAll(params: {
     keyword?: string;
@@ -68,6 +72,7 @@ export class InvoiceServiceDetailsService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaInvoiceRoom');
     const { skip, take } = paginateArgs(page, pageSize);
 
     const [total, rows] = await this.prisma.$transaction([
@@ -159,6 +164,7 @@ export class InvoiceServiceDetailsService {
       include: invoiceServiceDetailInclude,
     });
     if (!row) throw new NotFoundException(`Invoice service detail ${id} not found`);
+    await this.access.assertInvoiceId(row.invoiceId);
     return toInvoiceServiceDetailListDto(row);
   }
 

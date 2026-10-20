@@ -153,7 +153,6 @@ function onRowClick(row: ContractOtherFeeRecord, column?: { type?: string }, eve
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

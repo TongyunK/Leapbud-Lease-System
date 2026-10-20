@@ -218,7 +218,6 @@ function ensureRooms () {
     "hourlyRent": 280,
     "sizeSqft": 420,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "admin",
     "createdAt": "2026-01-15 10:00"
   },
@@ -236,7 +235,6 @@ function ensureRooms () {
     "hourlyRent": 150,
     "sizeSqft": 180,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "admin",
     "createdAt": "2026-02-15 10:00"
   },
@@ -254,7 +252,6 @@ function ensureRooms () {
     "hourlyRent": 45,
     "sizeSqft": 45,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "黃小姐",
     "createdAt": "2026-03-15 10:00"
   },
@@ -272,7 +269,6 @@ function ensureRooms () {
     "hourlyRent": 220,
     "sizeSqft": 260,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "黃小姐",
     "createdAt": "2026-04-15 10:00"
   },
@@ -290,7 +286,6 @@ function ensureRooms () {
     "hourlyRent": 140,
     "sizeSqft": 160,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "黃小姐",
     "createdAt": "2026-05-15 10:00"
   },
@@ -308,7 +303,6 @@ function ensureRooms () {
     "hourlyRent": 360,
     "sizeSqft": 520,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "黃小姐",
     "createdAt": "2026-06-15 10:00"
   },
@@ -326,7 +320,6 @@ function ensureRooms () {
     "hourlyRent": 120,
     "sizeSqft": 140,
     "images": [{ "id": "mock-img", "roomId": "", "fileName": "leapbud_logo.png", "sortOrder": 0, "publicUrl": "/leapbud_logo.png" }],
-    "contractRecords": [],
     "createdBy": "黃小姐",
     "createdAt": "2026-07-15 10:00"
   }

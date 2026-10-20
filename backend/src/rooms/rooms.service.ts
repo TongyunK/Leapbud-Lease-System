@@ -10,6 +10,7 @@ import * as fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import {
   isExternalRoomImageKey,
   roomImageStorageRel,
@@ -106,7 +107,10 @@ function parseRoomStatuses(raw?: string[]): RoomStatus[] {
 
 @Injectable()
 export class RoomsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   private async resolveBuilding(params: {
     buildingId?: string | null;
@@ -155,6 +159,7 @@ export class RoomsService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = await this.buildListWhere(params);
+    await this.access.constrain(where, 'room');
     const { skip, take } = paginateArgs(page, pageSize);
 
     const [total, rows] = await this.prisma.$transaction([
@@ -303,6 +308,7 @@ export class RoomsService {
       include: roomListInclude,
     });
     if (!row) throw new NotFoundException(`Room ${id} not found`);
+    await this.access.assertBuildingId(row.buildingId);
     return toRoomDto(row);
   }
 
@@ -317,6 +323,7 @@ export class RoomsService {
       buildingName: dto.buildingName,
     });
     if (!building) throw new BadRequestException('buildingId or buildingName is required');
+    await this.access.assertBuildingId(building.id);
 
     const actorId = actor || null;
     try {
@@ -355,6 +362,7 @@ export class RoomsService {
   async update(id: string, dto: UpdateRoomDto, actor = '') {
     const existing = await this.prisma.room.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Room ${id} not found`);
+    await this.access.assertBuildingId(existing.buildingId);
 
     let buildingId = existing.buildingId;
     if (dto.buildingId !== undefined || dto.buildingName !== undefined) {
@@ -363,6 +371,7 @@ export class RoomsService {
         buildingName: dto.buildingName,
       });
       if (!building) throw new BadRequestException('building not found');
+      await this.access.assertBuildingId(building.id);
       buildingId = building.id;
     }
 
@@ -520,6 +529,7 @@ export class RoomsService {
       },
     });
     if (!existing) throw new NotFoundException(`Room ${id} not found`);
+    await this.access.assertBuildingId(existing.buildingId);
     if (existing._count.contracts > 0 || existing._count.leaseTerminations > 0) {
       throw new ConflictException(
         `Room「${existing.roomCode}」仍有關聯合約或退租記錄，無法刪除`,
@@ -573,6 +583,7 @@ export class RoomsService {
   async uploadImages(roomId: string, files: Express.Multer.File[], actor = '') {
     const room = await this.prisma.room.findUnique({ where: { id: roomId } });
     if (!room) throw new NotFoundException(`Room ${roomId} not found`);
+    await this.access.assertBuildingId(room.buildingId);
     if (!files?.length) throw new BadRequestException('请至少上传一张图片');
 
     const maxSort = await this.prisma.roomImage.aggregate({
@@ -609,6 +620,7 @@ export class RoomsService {
       where: { id: imageId, roomId },
     });
     if (!row) throw new NotFoundException(`Room image ${imageId} not found`);
+    await this.access.assertRoomId(roomId);
     await this.prisma.roomImage.delete({ where: { id: imageId } });
     await this.removeStoredImageFile(row.storageKey);
     return { success: true };
@@ -619,6 +631,7 @@ export class RoomsService {
       where: { id: imageId, roomId },
     });
     if (!row) throw new NotFoundException(`Room image ${imageId} not found`);
+    await this.access.assertRoomId(roomId);
     if (isExternalRoomImageKey(row.storageKey)) {
       throw new BadRequestException('该图片为外部地址，请直接使用 publicUrl');
     }

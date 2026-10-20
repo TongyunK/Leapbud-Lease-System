@@ -501,6 +501,116 @@ button {
   color: #8a9690;
 }
 
+.utility-building-popper.el-select__popper,
+.utility-building-popper.el-popper {
+  min-width: 240px !important;
+  max-width: 320px;
+  border: 1px solid #e2e8e5 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
+  overflow: hidden;
+}
+
+.utility-building-popper .el-select-dropdown__list {
+  padding: 6px;
+}
+
+.utility-building-popper .el-select-dropdown__item {
+  height: 36px;
+  line-height: 36px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #24332c;
+}
+
+.utility-building-popper .el-select-dropdown__item.is-hovering {
+  background: #f3f7f5;
+}
+
+.utility-building-popper .el-select-dropdown__item.is-selected {
+  color: #0f4a32;
+  font-weight: 650;
+  background: #e4efe9;
+}
+
+.utility-building-popper .el-select-dropdown__item.is-selected::after {
+  display: none !important;
+}
+
+.utility-building-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.utility-building-option .el-icon {
+  flex-shrink: 0;
+  color: #0f4a32;
+}
+
+.utility-building-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-building-popper.el-select__popper,
+.user-building-popper.el-popper {
+  --el-color-primary: #0f4a32;
+  border: 1px solid #e2e8e5 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
+  overflow: hidden;
+}
+
+.user-building-popper .el-select-dropdown__list {
+  padding: 6px;
+}
+
+.user-building-popper .el-select-dropdown__item {
+  height: 36px;
+  line-height: 36px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #24332c;
+}
+
+.user-building-popper .el-select-dropdown__item.is-hovering {
+  background: #f3f7f5;
+}
+
+.user-building-popper .el-select-dropdown__item.is-selected {
+  color: #0f4a32;
+  font-weight: 650;
+  background: #e4efe9;
+}
+
+.user-building-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 18px;
+}
+
+.user-building-option .el-icon {
+  flex-shrink: 0;
+  color: #6a7a70;
+}
+
+.user-building-popper .el-select-dropdown__item.is-selected .user-building-option .el-icon {
+  color: #0f4a32;
+}
+
+.user-building-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .head-building-filter-popper.el-select__popper,
 .head-building-filter-popper.el-popper {
   min-width: 220px !important;
@@ -1398,6 +1508,28 @@ button {
   font-weight: 650;
   cursor: pointer;
   line-height: 1.4;
+}
+
+.action-pill--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-height: 0;
+  padding: 4px 0;
+  line-height: 1;
+}
+
+.action-pill--key {
+  border: 1px solid #3d7358;
+  background: #3d7358;
+  color: #fff;
+}
+
+.action-pill--key:hover {
+  border-color: #0f4a32;
+  background: #0f4a32;
+  color: #fff;
 }
 
 .action-pill--view {
@@ -3053,4 +3185,47 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* admin 视角：仅管理员角色拥有的功能按钮发光描边 */
+.lb-admin-only-glow {
+  position: relative;
+  z-index: 0;
+  box-shadow:
+    0 0 0 1.5px rgba(110, 168, 140, 0.75),
+    0 0 8px 1px rgba(158, 187, 176, 0.45),
+    0 0 14px 2px rgba(207, 221, 215, 0.35) !important;
+  animation: lb-admin-only-glow-pulse 2.6s ease-in-out infinite;
+}
+
+.lb-admin-only-glow.action-pill,
+.lb-admin-only-glow.lb-pager__batch-btn {
+  border-radius: 999px;
+}
+
+.lb-admin-only-glow.el-button,
+.lb-admin-only-glow.lb-btn-primary {
+  border-radius: var(--el-border-radius-base, 8px);
+}
+
+@keyframes lb-admin-only-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1.5px rgba(110, 168, 140, 0.65),
+      0 0 7px 1px rgba(158, 187, 176, 0.35),
+      0 0 12px 2px rgba(207, 221, 215, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px rgba(110, 168, 140, 0.9),
+      0 0 10px 2px rgba(158, 187, 176, 0.55),
+      0 0 18px 3px rgba(207, 221, 215, 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-admin-only-glow {
+    animation: none;
+  }
 }

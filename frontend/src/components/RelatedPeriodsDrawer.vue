@@ -124,7 +124,6 @@ function onRowClick(row: ContractPeriodListRecord, column?: { type?: string }, e
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

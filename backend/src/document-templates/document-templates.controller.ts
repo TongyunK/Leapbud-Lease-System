@@ -29,6 +29,8 @@ import { memoryStorage } from 'multer';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import { BatchDeleteDto } from '../common/batch-delete';
 import { DocumentTemplatesService } from './document-templates.service';
@@ -63,7 +65,7 @@ function inlineDisposition(fileName: string) {
 @ApiTags('document-templates')
 @Controller('document-templates')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class DocumentTemplatesController {
   constructor(
@@ -260,8 +262,8 @@ export class DocumentTemplatesController {
     return { ticket, fileName: result.fileName };
   }
 
+  @RequirePermissions('documentTemplates:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: '批量删除模板' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.documentTemplatesService.removeMany(dto.ids);
@@ -301,8 +303,8 @@ export class DocumentTemplatesController {
     return this.documentTemplatesService.findOne(id);
   }
 
+  @RequirePermissions('documentTemplates:create')
   @Post()
-  @Roles(UserRole.admin)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -331,8 +333,8 @@ export class DocumentTemplatesController {
     return this.documentTemplatesService.create(dto, file, actorUserId(user));
   }
 
+  @RequirePermissions('documentTemplates:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -361,8 +363,8 @@ export class DocumentTemplatesController {
     return this.documentTemplatesService.update(id, dto, file, actorUserId(user));
   }
 
+  @RequirePermissions('documentTemplates:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.documentTemplatesService.remove(id);
   }

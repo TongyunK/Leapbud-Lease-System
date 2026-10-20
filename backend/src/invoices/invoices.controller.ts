@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
 import { BatchDeleteDto } from '../common/batch-delete'
@@ -28,7 +30,7 @@ import { splitCsv } from '../common/pagination'
 @ApiTags('invoices')
 @Controller('invoices')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
@@ -89,15 +91,15 @@ export class InvoicesController {
     })
   }
 
+  @RequirePermissions('invoices:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import invoices' })
   importBatch(@Body() dto: ImportInvoicesDto, @CurrentUser() user?: JwtPayload) {
     return this.invoicesService.importBatch(dto, actorUserId(user))
   }
 
   @Post('batch-delete')
-  @Roles(UserRole.admin)
+  @RequirePermissions('invoices:batchDelete')
   @ApiOkResponse({ description: 'Batch delete invoices' })
   batchDelete(@Body() dto: BatchDeleteDto) {
     return this.invoicesService.removeMany(dto.ids || [])
@@ -109,15 +111,15 @@ export class InvoicesController {
     return this.invoicesService.findOne(id)
   }
 
+  @RequirePermissions('invoices:create')
   @Post()
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Create invoice' })
   create(@Body() dto: CreateInvoiceDto, @CurrentUser() user?: JwtPayload) {
     return this.invoicesService.create(dto, actorUserId(user))
   }
 
+  @RequirePermissions('invoices:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Update invoice' })
   update(
     @Param('id') id: string,
@@ -127,8 +129,8 @@ export class InvoicesController {
     return this.invoicesService.update(id, dto, actorUserId(user))
   }
 
+  @RequirePermissions('invoices:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Delete invoice' })
   remove(@Param('id') id: string) {
     return this.invoicesService.remove(id)

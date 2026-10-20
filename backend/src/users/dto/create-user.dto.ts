@@ -1,6 +1,6 @@
-import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { UserRole, UserStatus } from '@prisma/client';
+import { UserStatus } from '@prisma/client';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'user01' })
@@ -18,10 +18,10 @@ export class CreateUserDto {
   @IsString()
   displayName?: string;
 
-  @ApiPropertyOptional({ enum: UserRole, default: UserRole.user })
+  @ApiPropertyOptional({ description: '角色编码（对应角色管理 roles.code）', example: 'user' })
   @IsOptional()
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @IsString()
+  role?: string;
 
   @ApiPropertyOptional({ enum: UserStatus, default: UserStatus.active })
   @IsOptional()
@@ -37,4 +37,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  @ApiPropertyOptional({ type: [String], description: '可访问的大厦；管理员忽略此字段' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  buildingIds?: string[];
 }

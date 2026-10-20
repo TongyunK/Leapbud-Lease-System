@@ -16,6 +16,8 @@ import { CreateRoomTypeDto, UpdateRoomTypeDto } from './dto/room-type.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -40,8 +42,8 @@ export class RoomTypesController {
 
   @Post('batch-delete')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomTypes:batchDelete')
   @ApiOkResponse({ description: 'Batch delete room types by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.roomTypesService.removeMany(dto.ids);
@@ -49,16 +51,16 @@ export class RoomTypesController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomTypes:create')
   create(@Body() dto: CreateRoomTypeDto, @CurrentUser() user?: JwtPayload) {
     return this.roomTypesService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomTypes:update')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateRoomTypeDto,
@@ -69,8 +71,8 @@ export class RoomTypesController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('roomTypes:delete')
   remove(@Param('id') id: string) {
     return this.roomTypesService.remove(id);
   }

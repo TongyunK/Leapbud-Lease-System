@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import {
   CreateOccupantDto,
   ImportOccupantsDto,
@@ -49,7 +50,10 @@ function occupantDupKeys(o: {
 
 @Injectable()
 export class OccupantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   private async resolveCustomer(params: {
     customerId?: string | null;
@@ -90,6 +94,7 @@ export class OccupantsService {
           ? Math.min(500, Math.max(1, Math.floor(params.limit)))
           : parsePageSize(undefined);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaCustomer');
 
     if (params.lite) {
       const [total, rows] = await this.prisma.$transaction([
@@ -205,6 +210,7 @@ export class OccupantsService {
       include: occupantInclude,
     });
     if (!row) throw new NotFoundException(`Occupant ${id} not found`);
+    await this.access.assertCustomerId(row.customerId);
     return toOccupantDto(row);
   }
 

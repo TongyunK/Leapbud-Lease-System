@@ -16,6 +16,8 @@ import { CreateCustomerDto, ImportCustomersDto, UpdateCustomerDto } from './dto/
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { parseSortDir, splitCsv } from '../common/pagination';
@@ -24,7 +26,7 @@ import { BatchDeleteDto } from '../common/batch-delete';
 @ApiTags('customers')
 @Controller('customers')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
@@ -81,28 +83,28 @@ export class CustomersController {
     return this.customersService.findOne(id);
   }
 
+  @RequirePermissions('customers:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import customers (upsert by customerCode)' })
   importBatch(@Body() dto: ImportCustomersDto, @CurrentUser() user?: JwtPayload) {
     return this.customersService.importBatch(dto, actorUserId(user));
   }
 
+  @RequirePermissions('customers:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete customers by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.customersService.removeMany(dto.ids);
   }
 
+  @RequirePermissions('customers:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateCustomerDto, @CurrentUser() user?: JwtPayload) {
     return this.customersService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('customers:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCustomerDto,
@@ -111,8 +113,8 @@ export class CustomersController {
     return this.customersService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('customers:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.customersService.remove(id);
   }

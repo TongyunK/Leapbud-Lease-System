@@ -16,6 +16,8 @@ import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/rec
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
 import { BatchDeleteDto } from '../common/batch-delete'
@@ -24,7 +26,7 @@ import { parseSortDir, splitCsv } from '../common/pagination'
 @ApiTags('receipts')
 @Controller('receipts')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ReceiptsController {
   constructor(private readonly receiptsService: ReceiptsService) {}
@@ -91,15 +93,15 @@ export class ReceiptsController {
     })
   }
 
+  @RequirePermissions('receipts:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import receipts' })
   importBatch(@Body() dto: ImportReceiptsDto, @CurrentUser() user?: JwtPayload) {
     return this.receiptsService.importBatch(dto, actorUserId(user))
   }
 
   @Post('batch-delete')
-  @Roles(UserRole.admin)
+  @RequirePermissions('receipts:batchDelete')
   @ApiOkResponse({ description: 'Batch delete receipts' })
   batchDelete(@Body() dto: BatchDeleteDto) {
     return this.receiptsService.removeMany(dto.ids || [])
@@ -111,15 +113,15 @@ export class ReceiptsController {
     return this.receiptsService.findOne(id)
   }
 
+  @RequirePermissions('receipts:create')
   @Post()
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Create receipt' })
   create(@Body() dto: CreateReceiptDto, @CurrentUser() user?: JwtPayload) {
     return this.receiptsService.create(dto, actorUserId(user))
   }
 
+  @RequirePermissions('receipts:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Update receipt' })
   update(
     @Param('id') id: string,
@@ -129,8 +131,8 @@ export class ReceiptsController {
     return this.receiptsService.update(id, dto, actorUserId(user))
   }
 
+  @RequirePermissions('receipts:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Delete receipt' })
   remove(@Param('id') id: string) {
     return this.receiptsService.remove(id)

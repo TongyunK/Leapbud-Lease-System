@@ -1,8 +1,25 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { getApiBaseUrl } from '@/utils/apiConfig'
 import { useUserStore } from '@/stores/user'
+import { BUILDING_SCOPE_KEY } from '@/stores/buildingScope'
 import { useStatusStore } from '@/stores/status'
 import router from '@/router'
+
+const BUILDING_SCOPED_PREFIXES = [
+  '/rooms',
+  '/contracts',
+  '/invoices',
+  '/invoice-service-details',
+  '/lease-terminations',
+  '/deposit-refunds',
+  '/customers',
+  '/customer-requirements',
+  '/occupants',
+  '/receivables',
+  '/receipts',
+  '/contract-periods',
+  '/contract-other-fees',
+]
 
 export interface ApiErrorBody {
   message?: string | string[]
@@ -17,6 +34,18 @@ request.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const userStore = useUserStore()
   if (userStore.token) {
     config.headers.Authorization = `Bearer ${userStore.token}`
+  }
+  const method = (config.method || 'get').toLowerCase()
+  const path = (config.url || '').split('?')[0] || ''
+  const scoped = BUILDING_SCOPED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+  if (method === 'get' && scoped) {
+    const buildingId = localStorage.getItem(BUILDING_SCOPE_KEY)
+    if (buildingId) {
+      const params = (config.params ?? {}) as Record<string, unknown>
+      if (!params.buildingId && !params.buildingIds) {
+        config.params = { ...params, buildingId }
+      }
+    }
   }
   return config
 })

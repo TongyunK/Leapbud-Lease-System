@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import { parseSortDir, splitCsv } from '../common/pagination';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -30,6 +32,9 @@ export class BuildingsController {
   constructor(private readonly buildingsService: BuildingsService) {}
 
   @Get()
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'activeOnly', required: false })
   @ApiQuery({ name: 'managers', required: false, description: 'Comma-separated manager names' })
@@ -75,14 +80,17 @@ export class BuildingsController {
   }
 
   @Get(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
   findOne(@Param('id') id: string) {
     return this.buildingsService.findOne(id);
   }
 
   @Post('import')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('buildings:import')
   @ApiOkResponse({ description: 'Batch import buildings (upsert by name)' })
   importBatch(@Body() dto: ImportBuildingsDto, @CurrentUser() user?: JwtPayload) {
     return this.buildingsService.importBatch(dto, actorUserId(user));
@@ -90,8 +98,8 @@ export class BuildingsController {
 
   @Post('batch-delete')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('buildings:batchDelete')
   @ApiOkResponse({ description: 'Batch delete buildings by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.buildingsService.removeMany(dto.ids);
@@ -99,16 +107,16 @@ export class BuildingsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('buildings:create')
   create(@Body() dto: CreateBuildingDto, @CurrentUser() user?: JwtPayload) {
     return this.buildingsService.create(dto, actorUserId(user));
   }
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('buildings:update')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateBuildingDto,
@@ -119,8 +127,8 @@ export class BuildingsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.admin)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @RequirePermissions('buildings:delete')
   remove(@Param('id') id: string) {
     return this.buildingsService.remove(id);
   }

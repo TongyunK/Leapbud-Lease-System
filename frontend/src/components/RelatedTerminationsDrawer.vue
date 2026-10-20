@@ -145,7 +145,6 @@ function onRowClick(row: LeaseTerminationRecord, column?: { type?: string }, eve
           stripe
           border
           scrollbar-always-on
-          empty-text="—"
           style="width: 100%"
           @row-click="onRowClick"
         >

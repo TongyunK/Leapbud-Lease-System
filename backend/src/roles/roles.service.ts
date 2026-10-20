@@ -106,6 +106,10 @@ export class RolesService {
     if (existing.isSystem) {
       throw new BadRequestException('System role cannot be deleted');
     }
+    const userCount = await this.prisma.user.count({ where: { role: existing.code } });
+    if (userCount > 0) {
+      throw new BadRequestException(`角色仍有 ${userCount} 个用户使用，无法删除`);
+    }
     await this.prisma.role.delete({ where: { id } });
     return { success: true };
   }

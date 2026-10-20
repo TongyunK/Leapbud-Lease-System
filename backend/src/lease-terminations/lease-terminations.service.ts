@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildingAccessService } from '../building-access/building-access.service';
 import {
   CreateLeaseTerminationDto,
   ImportLeaseTerminationsDto,
@@ -69,7 +70,10 @@ function feeSubtotal(
 
 @Injectable()
 export class LeaseTerminationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: BuildingAccessService,
+  ) {}
 
   async findAll(params: {
     keyword?: string;
@@ -89,6 +93,7 @@ export class LeaseTerminationsService {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
     const where = this.buildListWhere(params);
+    await this.access.constrain(where, 'viaRoom');
     const { skip, take } = paginateArgs(page, pageSize);
 
     const [total, rows] = await this.prisma.$transaction([
@@ -188,6 +193,7 @@ export class LeaseTerminationsService {
       include: leaseTerminationInclude,
     });
     if (!row) throw new NotFoundException(`Lease termination ${id} not found`);
+    await this.access.assertRoomId(row.roomId);
     return toLeaseTerminationListDto(row);
   }
 

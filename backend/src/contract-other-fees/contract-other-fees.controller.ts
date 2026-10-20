@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
@@ -28,7 +30,7 @@ import { splitCsv } from '../common/pagination';
 @ApiTags('contract-other-fees')
 @Controller('contract-other-fees')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ContractOtherFeesController {
   constructor(private readonly contractOtherFeesService: ContractOtherFeesService) {}
@@ -81,15 +83,15 @@ export class ContractOtherFeesController {
     });
   }
 
+  @RequirePermissions('contractOtherFees:import', 'depositDeductions:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import contract other fees / deposit deductions' })
   importBatch(@Body() dto: ImportContractOtherFeesDto, @CurrentUser() user?: JwtPayload) {
     return this.contractOtherFeesService.importBatch(dto, actorUserId(user));
   }
 
+  @RequirePermissions('contractOtherFees:batchDelete', 'depositDeductions:batchDelete')
   @Post('batch-delete')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch delete contract other fees by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.contractOtherFeesService.removeMany(dto.ids);
@@ -100,14 +102,14 @@ export class ContractOtherFeesController {
     return this.contractOtherFeesService.findOne(id);
   }
 
+  @RequirePermissions('contractOtherFees:create', 'depositDeductions:create')
   @Post()
-  @Roles(UserRole.admin)
   create(@Body() dto: CreateContractOtherFeeDto, @CurrentUser() user?: JwtPayload) {
     return this.contractOtherFeesService.create(dto, actorUserId(user));
   }
 
+  @RequirePermissions('contractOtherFees:update', 'depositDeductions:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateContractOtherFeeDto,
@@ -116,8 +118,8 @@ export class ContractOtherFeesController {
     return this.contractOtherFeesService.update(id, dto, actorUserId(user));
   }
 
+  @RequirePermissions('contractOtherFees:delete', 'depositDeductions:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   remove(@Param('id') id: string) {
     return this.contractOtherFeesService.remove(id);
   }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { BuildingAccessModule } from './building-access/building-access.module';
 import { HealthModule } from './health/health.module';
 import { BuildingsModule } from './buildings/buildings.module';
 import { RoomsModule } from './rooms/rooms.module';
@@ -26,13 +27,16 @@ import { ReceivablesModule } from './receivables/receivables.module';
 import { ReceiptsModule } from './receipts/receipts.module';
 import { DocumentTemplatesModule } from './document-templates/document-templates.module';
 import { NumberingRulesModule } from './numbering-rules/numbering-rules.module';
+import { PermissionsModule } from './permissions/permissions.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    BuildingAccessModule,
     HealthModule,
     AuthModule,
+    PermissionsModule,
     UsersModule,
     BuildingsModule,
     RoomsModule,

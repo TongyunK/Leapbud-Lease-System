@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
+import { PermissionsGuard } from '../permissions/permissions.guard';
+import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
 import { BatchDeleteDto } from '../common/batch-delete'
@@ -28,7 +30,7 @@ import { splitCsv } from '../common/pagination'
 @ApiTags('deposit-refunds')
 @Controller('deposit-refunds')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class DepositRefundsController {
   constructor(private readonly depositRefundsService: DepositRefundsService) {}
@@ -89,15 +91,15 @@ export class DepositRefundsController {
     })
   }
 
+  @RequirePermissions('depositRefunds:import')
   @Post('import')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Batch import deposit refunds' })
   importBatch(@Body() dto: ImportDepositRefundsDto, @CurrentUser() user?: JwtPayload) {
     return this.depositRefundsService.importBatch(dto, actorUserId(user))
   }
 
   @Post('batch-delete')
-  @Roles(UserRole.admin)
+  @RequirePermissions('depositRefunds:batchDelete')
   @ApiOkResponse({ description: 'Batch delete deposit refunds' })
   batchDelete(@Body() dto: BatchDeleteDto) {
     return this.depositRefundsService.removeMany(dto.ids || [])
@@ -109,15 +111,15 @@ export class DepositRefundsController {
     return this.depositRefundsService.findOne(id)
   }
 
+  @RequirePermissions('depositRefunds:create')
   @Post()
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Create deposit refund' })
   create(@Body() dto: CreateDepositRefundDto, @CurrentUser() user?: JwtPayload) {
     return this.depositRefundsService.create(dto, actorUserId(user))
   }
 
+  @RequirePermissions('depositRefunds:update')
   @Patch(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Update deposit refund' })
   update(
     @Param('id') id: string,
@@ -127,8 +129,8 @@ export class DepositRefundsController {
     return this.depositRefundsService.update(id, dto, actorUserId(user))
   }
 
+  @RequirePermissions('depositRefunds:delete')
   @Delete(':id')
-  @Roles(UserRole.admin)
   @ApiOkResponse({ description: 'Delete deposit refund' })
   remove(@Param('id') id: string) {
     return this.depositRefundsService.remove(id)
