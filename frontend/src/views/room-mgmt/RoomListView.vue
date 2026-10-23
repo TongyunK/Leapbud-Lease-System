@@ -2,6 +2,7 @@
 import { fetchBuildings } from '@/api/buildings'
 import {
   fetchRooms,
+  fetchRoomLeaseCapabilityCounts,
   createRoomApi,
   updateRoomApi,
   deleteRoomApi,
@@ -11,12 +12,19 @@ import {
   deleteRoomImageApi,
   fetchRoomImageBlob,
 } from '@/api/rooms'
-import type { RoomListQuery, RoomWritePayload } from '@/api/rooms'
+import type { RoomLeaseCapabilityCounts, RoomListQuery, RoomWritePayload } from '@/api/rooms'
 import { fetchRoomConfigs, matchSizeOption } from '@/api/room-configs'
 import { fetchRoomTypes } from '@/api/room-types'
 import type { BuildingRecord } from '@/types/building'
-import type { RoomImageRecord, RoomRecord, RoomStatus } from '@/types/room'
+import type {
+  RoomFillStatus,
+  RoomImageRecord,
+  RoomLeaseCapability,
+  RoomRecord,
+  RoomStatus,
+} from '@/types/room'
 import RoomImageGallery from '@/components/RoomImageGallery.vue'
+import RoomOccupancyChips from '@/components/RoomOccupancyChips.vue'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { RoomTypeOption } from '@/types/room-type'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -44,7 +52,7 @@ import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
-import { roomStatusTone } from '@/constants/statusBadges'
+import { roomFillStatusTone, roomLeaseCapabilityTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
 import {
   roomIoTemplateExampleRow,
@@ -60,19 +68,23 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useActionColWidth } from '@/composables/useActionColWidth'
-import { useTableColWidth } from '@/composables/useTableColWidth'
+import {
+  measureStatusBadgeColWidth,
+  measureTableColWidth,
+  useTableColWidth,
+} from '@/composables/useTableColWidth'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const perms = useResourcePermissions('rooms')
 const { actionColWidth } = useActionColWidth()
-const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
 
@@ -216,7 +228,8 @@ const roomTypeToneByLabel = computed(() => {
   return map
 })
 
-const statusOptions: RoomStatus[] = ['idle', 'signing', 'leased', 'terminating']
+/** 状态列：闲置中 / 整租中 / 分租中 / 满租 */
+const fillStatusOptions: RoomFillStatus[] = ['idle', 'whole', 'partial', 'full']
 const {
   filters,
   setFilter,
@@ -237,8 +250,46 @@ const buildingFilterOptions = computed(() =>
   buildings.value.map((b) => ({ value: b.id, label: b.name })),
 )
 const statusFilterOptions = computed(() =>
-  statusOptions.map((s) => ({ value: s, label: t(`room.status.${s}`) })),
+  fillStatusOptions.map((s) => ({ value: s, label: t(`room.fillStatus.${s}`) })),
 )
+
+function fillStatusOf(row: RoomRecord | null | undefined): RoomFillStatus {
+  return row?.occupancy?.summary || 'idle'
+}
+
+function leaseCapabilityLabel(cap?: RoomLeaseCapability | string | null) {
+  if (cap === 'whole_only') return t('room.leaseCapability.wholeOnlyShort')
+  if (cap === 'part_only') return t('room.leaseCapability.partOnlyShort')
+  return t('room.leaseCapability.flexibleShort')
+}
+
+/** 详情：可整可分时附带份额数，如 可整可分 (2) */
+function leaseCapabilityDetailLabel(row: RoomRecord) {
+  const base = leaseCapabilityLabel(row.leaseCapability)
+  if (row.leaseCapability === 'flexible') {
+    const n = row.splitLabels?.length || 0
+    if (n > 0) return `${base} (${n})`
+  }
+  return base
+}
+
+/**
+ * 租用情况列宽：取「表头 / 四态徽章 / 分租徽章+比例胶囊」最大值。
+ * 中文比例预留 38；英文 36（刚好放下 Split + 2/3 ∨）。
+ */
+const occupancyColMinWidth = computed(() => {
+  void locale.value
+  const headerW = measureTableColWidth(t('room.fields.occupancy'), { interactive: false })
+  const lifecycleW = Math.max(
+    measureStatusBadgeColWidth(t('room.status.idle')),
+    measureStatusBadgeColWidth(t('room.status.signing')),
+    measureStatusBadgeColWidth(t('room.status.leased')),
+    measureStatusBadgeColWidth(t('room.status.terminating')),
+  )
+  const splitMeta = String(locale.value).toLowerCase().startsWith('zh') ? 38 : 36
+  const splitW = measureStatusBadgeColWidth(t('room.occupancy.split')) + splitMeta
+  return Math.max(headerW, lifecycleW, splitW)
+})
 const sizeRangeFilterOptions = computed(() =>
   [...sizeOptions.value]
     .filter((o) => o.active)
@@ -284,7 +335,8 @@ const {
       keyword: kw,
       buildingIds:
         buildingScope.selectedId || !f.buildingId?.length ? undefined : [...f.buildingId],
-      statuses: f.status?.length ? [...f.status] : undefined,
+      leaseCapability: leaseCapabilityFilter.value || undefined,
+      occupancySummaries: f.status?.length ? [...f.status] : undefined,
       roomTypes: f.roomType?.length ? [...f.roomType] : undefined,
       sizeRangeIds: f.sizeRange?.length ? [...f.sizeRange] : undefined,
       windowConfigs: f.windowConfig?.length ? [...f.windowConfig] : undefined,
@@ -355,6 +407,7 @@ async function onBatchDelete() {
     finishBatch(ok, fail)
     clearSelection()
     await loadOptions()
+    await loadLeaseCapabilityCounts()
     await loadList()
   } catch {
     finishBatch(0, ids.length)
@@ -399,8 +452,16 @@ async function loadOptions() {
 
 onMounted(() => {
   void loadOptions()
+  void loadLeaseCapabilityCounts()
   void loadList()
 })
+
+watch(
+  () => buildingScope.viewKey,
+  () => {
+    void loadLeaseCapabilityCounts()
+  },
+)
 
 watch(formVisible, (open) => {
   if (!open) resetFormImages()
@@ -425,7 +486,65 @@ const form = reactive({
   windowConfig: '',
   acConfig: '',
   subleaseMark: '',
+  leaseCapability: 'flexible' as RoomLeaseCapability,
+  splitCount: 2,
 })
+
+const previewSplitLabels = computed(() => {
+  const n = Math.min(26, Math.max(2, Math.floor(Number(form.splitCount) || 2)))
+  return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i))
+})
+
+/** 仅「可整可分」配置份位；只能分租用独立后缀房间（如 6SPi09A） */
+const formNeedsSplitParts = computed(() => form.leaseCapability === 'flexible')
+
+/** 页头租赁能力胶囊筛选：null=全部 */
+const leaseCapabilityFilter = ref<RoomLeaseCapability | null>(null)
+const leaseCapabilityCounts = ref<RoomLeaseCapabilityCounts>({
+  all: 0,
+  flexible: 0,
+  whole_only: 0,
+  part_only: 0,
+})
+
+const leaseCapabilityChips = computed(() => [
+  {
+    key: null as RoomLeaseCapability | null,
+    label: t('room.leaseFilterAll'),
+    count: leaseCapabilityCounts.value.all,
+  },
+  {
+    key: 'flexible' as RoomLeaseCapability,
+    label: t('room.leaseCapability.flexibleShort'),
+    count: leaseCapabilityCounts.value.flexible,
+  },
+  {
+    key: 'whole_only' as RoomLeaseCapability,
+    label: t('room.leaseCapability.wholeOnlyShort'),
+    count: leaseCapabilityCounts.value.whole_only,
+  },
+  {
+    key: 'part_only' as RoomLeaseCapability,
+    label: t('room.leaseCapability.partOnlyShort'),
+    count: leaseCapabilityCounts.value.part_only,
+  },
+])
+
+async function loadLeaseCapabilityCounts() {
+  try {
+    const { data } = await fetchRoomLeaseCapabilityCounts()
+    leaseCapabilityCounts.value = data
+  } catch {
+    /* interceptor */
+  }
+}
+
+function setLeaseCapabilityFilter(cap: RoomLeaseCapability | null) {
+  if (leaseCapabilityFilter.value === cap) return
+  leaseCapabilityFilter.value = cap
+  resetPage()
+  void loadList()
+}
 
 const matchedSizeOption = computed(() => {
   const n = Number(form.sizeSqft)
@@ -433,9 +552,24 @@ const matchedSizeOption = computed(() => {
   return matchSizeOption(sizeOptions.value, n)
 })
 
+/** 表单可选大厦：仅当前账号有权限的大厦（与顶栏大厦范围一致） */
 const formBuildingOptions = computed(() => {
   const currentId = form.buildingId
-  return buildings.value.filter((b) => b.active || b.id === currentId)
+  const allowed = buildingScope.options
+  const list = allowed.filter((b) => b.active || b.id === currentId)
+  // 编辑时若当前归属不在权限内（异常数据），仍展示该项但禁用切换靠校验拦截
+  if (currentId && !list.some((b) => b.id === currentId)) {
+    const orphan = buildings.value.find((b) => b.id === currentId)
+    if (orphan) return [orphan, ...list]
+  }
+  return list
+})
+
+/** 仅一栋可管 / 全局已锁定某大厦且新增：不显示归属字段 */
+const showRoomBuildingField = computed(() => {
+  if (buildingScope.locked || formBuildingOptions.value.length <= 1) return false
+  if (!editing.value && buildingScope.selectedId) return false
+  return true
 })
 
 function money(n: number) {
@@ -664,6 +798,7 @@ async function runImportFile(ev: Event) {
     }
 
     await loadOptions()
+    await loadLeaseCapabilityCounts()
     await loadList()
     resetPage()
     finishImport()
@@ -696,6 +831,8 @@ function openCreate() {
     windowConfig: '',
     acConfig: '',
     subleaseMark: '',
+    leaseCapability: 'flexible',
+    splitCount: 2,
   })
   formVisible.value = true
 }
@@ -720,6 +857,8 @@ function openEdit(row: RoomRecord) {
     windowConfig: row.windowConfig || '',
     acConfig: row.acConfig || '',
     subleaseMark: row.subleaseMark || '',
+    leaseCapability: row.leaseCapability || 'flexible',
+    splitCount: Math.max(2, row.splitLabels?.length || 2),
   })
   formVisible.value = true
   void loadFormExistingUrls()
@@ -743,6 +882,7 @@ async function onDelete(row: RoomRecord) {
     await deleteRoomApi(row.id)
     ElMessage.success(t('room.deleted'))
     await loadOptions()
+    await loadLeaseCapabilityCounts()
     await loadList()
   } catch {
     /* cancel or interceptor */
@@ -763,6 +903,11 @@ async function saveForm() {
   }
   if (!form.buildingId) {
     ElMessage.warning(t('room.buildingRequired'))
+    return
+  }
+  const allowedBuildingIds = new Set(buildingScope.options.map((b) => b.id))
+  if (!userStore.isAdmin && !allowedBuildingIds.has(form.buildingId)) {
+    ElMessage.warning(t('room.buildingNoPermission'))
     return
   }
   if (!(Number(form.monthlyRent) > 0)) {
@@ -789,6 +934,9 @@ async function saveForm() {
     windowConfig: form.windowConfig,
     acConfig: form.acConfig,
     subleaseMark: form.subleaseMark,
+    leaseCapability: form.leaseCapability,
+    splitCount: formNeedsSplitParts.value ? form.splitCount : undefined,
+    splitLabels: formNeedsSplitParts.value ? previewSplitLabels.value : [],
   }
   saving.value = true
   try {
@@ -813,6 +961,7 @@ async function saveForm() {
     formVisible.value = false
     resetFormImages()
     await loadOptions()
+    await loadLeaseCapabilityCounts()
     await loadList()
   } catch {
     /* interceptor */
@@ -824,8 +973,25 @@ async function saveForm() {
 
 <template>
   <div class="admin-page">
-    <div class="admin-page-head">
+    <div class="admin-page-head admin-page-head--with-chips">
       <h2>{{ t('menu.rooms') }}</h2>
+      <div class="building-chips-rail">
+        <div class="building-chips" role="tablist" :aria-label="t('room.fields.leaseCapability')">
+          <button
+            v-for="chip in leaseCapabilityChips"
+            :key="chip.key ?? 'all'"
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': leaseCapabilityFilter === chip.key }"
+            :aria-selected="leaseCapabilityFilter === chip.key"
+            @click="setLeaseCapabilityFilter(chip.key)"
+          >
+            <span class="building-chip__name">{{ chip.label }}</span>
+            <span class="building-chip__count">({{ chip.count }})</span>
+          </button>
+        </div>
+      </div>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -959,7 +1125,8 @@ async function saveForm() {
           <el-table-column
             v-if="!buildingScope.selectedId"
             prop="buildingName"
-            :min-width="textColW(t('room.fields.building'), { interactive: true, kind: 'name' })"
+            :min-width="colW(t('room.fields.building'), { interactive: true, contentMin: 178 })"
+            show-overflow-tooltip
           >
             <template #header>
               <TableColumnHeader
@@ -984,6 +1151,35 @@ async function saveForm() {
             </template>
           </el-table-column>
           <el-table-column
+            v-if="!leaseCapabilityFilter"
+            :min-width="
+              statusColW(
+                t('room.fields.leaseCapability'),
+                [
+                  t('room.leaseCapability.flexibleShort'),
+                  t('room.leaseCapability.wholeOnlyShort'),
+                  t('room.leaseCapability.partOnlyShort'),
+                ],
+                { interactive: true },
+              )
+            "
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('room.fields.leaseCapability')"
+                sortable
+                :sort-order="sortOrderOf('leaseCapability')"
+                @update:sort-order="(v) => setSort('leaseCapability', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="roomLeaseCapabilityTone((row as RoomRecord).leaseCapability)"
+                :label="leaseCapabilityLabel((row as RoomRecord).leaseCapability)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="
               statusColW(
                 t('room.fields.status'),
@@ -1004,7 +1200,23 @@ async function saveForm() {
               />
             </template>
             <template #default="{ row }">
-              <StatusBadge :tone="roomStatusTone(row.status)" :label="t(`room.status.${row.status}`)" />
+              <StatusBadge
+                :tone="roomFillStatusTone(fillStatusOf(row as RoomRecord))"
+                :label="t(`room.fillStatus.${fillStatusOf(row as RoomRecord)}`)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('room.fields.occupancy')"
+            :min-width="occupancyColMinWidth"
+          >
+            <template #default="{ row }">
+              <RoomOccupancyChips
+                :occupancy="row.occupancy"
+                :lease-capability="row.leaseCapability"
+                :split-labels="row.splitLabels"
+                @open-contract="(id) => relationDrawers?.openContractSide(id)"
+              />
             </template>
           </el-table-column>
           <el-table-column
@@ -1284,12 +1496,24 @@ async function saveForm() {
               </template>
             </p>
           </div>
-          <StatusBadge :tone="roomStatusTone(row.status)" :label="t(`room.status.${row.status}`)" />
+          <StatusBadge
+            :tone="roomFillStatusTone(fillStatusOf(row))"
+            :label="t(`room.fillStatus.${fillStatusOf(row)}`)"
+          />
         </div>
         <dl class="data-card__grid">
           <div>
             <dt>{{ t('room.fields.roomType') }}</dt>
             <dd><RoomTypeBadge :value="row.roomType" :tone="toneForLabel(row.roomType)" /></dd>
+          </div>
+          <div v-if="!leaseCapabilityFilter">
+            <dt>{{ t('room.fields.leaseCapability') }}</dt>
+            <dd>
+              <StatusBadge
+                :tone="roomLeaseCapabilityTone(row.leaseCapability)"
+                :label="leaseCapabilityLabel(row.leaseCapability)"
+              />
+            </dd>
           </div>
           <div>
             <dt>{{ t('room.fields.sizeSqft') }}</dt>
@@ -1369,10 +1593,48 @@ async function saveForm() {
             </div>
             <div>
               <dt>{{ t('room.fields.status') }}</dt>
-              <dd><StatusBadge :tone="roomStatusTone(current.status)" :label="t(`room.status.${current.status}`)" /></dd>
+              <dd>
+                <StatusBadge
+                  :tone="roomFillStatusTone(fillStatusOf(current))"
+                  :label="t(`room.fillStatus.${fillStatusOf(current)}`)"
+                />
+              </dd>
             </div>
             <div><dt>{{ t('room.fields.serialNo') }}</dt><dd>{{ current.serialNo }}</dd></div>
-            <div><dt>{{ t('room.fields.subleaseMark') }}</dt><dd>{{ current.subleaseMark || '—' }}</dd></div>
+            <div class="detail-span-2">
+              <dt>{{ t('room.fields.leaseCapability') }}</dt>
+              <dd class="room-lease-cap-detail">
+                <StatusBadge
+                  :tone="roomLeaseCapabilityTone(current.leaseCapability)"
+                  :label="leaseCapabilityDetailLabel(current)"
+                />
+                <span
+                  v-if="
+                    current.leaseCapability === 'flexible' && (current.splitLabels?.length || 0) > 0
+                  "
+                  class="room-lease-cap-detail__chips"
+                  :title="(current.splitLabels || []).join(' / ')"
+                >
+                  <span
+                    v-for="lab in current.splitLabels"
+                    :key="lab"
+                    class="split-label-chip"
+                  >{{ lab }}</span>
+                </span>
+              </dd>
+            </div>
+            <div class="detail-span-2">
+              <dt>{{ t('room.fields.occupancy') }}</dt>
+              <dd>
+                <RoomOccupancyChips
+                  variant="expanded"
+                  :occupancy="current.occupancy"
+                  :lease-capability="current.leaseCapability"
+                  :split-labels="current.splitLabels"
+                  @open-contract="(id) => relationDrawers?.openContractSide(id)"
+                />
+              </dd>
+            </div>
           </dl>
         </section>
 
@@ -1522,19 +1784,75 @@ async function saveForm() {
               </el-option>
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('room.fields.building')" required>
-            <el-select v-model="form.buildingId" style="width: 100%" :placeholder="t('common.pleaseSelect')">
-              <el-option v-for="b in formBuildingOptions" :key="b.id" :label="b.name" :value="b.id" />
+          <el-form-item
+            v-if="showRoomBuildingField"
+            :label="t('room.fields.building')"
+            required
+          >
+            <el-select
+              v-model="form.buildingId"
+              style="width: 100%"
+              :placeholder="t('common.pleaseSelect')"
+            >
+              <el-option
+                v-for="b in formBuildingOptions"
+                :key="b.id"
+                :label="b.name"
+                :value="b.id"
+                :disabled="!b.active && b.id !== form.buildingId"
+              />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('room.fields.status')">
-            <el-select v-model="form.status" style="width: 100%">
-              <el-option v-for="s in statusOptions" :key="s" :label="t(`room.status.${s}`)" :value="s" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('room.fields.subleaseMark')">
-            <el-input v-model="form.subleaseMark" />
-          </el-form-item>
+
+          <div
+            class="room-lease-panel span-3"
+            :class="{
+              'room-lease-panel--whole':
+                form.leaseCapability === 'whole_only' || form.leaseCapability === 'part_only',
+            }"
+          >
+            <div class="room-lease-panel__grid">
+              <el-form-item :label="t('room.fields.leaseCapability')" class="room-lease-panel__cap">
+                <el-radio-group v-model="form.leaseCapability" class="lb-yesno-seg room-lease-seg">
+                  <el-radio-button value="flexible">
+                    {{ t('room.leaseCapability.flexibleShort') }}
+                  </el-radio-button>
+                  <el-radio-button value="whole_only">
+                    {{ t('room.leaseCapability.wholeOnlyShort') }}
+                  </el-radio-button>
+                  <el-radio-button value="part_only">
+                    {{ t('room.leaseCapability.partOnlyShort') }}
+                  </el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item
+                v-if="formNeedsSplitParts"
+                :label="t('room.fields.splitCount')"
+                class="room-lease-panel__count"
+              >
+                <el-input-number
+                  v-model="form.splitCount"
+                  :min="2"
+                  :max="12"
+                  controls-position="right"
+                  style="width: 100%"
+                />
+              </el-form-item>
+              <el-form-item
+                v-if="formNeedsSplitParts"
+                :label="t('room.fields.splitLabels')"
+                class="room-lease-panel__labels"
+              >
+                <div class="split-label-chips" :title="previewSplitLabels.join(' / ')">
+                  <span
+                    v-for="lab in previewSplitLabels"
+                    :key="lab"
+                    class="split-label-chip"
+                  >{{ lab }}</span>
+                </div>
+              </el-form-item>
+            </div>
+          </div>
 
           <div class="form-section">
             <h3>{{ t('room.sections.pricing') }}</h3>
@@ -1711,6 +2029,122 @@ async function saveForm() {
 </template>
 
 <style scoped>
+.form-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.room-lease-panel {
+  grid-column: 1 / -1;
+  margin: 2px 0 4px;
+  padding: 12px 14px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f7faf8 0%, #f2f6f3 100%);
+  border: 1px solid #e2eae5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.room-lease-panel__grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.5fr) minmax(112px, 0.7fr) minmax(140px, 1fr);
+  gap: 4px 16px;
+  align-items: start;
+}
+
+.room-lease-panel--whole .room-lease-panel__grid {
+  grid-template-columns: 1fr;
+}
+
+.room-lease-panel__cap {
+  min-width: 0;
+}
+
+.room-lease-panel :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
+.room-lease-seg {
+  width: 100%;
+  display: flex;
+}
+
+.room-lease-seg :deep(.el-radio-button) {
+  flex: 1;
+}
+
+.room-lease-seg :deep(.el-radio-button__inner) {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 0 !important;
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+.room-lease-seg :deep(.el-radio-button:first-child .el-radio-button__inner) {
+  border-radius: 8px 0 0 8px !important;
+}
+
+.room-lease-seg :deep(.el-radio-button:last-child .el-radio-button__inner) {
+  border-radius: 0 8px 8px 0 !important;
+}
+
+.room-lease-seg :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: var(--lb-brand, #1f7a4d);
+  border-color: var(--lb-brand, #1f7a4d);
+  box-shadow: none;
+}
+
+.split-label-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--lb-border, #d7ded9);
+}
+
+.room-lease-cap-detail {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-lease-cap-detail__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.split-label-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #176db0;
+  background: #eef6fb;
+  box-shadow: inset 0 0 0 1px #b7d7ea;
+}
+
+@media (max-width: 720px) {
+  .room-lease-panel__grid,
+  .room-lease-panel--whole .room-lease-panel__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .room-io-btn {
   width: 36px;
   padding: 0 !important;

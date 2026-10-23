@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   StreamableFile,
@@ -29,6 +30,12 @@ import {
 import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import {
+  buildRoomOccupancy,
+  OCCUPYING_CONTRACT_STATUSES,
+  resolveRoomLeaseFields,
+  type RoomOccupancyDto,
+} from '../common/room-lease';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -105,12 +112,37 @@ function parseRoomStatuses(raw?: string[]): RoomStatus[] {
     .filter((v): v is RoomStatus => Object.values(RoomStatus).includes(v as RoomStatus));
 }
 
+const OCCUPANCY_SUMMARIES = ['idle', 'whole', 'partial', 'full'] as const;
+type OccupancySummary = (typeof OCCUPANCY_SUMMARIES)[number];
+
+function parseOccupancySummaries(raw?: string[]): OccupancySummary[] {
+  if (!raw?.length) return [];
+  const set = new Set(OCCUPANCY_SUMMARIES);
+  return [...new Set(raw.map((v) => s(v) as OccupancySummary).filter((v) => set.has(v)))];
+}
+
+const OCCUPANCY_SUMMARY_SORT_RANK: Record<OccupancySummary, number> = {
+  idle: 0,
+  whole: 1,
+  partial: 2,
+  full: 3,
+};
+
 @Injectable()
 export class RoomsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: BuildingAccessService,
   ) {}
+
+  /** 校验当前用户是否可将房间归属到该大厦 */
+  private async assertCanAssignBuilding(buildingId: string) {
+    const allowed = await this.access.allowedIds();
+    if (allowed == null) return;
+    if (!allowed.includes(buildingId)) {
+      throw new ForbiddenException('无权将该房间归属至该大厦');
+    }
+  }
 
   private async resolveBuilding(params: {
     buildingId?: string | null;
@@ -137,12 +169,44 @@ export class RoomsService {
     return null;
   }
 
+  /** 按租赁能力统计数量（受大厦范围约束） */
+  async countByLeaseCapability(params: { buildingId?: string; buildingIds?: string[] }) {
+    const where = await this.buildListWhere({
+      buildingId: params.buildingId,
+      buildingIds: params.buildingIds,
+    });
+    await this.access.constrain(where, 'room');
+    const rows = await this.prisma.room.groupBy({
+      by: ['leaseCapability'],
+      where,
+      _count: { _all: true },
+    });
+    const counts = {
+      all: 0,
+      flexible: 0,
+      whole_only: 0,
+      part_only: 0,
+    };
+    for (const row of rows) {
+      const n = row._count._all;
+      counts.all += n;
+      if (row.leaseCapability === 'flexible') counts.flexible = n;
+      else if (row.leaseCapability === 'whole_only') counts.whole_only = n;
+      else if (row.leaseCapability === 'part_only') counts.part_only = n;
+    }
+    return counts;
+  }
+
   async findAll(params: {
     keyword?: string;
     buildingId?: string;
     buildingIds?: string[];
     status?: string;
     statuses?: string[];
+    leaseCapability?: string;
+    leaseCapabilities?: string[];
+    /** 租用填充态：idle | whole | partial | full（状态列筛选） */
+    occupancySummaries?: string[];
     roomTypes?: string[];
     sizeRangeIds?: string[];
     windowConfigs?: string[];
@@ -158,26 +222,113 @@ export class RoomsService {
   }): Promise<PaginatedResult<ReturnType<typeof toRoomDto>>> {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
-    const where = await this.buildListWhere(params);
+    const occupancySummaries = parseOccupancySummaries(params.occupancySummaries);
+    const where = await this.buildListWhere({
+      ...params,
+      // 状态列改为按 occupancy.summary 筛选时，不再用 RoomStatus 生命周期过滤
+      status: occupancySummaries.length ? undefined : params.status,
+      statuses: occupancySummaries.length ? undefined : params.statuses,
+    });
     await this.access.constrain(where, 'room');
     const { skip, take } = paginateArgs(page, pageSize);
+    const orderBy = this.buildListOrderBy(params.sortBy, params.sortDir);
+    const sortByStatus = s(params.sortBy) === 'status';
+
+    // 按占用填充态筛选/排序时需先算 occupancy，再内存分页
+    if (occupancySummaries.length || sortByStatus) {
+      const rows = await this.prisma.room.findMany({
+        where,
+        include: roomListInclude,
+        orderBy: sortByStatus ? [{ createdAt: 'desc' }, { roomCode: 'asc' }] : orderBy,
+      });
+      let items = await this.withOccupancy(rows.map(toRoomDto));
+      if (occupancySummaries.length) {
+        const allow = new Set(occupancySummaries);
+        items = items.filter((r) => allow.has(r.occupancy.summary as OccupancySummary));
+      }
+      if (sortByStatus) {
+        const dir = parseSortDir(params.sortDir) === 'desc' ? -1 : 1;
+        items = [...items].sort((a, b) => {
+          const ra = OCCUPANCY_SUMMARY_SORT_RANK[a.occupancy.summary as OccupancySummary] ?? 0;
+          const rb = OCCUPANCY_SUMMARY_SORT_RANK[b.occupancy.summary as OccupancySummary] ?? 0;
+          if (ra !== rb) return (ra - rb) * dir;
+          return a.roomCode.localeCompare(b.roomCode, 'zh-Hant');
+        });
+      }
+      const total = items.length;
+      const paged =
+        skip !== undefined && take !== undefined ? items.slice(skip, skip + take) : items;
+      return {
+        items: paged,
+        total,
+        page: pageSize == null ? 1 : page,
+        pageSize: pageSize == null ? total : pageSize,
+      };
+    }
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.room.count({ where }),
       this.prisma.room.findMany({
         where,
         include: roomListInclude,
-        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        orderBy,
         ...(skip !== undefined ? { skip, take } : {}),
       }),
     ]);
 
+    const items = await this.withOccupancy(rows.map(toRoomDto));
     return {
-      items: rows.map(toRoomDto),
+      items,
       total,
       page: pageSize == null ? 1 : page,
       pageSize: pageSize == null ? total : pageSize,
     };
+  }
+
+  private async withOccupancy<T extends { id: string; leaseCapability?: string; splitLabels?: string[] }>(
+    items: T[],
+  ): Promise<Array<T & { occupancy: RoomOccupancyDto }>> {
+    if (!items.length) return [];
+    const ids = items.map((r) => r.id);
+    const contracts = await this.prisma.contract.findMany({
+      where: {
+        roomId: { in: ids },
+        status: { in: [...OCCUPYING_CONTRACT_STATUSES] },
+      },
+      select: {
+        id: true,
+        roomId: true,
+        contractCode: true,
+        status: true,
+        occupancyMode: true,
+        partLabel: true,
+        customer: { select: { name: true } },
+      },
+    });
+    const byRoom = new Map<string, typeof contracts>();
+    for (const c of contracts) {
+      const list = byRoom.get(c.roomId) || [];
+      list.push(c);
+      byRoom.set(c.roomId, list);
+    }
+    return items.map((room) => {
+      const list = byRoom.get(room.id) || [];
+      const occupancy = buildRoomOccupancy(
+        {
+          leaseCapability: room.leaseCapability || 'flexible',
+          splitLabels: room.splitLabels || [],
+        },
+        list.map((c) => ({
+          id: c.id,
+          contractCode: c.contractCode,
+          status: c.status,
+          occupancyMode: c.occupancyMode,
+          partLabel: c.partLabel,
+          customerName: c.customer?.name,
+        })),
+      );
+      return { ...room, occupancy };
+    });
   }
 
   private async buildListWhere(params: {
@@ -186,6 +337,8 @@ export class RoomsService {
     buildingIds?: string[];
     status?: string;
     statuses?: string[];
+    leaseCapability?: string;
+    leaseCapabilities?: string[];
     roomTypes?: string[];
     sizeRangeIds?: string[];
     windowConfigs?: string[];
@@ -207,6 +360,18 @@ export class RoomsService {
     ];
     if (buildingIds.length === 1) where.buildingId = buildingIds[0];
     else if (buildingIds.length > 1) where.buildingId = { in: buildingIds };
+
+    const leaseCaps = [
+      ...new Set(
+        [...(params.leaseCapabilities || []), params.leaseCapability || '']
+          .map((v) => s(v))
+          .filter((v): v is 'whole_only' | 'flexible' | 'part_only' =>
+            v === 'whole_only' || v === 'flexible' || v === 'part_only',
+          ),
+      ),
+    ];
+    if (leaseCaps.length === 1) where.leaseCapability = leaseCaps[0];
+    else if (leaseCaps.length > 1) where.leaseCapability = { in: leaseCaps };
 
     const statuses = [
       ...parseRoomStatuses(params.statuses),
@@ -283,6 +448,7 @@ export class RoomsService {
       return [{ building: { name: dir } }, { roomCode: 'asc' }];
     }
     if (key === 'status') return [{ status: dir }, { roomCode: 'asc' }];
+    if (key === 'leaseCapability') return [{ leaseCapability: dir }, { roomCode: 'asc' }];
     if (key === 'monthlyRent') return [{ monthlyRent: dir }];
     if (key === 'dailyRent') return [{ dailyRent: dir }];
     if (key === 'hourlyRent') return [{ hourlyRent: dir }];
@@ -309,7 +475,8 @@ export class RoomsService {
     });
     if (!row) throw new NotFoundException(`Room ${id} not found`);
     await this.access.assertBuildingId(row.buildingId);
-    return toRoomDto(row);
+    const [dtoRow] = await this.withOccupancy([toRoomDto(row)]);
+    return dtoRow;
   }
 
   async create(dto: CreateRoomDto, actor = '') {
@@ -323,7 +490,15 @@ export class RoomsService {
       buildingName: dto.buildingName,
     });
     if (!building) throw new BadRequestException('buildingId or buildingName is required');
-    await this.access.assertBuildingId(building.id);
+    await this.assertCanAssignBuilding(building.id);
+
+    const lease = resolveRoomLeaseFields({
+      roomCode,
+      leaseCapability: dto.leaseCapability,
+      splitLabels: dto.splitLabels,
+      splitCount: dto.splitCount,
+      subleaseMark: dto.subleaseMark,
+    });
 
     const actorId = actor || null;
     try {
@@ -344,13 +519,16 @@ export class RoomsService {
           windowConfig: s(dto.windowConfig) || null,
           acConfig: s(dto.acConfig) || null,
           latestContract: s(dto.latestContract) || null,
-          subleaseMark: s(dto.subleaseMark) || null,
+          subleaseMark: lease.subleaseMark,
+          leaseCapability: lease.leaseCapability,
+          splitLabels: lease.splitLabels,
           createdById: actorId,
           updatedById: actorId,
         },
         include: roomListInclude,
       });
-      return toRoomDto(row);
+      const [dtoRow] = await this.withOccupancy([toRoomDto(row)]);
+      return dtoRow;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`Room code「${roomCode}」already exists`);
@@ -371,9 +549,27 @@ export class RoomsService {
         buildingName: dto.buildingName,
       });
       if (!building) throw new BadRequestException('building not found');
-      await this.access.assertBuildingId(building.id);
+      await this.assertCanAssignBuilding(building.id);
       buildingId = building.id;
     }
+
+    const nextCode = dto.roomCode !== undefined ? s(dto.roomCode) : existing.roomCode;
+    const touchLease =
+      dto.leaseCapability !== undefined ||
+      dto.splitLabels !== undefined ||
+      dto.splitCount !== undefined ||
+      dto.subleaseMark !== undefined ||
+      dto.roomCode !== undefined;
+    const lease = touchLease
+      ? resolveRoomLeaseFields({
+          roomCode: nextCode,
+          leaseCapability: dto.leaseCapability ?? existing.leaseCapability,
+          splitLabels: dto.splitLabels ?? existing.splitLabels,
+          splitCount: dto.splitCount,
+          subleaseMark:
+            dto.subleaseMark !== undefined ? dto.subleaseMark : existing.subleaseMark,
+        })
+      : null;
 
     try {
       const row = await this.prisma.room.update({
@@ -397,13 +593,21 @@ export class RoomsService {
           acConfig: dto.acConfig !== undefined ? s(dto.acConfig) || null : undefined,
           latestContract:
             dto.latestContract !== undefined ? s(dto.latestContract) || null : undefined,
-          subleaseMark:
-            dto.subleaseMark !== undefined ? s(dto.subleaseMark) || null : undefined,
+          ...(lease
+            ? {
+                subleaseMark: lease.subleaseMark,
+                leaseCapability: lease.leaseCapability,
+                splitLabels: lease.splitLabels,
+              }
+            : dto.subleaseMark !== undefined
+              ? { subleaseMark: s(dto.subleaseMark) || null }
+              : {}),
           ...(actor ? { updatedById: actor } : {}),
         },
         include: roomListInclude,
       });
-      return toRoomDto(row);
+      const [dtoRow] = await this.withOccupancy([toRoomDto(row)]);
+      return dtoRow;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`Room code「${s(dto.roomCode)}」already exists`);

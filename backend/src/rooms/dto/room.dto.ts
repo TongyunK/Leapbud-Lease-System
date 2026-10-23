@@ -102,6 +102,23 @@ export class CreateRoomDto {
   @IsOptional()
   @IsString()
   subleaseMark?: string;
+
+  @ApiPropertyOptional({ description: 'whole_only=只能整租；flexible=可整可分；part_only=只能分租' })
+  @IsOptional()
+  @IsString()
+  leaseCapability?: string;
+
+  @ApiPropertyOptional({ description: '分租份位标签，如 ["A","B","C"]', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  splitLabels?: string[];
+
+  @ApiPropertyOptional({ description: '分租份数（未传 splitLabels 时按 A/B/C… 生成）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  splitCount?: number;
 }
 
 export class UpdateRoomDto {
@@ -196,6 +213,23 @@ export class UpdateRoomDto {
   @IsOptional()
   @IsString()
   subleaseMark?: string;
+
+  @ApiPropertyOptional({ description: 'whole_only=只能整租；flexible=可整可分；part_only=只能分租' })
+  @IsOptional()
+  @IsString()
+  leaseCapability?: string;
+
+  @ApiPropertyOptional({ description: '分租份位标签，如 ["A","B","C"]', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  splitLabels?: string[];
+
+  @ApiPropertyOptional({ description: '分租份数（未传 splitLabels 时按 A/B/C… 生成）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  splitCount?: number;
 }
 
 export class ImportRoomsDto {

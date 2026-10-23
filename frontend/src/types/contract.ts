@@ -28,6 +28,10 @@ export interface ContractRecord {
   endDate: string
   actualEndDate: string
   leaseType: string
+  /** whole=整租；part=分租某份位 */
+  occupancyMode: string
+  /** 分租份位标签，如 A */
+  partLabel: string
   status: string
   roomDeposit: number | null
   monthlyRent: number | null

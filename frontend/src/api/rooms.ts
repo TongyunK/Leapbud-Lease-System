@@ -21,6 +21,9 @@ export type RoomWritePayload = {
   acConfig?: string
   latestContract?: string
   subleaseMark?: string
+  leaseCapability?: 'whole_only' | 'flexible' | 'part_only'
+  splitLabels?: string[]
+  splitCount?: number
 }
 
 export type RoomListQuery = {
@@ -29,6 +32,10 @@ export type RoomListQuery = {
   buildingIds?: string[]
   status?: RoomStatus | ''
   statuses?: string[]
+  leaseCapability?: 'whole_only' | 'flexible' | 'part_only' | ''
+  leaseCapabilities?: string[]
+  /** 状态列：idle | whole | partial | full */
+  occupancySummaries?: string[]
   roomTypes?: string[]
   sizeRangeIds?: string[]
   windowConfigs?: string[]
@@ -43,6 +50,13 @@ export type RoomListQuery = {
   pageSize?: number
 }
 
+export type RoomLeaseCapabilityCounts = {
+  all: number
+  flexible: number
+  whole_only: number
+  part_only: number
+}
+
 export type RoomListPage = PaginatedResult<RoomRecord>
 
 export function fetchRooms(params?: RoomListQuery) {
@@ -52,6 +66,13 @@ export function fetchRooms(params?: RoomListQuery) {
   if (params?.buildingIds?.length) query.buildingIds = params.buildingIds.join(',')
   if (params?.status) query.status = params.status
   if (params?.statuses?.length) query.statuses = params.statuses.join(',')
+  if (params?.leaseCapability) query.leaseCapability = params.leaseCapability
+  if (params?.leaseCapabilities?.length) {
+    query.leaseCapabilities = params.leaseCapabilities.join(',')
+  }
+  if (params?.occupancySummaries?.length) {
+    query.occupancySummaries = params.occupancySummaries.join(',')
+  }
   if (params?.roomTypes?.length) query.roomTypes = params.roomTypes.join(',')
   if (params?.sizeRangeIds?.length) query.sizeRangeIds = params.sizeRangeIds.join(',')
   if (params?.windowConfigs?.length) query.windowConfigs = params.windowConfigs.join(',')
@@ -71,6 +92,10 @@ export function fetchRooms(params?: RoomListQuery) {
 
 export function fetchRoom(id: string) {
   return request.get<RoomRecord>(`/rooms/${id}`)
+}
+
+export function fetchRoomLeaseCapabilityCounts() {
+  return request.get<RoomLeaseCapabilityCounts>('/rooms/stats/lease-capability')
 }
 
 export function createRoomApi(payload: RoomWritePayload) {

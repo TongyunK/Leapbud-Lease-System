@@ -170,5 +170,9 @@ export function toRoomDto(row: RoomWithBuilding) {
     updatedBy: auditActorLabel(row.updatedByUser),
     updatedAt: formatDateTime(row.updatedAt),
     subleaseMark: row.subleaseMark ?? undefined,
+    leaseCapability: (row as { leaseCapability?: string }).leaseCapability ?? 'flexible',
+    splitLabels: Array.isArray((row as { splitLabels?: string[] }).splitLabels)
+      ? [...((row as { splitLabels: string[] }).splitLabels)]
+      : [],
   };
 }

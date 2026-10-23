@@ -1,5 +1,31 @@
 export type RoomStatus = 'idle' | 'signing' | 'leased' | 'terminating'
 
+/** 状态列：闲置中 / 整租中 / 分租中 / 满租 */
+export type RoomFillStatus = 'idle' | 'whole' | 'partial' | 'full'
+
+/** whole_only=只能整租；flexible=可整可分；part_only=只能分租 */
+export type RoomLeaseCapability = 'whole_only' | 'flexible' | 'part_only'
+
+export type RoomOccupancySlot = {
+  label: string
+  occupied: boolean
+  contractId?: string
+  contractCode?: string
+  customerName?: string
+  status?: string
+}
+
+export type RoomOccupancy = {
+  summary: RoomFillStatus
+  wholeOccupied: boolean
+  wholeContractId?: string
+  wholeContractCode?: string
+  wholeCustomerName?: string
+  /** 整租合约业务状态（租用情况四态） */
+  wholeStatus?: string
+  slots: RoomOccupancySlot[]
+}
+
 /** 房间图片（不限数量） */
 export interface RoomImageRecord {
   id: string
@@ -38,4 +64,7 @@ export interface RoomRecord {
   updatedBy: string
   updatedAt: string
   subleaseMark?: string
+  leaseCapability?: RoomLeaseCapability
+  splitLabels?: string[]
+  occupancy?: RoomOccupancy
 }

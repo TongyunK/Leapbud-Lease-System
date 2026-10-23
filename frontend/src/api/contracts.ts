@@ -22,6 +22,8 @@ export type ContractWritePayload = {
   endDate?: string | null
   actualEndDate?: string | null
   leaseType?: string
+  occupancyMode?: 'whole' | 'part' | string
+  partLabel?: string
   status?: string
   roomDeposit?: number | null
   monthlyRent?: number | null

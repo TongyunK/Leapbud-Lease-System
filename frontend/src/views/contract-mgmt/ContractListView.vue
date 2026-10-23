@@ -16,7 +16,7 @@ import {
 import type { ContractListQuery } from '@/api/contracts'
 import { fetchCustomers } from '@/api/customers'
 import { fetchCustomerRequirements } from '@/api/customer-requirements'
-import { fetchRooms } from '@/api/rooms'
+import { fetchRoom, fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
 import type { ContractPeriodRecord, ContractRecord } from '@/types/contract'
@@ -64,6 +64,7 @@ import { useActionColWidth, measureActionColWidth } from '@/composables/useActio
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { useUserStore } from '@/stores/user'
+import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import {
@@ -81,6 +82,7 @@ import { previewAgreementPdfApi, prefetchAgreementPdfApi, previewAgreementDraftP
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
+const buildingScope = useBuildingScopeStore()
 const perms = useResourcePermissions('contracts')
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
@@ -166,14 +168,31 @@ async function onPreviewAgreementDraft() {
 
 const formVisible = ref(false)
 const editing = ref<ContractRecord | null>(null)
-const customers = ref<CustomerRecord[]>([])
-const rooms = ref<RoomRecord[]>([])
+const roomSelectOptions = ref<RoomRecord[]>([])
+/** 僅首屏 / 搜尋重置時驅動 el-select loading，追加加載不用，避免下拉閃動 */
+const roomSelectLoading = ref(false)
+const roomSelectLoadingMore = ref(false)
+const customerSelectOptions = ref<CustomerRecord[]>([])
+const customerSelectLoading = ref(false)
+const customerSelectLoadingMore = ref(false)
 const users = ref<UserRecord[]>([])
 const customerRequirements = ref<CustomerRequirementRecord[]>([])
 const periodTypeOptions = ref<ContractConfigOption[]>([])
 const leaseTypeOptions = ref<ContractConfigOption[]>([])
 const keyDepositOptions = ref<ContractConfigOption[]>([])
 const keyword = ref('')
+/** 下拉無限滾動：首屏 / 每次追加條數 */
+const SELECT_PAGE_SIZE = 20
+const roomSelectPage = ref(1)
+const roomSelectHasMore = ref(true)
+const roomSelectKeyword = ref('')
+const customerSelectPage = ref(1)
+const customerSelectHasMore = ref(true)
+const customerSelectKeyword = ref('')
+let roomSelectScrollEl: HTMLElement | null = null
+let customerSelectScrollEl: HTMLElement | null = null
+let roomSelectScrollHandler: ((e: Event) => void) | null = null
+let customerSelectScrollHandler: ((e: Event) => void) | null = null
 
 const doorKeyUnitPrice = computed(() => {
   const hit = keyDepositOptions.value.find((o) => o.code === KEY_DEPOSIT_CODES.door)
@@ -349,7 +368,7 @@ const statusFilterOptions = computed(() =>
 const roomCodeFilterOptions = computed(() => {
   const seen = new Set<string>()
   const opts: { value: string; label: string }[] = []
-  for (const r of rooms.value) {
+  for (const r of list.value) {
     const code = r.roomCode?.trim()
     if (!code || seen.has(code)) continue
     seen.add(code)
@@ -361,8 +380,8 @@ const roomCodeFilterOptions = computed(() => {
 const customerNameFilterOptions = computed(() => {
   const seen = new Set<string>()
   const opts: { value: string; label: string }[] = []
-  for (const c of customers.value) {
-    const name = c.name?.trim()
+  for (const c of list.value) {
+    const name = c.customerName?.trim()
     if (!name || seen.has(name)) continue
     seen.add(name)
     opts.push({ value: name, label: name })
@@ -436,6 +455,8 @@ const emptyForm = () => ({
   endDate: '',
   actualEndDate: '',
   leaseType: '',
+  occupancyMode: 'whole' as 'whole' | 'part',
+  partLabel: '',
   status: CONTRACT_STATUSES[0],
   roomDeposit: null as number | null,
   monthlyRent: null as number | null,
@@ -453,6 +474,43 @@ const emptyForm = () => ({
 
 const form = reactive(emptyForm())
 
+const selectedRoom = computed(() =>
+  roomSelectOptions.value.find((r) => r.id === form.roomId.trim()) || null,
+)
+
+const roomPartOptions = computed(() => {
+  const room = selectedRoom.value
+  if (!room) return [] as { label: string; value: string; disabled: boolean }[]
+  if (room.leaseCapability !== 'flexible') return []
+  const labels = room.splitLabels?.length ? room.splitLabels : ['A', 'B']
+  const occupied = new Set(
+    (room.occupancy?.slots || []).filter((s) => s.occupied).map((s) => s.label),
+  )
+  // 編輯時當前份位仍可選
+  const current = form.partLabel.trim().toUpperCase()
+  return labels.map((label) => ({
+    label,
+    value: label,
+    disabled: occupied.has(label) && label !== current,
+  }))
+})
+
+const canWholeLease = computed(() => {
+  const room = selectedRoom.value
+  if (!room) return true
+  // 只能整租 / 只能分租（独立后缀房）均按整间占用
+  if (room.occupancy?.wholeOccupied && !editing.value) return false
+  if (room.occupancy?.slots?.some((s) => s.occupied) && !editing.value) return false
+  return true
+})
+
+const canPartLease = computed(() => {
+  const room = selectedRoom.value
+  if (!room) return true
+  // 仅可整可分可在同一房间内选 A/B/C
+  return room.leaseCapability === 'flexible'
+})
+
 const computedDoorKeyDeposit = computed(() =>
   Math.round((Number(form.doorKeyQty) || 0) * doorKeyUnitPrice.value * 100) / 100,
 )
@@ -460,11 +518,248 @@ const computedMailboxKeyDeposit = computed(() =>
   Math.round((Number(form.mailboxKeyQty) || 0) * mailboxKeyUnitPrice.value * 100) / 100,
 )
 
-function roomOptionLabel(r: RoomRecord) {
+function roomOptionLabel(r: Pick<RoomRecord, 'roomCode' | 'name' | 'buildingName'>) {
   const parts = [r.roomCode]
   if (r.name?.trim()) parts.push(r.name)
-  if (r.buildingName?.trim()) parts.push(r.buildingName)
+  // 全局已篩選某一大廈時，下拉無需再重複顯示所屬大廈
+  if (!buildingScope.selectedId && r.buildingName?.trim()) parts.push(r.buildingName)
   return parts.join(' · ')
+}
+
+function customerOptionLabel(c: Pick<CustomerRecord, 'customerCode' | 'name'>) {
+  return `${c.customerCode} · ${c.name}`
+}
+
+function seedRoomOption(row: ContractRecord): RoomRecord | null {
+  if (!row.roomId) return null
+  return {
+    id: row.roomId,
+    roomCode: row.roomCode || row.roomId,
+    name: row.roomName || row.roomNameText || '',
+    buildingId: row.buildingId || '',
+    buildingName: row.buildingName || '',
+  } as RoomRecord
+}
+
+function seedCustomerOption(row: ContractRecord): CustomerRecord | null {
+  if (!row.customerId) return null
+  return {
+    id: row.customerId,
+    customerCode: row.customerCode || row.customerId,
+    name: row.customerName || row.customerId,
+    buildingId: row.buildingId,
+  } as CustomerRecord
+}
+
+function keepSelectedInOptions<T extends { id: string }>(
+  items: T[],
+  selectedId: string,
+  current: T[],
+): T[] {
+  if (!selectedId || items.some((x) => x.id === selectedId)) return items
+  const keep = current.find((x) => x.id === selectedId)
+  return keep ? [keep, ...items] : items
+}
+
+/** 追加去重：原地 push，避免替換數組引用導致下拉重繪閃動 */
+function appendUniqueById<T extends { id: string }>(prev: T[], next: T[]): void {
+  if (!next.length) return
+  const seen = new Set(prev.map((x) => x.id))
+  for (const item of next) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    prev.push(item)
+  }
+}
+
+function unbindSelectScroll(
+  el: HTMLElement | null,
+  handler: ((e: Event) => void) | null,
+): void {
+  if (el && handler) el.removeEventListener('scroll', handler)
+}
+
+function bindSelectScroll(
+  popperClass: string,
+  onReachEnd: () => void,
+): { el: HTMLElement | null; handler: ((e: Event) => void) | null } {
+  const popper = document.querySelector(`.${popperClass}`)
+  const wrap =
+    (popper?.querySelector('.el-select-dropdown__wrap') as HTMLElement | null) ||
+    (popper?.querySelector('.el-scrollbar__wrap') as HTMLElement | null)
+  if (!wrap) return { el: null, handler: null }
+  let ticking = false
+  const handler = () => {
+    if (ticking) return
+    ticking = true
+    requestAnimationFrame(() => {
+      ticking = false
+      if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 28) onReachEnd()
+    })
+  }
+  wrap.addEventListener('scroll', handler, { passive: true })
+  return { el: wrap, handler }
+}
+
+async function restoreSelectScroll(el: HTMLElement | null, top: number) {
+  if (!el) return
+  await nextTick()
+  el.scrollTop = top
+}
+
+async function loadRoomsPage(reset: boolean) {
+  if (reset) {
+    if (roomSelectLoading.value) return
+    roomSelectLoading.value = true
+  } else {
+    if (roomSelectLoading.value || roomSelectLoadingMore.value || !roomSelectHasMore.value) return
+    roomSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : roomSelectPage.value
+  const scrollEl = roomSelectScrollEl
+  const prevTop = scrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchRooms({
+      keyword: roomSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+    })
+    if (reset) {
+      roomSelectOptions.value = keepSelectedInOptions(
+        data.items,
+        form.roomId.trim(),
+        roomSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(roomSelectOptions.value, data.items)
+      await restoreSelectScroll(scrollEl, prevTop)
+    }
+    roomSelectPage.value = page + 1
+    roomSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
+  } catch {
+    if (reset) {
+      roomSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.roomId.trim(),
+        roomSelectOptions.value,
+      )
+      roomSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) roomSelectLoading.value = false
+    else roomSelectLoadingMore.value = false
+  }
+}
+
+async function loadCustomersPage(reset: boolean) {
+  if (reset) {
+    if (customerSelectLoading.value) return
+    customerSelectLoading.value = true
+  } else {
+    if (
+      customerSelectLoading.value ||
+      customerSelectLoadingMore.value ||
+      !customerSelectHasMore.value
+    ) {
+      return
+    }
+    customerSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : customerSelectPage.value
+  const scrollEl = customerSelectScrollEl
+  const prevTop = scrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchCustomers({
+      keyword: customerSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+    })
+    const bid = buildingScope.selectedId
+    const pageItems = bid ? data.items.filter((c) => c.buildingId === bid) : data.items
+    if (reset) {
+      customerSelectOptions.value = keepSelectedInOptions(
+        pageItems,
+        form.customerId.trim(),
+        customerSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(customerSelectOptions.value, pageItems)
+      await restoreSelectScroll(scrollEl, prevTop)
+    }
+    customerSelectPage.value = page + 1
+    customerSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
+    if (bid && customerSelectHasMore.value && pageItems.length === 0) {
+      // 本頁全被濾掉但後端還有資料 → 自動續拉，避免滾動空白
+      customerSelectLoadingMore.value = false
+      await loadCustomersPage(false)
+      return
+    }
+  } catch {
+    if (reset) {
+      customerSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.customerId.trim(),
+        customerSelectOptions.value,
+      )
+      customerSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) customerSelectLoading.value = false
+    else customerSelectLoadingMore.value = false
+  }
+}
+
+/** 遠程搜尋（輸入關鍵字時重置分頁） */
+function searchRoomsRemote(query: string) {
+  roomSelectKeyword.value = query.trim()
+  roomSelectHasMore.value = true
+  void loadRoomsPage(true)
+}
+
+function searchCustomersRemote(query: string) {
+  customerSelectKeyword.value = query.trim()
+  customerSelectHasMore.value = true
+  void loadCustomersPage(true)
+}
+
+async function attachSelectScroll(popperClass: string, onReachEnd: () => void) {
+  await nextTick()
+  let bound = bindSelectScroll(popperClass, onReachEnd)
+  if (!bound.el) {
+    await new Promise<void>((r) => requestAnimationFrame(() => r()))
+    bound = bindSelectScroll(popperClass, onReachEnd)
+  }
+  return bound
+}
+
+async function onRoomSelectVisible(open: boolean) {
+  unbindSelectScroll(roomSelectScrollEl, roomSelectScrollHandler)
+  roomSelectScrollEl = null
+  roomSelectScrollHandler = null
+  if (!open) return
+  roomSelectKeyword.value = ''
+  roomSelectHasMore.value = true
+  await loadRoomsPage(true)
+  const bound = await attachSelectScroll('contract-room-select-popper', () => {
+    void loadRoomsPage(false)
+  })
+  roomSelectScrollEl = bound.el
+  roomSelectScrollHandler = bound.handler
+}
+
+async function onCustomerSelectVisible(open: boolean) {
+  unbindSelectScroll(customerSelectScrollEl, customerSelectScrollHandler)
+  customerSelectScrollEl = null
+  customerSelectScrollHandler = null
+  if (!open) return
+  customerSelectKeyword.value = ''
+  customerSelectHasMore.value = true
+  await loadCustomersPage(true)
+  const bound = await attachSelectScroll('contract-customer-select-popper', () => {
+    void loadCustomersPage(false)
+  })
+  customerSelectScrollEl = bound.el
+  customerSelectScrollHandler = bound.handler
 }
 
 const requirementSelectOptions = computed(() => {
@@ -513,12 +808,37 @@ watch(
 )
 
 function onRoomSelectChange(roomId: string) {
-  const room = rooms.value.find((r) => r.id === roomId)
+  const room = roomSelectOptions.value.find((r) => r.id === roomId)
   if (!room) return
   form.roomNameText = room.name || ''
   if (form.monthlyRent == null) form.monthlyRent = room.monthlyRent ?? null
-  if (!form.subleaseMark.trim()) form.subleaseMark = room.subleaseMark || ''
+  if (room.leaseCapability === 'whole_only' || room.leaseCapability === 'part_only') {
+    form.occupancyMode = 'whole'
+    form.partLabel = ''
+    form.subleaseMark = ''
+    return
+  }
+  if (room.occupancy?.wholeOccupied || room.occupancy?.slots?.some((s) => s.occupied)) {
+    form.occupancyMode = 'part'
+    const free = (room.splitLabels || ['A', 'B']).find(
+      (label) => !(room.occupancy?.slots || []).some((s) => s.label === label && s.occupied),
+    )
+    form.partLabel = free || ''
+    form.subleaseMark = form.partLabel
+  } else {
+    form.occupancyMode = 'whole'
+    form.partLabel = ''
+    form.subleaseMark = ''
+  }
 }
+
+watch(
+  () => [form.occupancyMode, form.partLabel] as const,
+  ([mode, part]) => {
+    if (mode === 'part') form.subleaseMark = String(part || '').trim().toUpperCase()
+    else form.subleaseMark = ''
+  },
+)
 
 const importInputRef = ref<HTMLInputElement | null>(null)
 const {
@@ -675,16 +995,13 @@ async function onImportFile(ev: Event) {
 }
 
 async function loadOptions() {
-  const [custRes, roomRes, userRes, periodRes, leaseRes, keyRes] = await Promise.all([
-    fetchCustomers(),
-    fetchRooms(),
+  // 房間 / 客戶改為彈窗下拉遠程懶加載，避免進入頁面就全量拉取
+  const [userRes, periodRes, leaseRes, keyRes] = await Promise.all([
     fetchUsers(),
     fetchContractConfigs({ type: 'periodType', activeOnly: true }),
     fetchContractConfigs({ type: 'leaseType', activeOnly: true }),
     fetchContractConfigs({ type: 'keyDeposit', activeOnly: true }),
   ])
-  customers.value = custRes.data.items
-  rooms.value = roomRes.data.items
   users.value = userRes.data.filter((u) => u.status === 'active')
   periodTypeOptions.value = periodRes.data
   leaseTypeOptions.value = leaseRes.data
@@ -701,9 +1018,20 @@ function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
   form.leaseType = leaseTypeOptions.value[0]?.label || ''
+  // 銷售經理默認當前登錄用戶
+  const uid = userStore.user?.id?.trim() || ''
+  if (uid) form.salesManagerId = uid
   periods.value = [defaultPeriodRow()]
   periodPage.value = 1
   customerRequirements.value = []
+  roomSelectOptions.value = []
+  customerSelectOptions.value = []
+  roomSelectPage.value = 1
+  roomSelectHasMore.value = true
+  roomSelectKeyword.value = ''
+  customerSelectPage.value = 1
+  customerSelectHasMore.value = true
+  customerSelectKeyword.value = ''
   formVisible.value = true
 }
 
@@ -868,6 +1196,8 @@ async function openEdit(row: ContractRecord) {
     endDate: row.endDate || '',
     actualEndDate: row.actualEndDate || '',
     leaseType: row.leaseType || leaseTypeOptions.value[0]?.label || '',
+    occupancyMode: (row.occupancyMode === 'part' ? 'part' : 'whole') as 'whole' | 'part',
+    partLabel: row.partLabel || row.subleaseMark || '',
     status: row.status || CONTRACT_STATUSES[0],
     roomDeposit: row.roomDeposit,
     monthlyRent: row.monthlyRent,
@@ -893,6 +1223,24 @@ async function openEdit(row: ContractRecord) {
       }))
     : [defaultPeriodRow()]
   periodPage.value = 1
+  const seededRoom = seedRoomOption(row)
+  const seededCustomer = seedCustomerOption(row)
+  roomSelectOptions.value = seededRoom ? [seededRoom] : []
+  customerSelectOptions.value = seededCustomer ? [seededCustomer] : []
+  roomSelectPage.value = 1
+  roomSelectHasMore.value = true
+  roomSelectKeyword.value = ''
+  customerSelectPage.value = 1
+  customerSelectHasMore.value = true
+  customerSelectKeyword.value = ''
+  if (row.roomId) {
+    try {
+      const { data } = await fetchRoom(row.roomId)
+      roomSelectOptions.value = keepSelectedInOptions([data], row.roomId, roomSelectOptions.value)
+    } catch {
+      /* keep seed */
+    }
+  }
   await loadRequirementsForCustomer(row.customerId)
   formVisible.value = true
 }
@@ -909,6 +1257,8 @@ function payloadFromForm() {
     endDate: form.endDate || null,
     actualEndDate: form.actualEndDate || null,
     leaseType: form.leaseType.trim() || undefined,
+    occupancyMode: form.occupancyMode,
+    partLabel: form.occupancyMode === 'part' ? form.partLabel.trim().toUpperCase() : '',
     status: form.status,
     roomDeposit: form.roomDeposit,
     monthlyRent: form.monthlyRent,
@@ -919,7 +1269,8 @@ function payloadFromForm() {
     doorKeyQty: form.doorKeyQty,
     mailboxKeyQty: form.mailboxKeyQty,
     roomNameText: form.roomNameText.trim(),
-    subleaseMark: form.subleaseMark.trim(),
+    subleaseMark:
+      form.occupancyMode === 'part' ? form.partLabel.trim().toUpperCase() : form.subleaseMark.trim(),
     attachment: form.attachment.trim(),
     remark: form.remark.trim(),
     periods: periods.value
@@ -942,6 +1293,10 @@ async function saveForm() {
   }
   if (!form.customerId.trim()) {
     ElMessage.warning(t('contract.customerRequired'))
+    return
+  }
+  if (form.occupancyMode === 'part' && !form.partLabel.trim()) {
+    ElMessage.warning(t('contract.partLabelRequired'))
     return
   }
   try {
@@ -1723,13 +2078,19 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               <el-select
                 v-model="form.roomId"
                 filterable
+                remote
+                reserve-keyword
                 fit-input-width
                 style="width: 100%"
+                popper-class="contract-room-select-popper"
                 :placeholder="t('contract.fields.roomCode')"
+                :remote-method="searchRoomsRemote"
+                :loading="roomSelectLoading"
+                @visible-change="onRoomSelectVisible"
                 @change="onRoomSelectChange"
               >
                 <el-option
-                  v-for="r in rooms"
+                  v-for="r in roomSelectOptions"
                   :key="r.id"
                   :label="roomOptionLabel(r)"
                   :value="r.id"
@@ -1745,19 +2106,25 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               <el-select
                 v-model="form.customerId"
                 filterable
+                remote
+                reserve-keyword
                 fit-input-width
                 style="width: 100%"
+                popper-class="contract-customer-select-popper"
                 :placeholder="t('contract.fields.customerName')"
+                :remote-method="searchCustomersRemote"
+                :loading="customerSelectLoading"
+                @visible-change="onCustomerSelectVisible"
               >
                 <el-option
-                  v-for="c in customers"
+                  v-for="c in customerSelectOptions"
                   :key="c.id"
-                  :label="`${c.customerCode} · ${c.name}`"
+                  :label="customerOptionLabel(c)"
                   :value="c.id"
-                  :title="`${c.customerCode} · ${c.name}`"
+                  :title="customerOptionLabel(c)"
                 >
-                  <span class="select-option-ellipsis" :title="`${c.customerCode} · ${c.name}`">
-                    {{ c.customerCode }} · {{ c.name }}
+                  <span class="select-option-ellipsis" :title="customerOptionLabel(c)">
+                    {{ customerOptionLabel(c) }}
                   </span>
                 </el-option>
               </el-select>
@@ -1824,6 +2191,43 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 />
               </el-select>
             </el-form-item>
+            <el-form-item :label="t('contract.fields.occupancyMode')">
+              <el-radio-group
+                v-model="form.occupancyMode"
+                class="lb-yesno-seg"
+                :disabled="
+                  !form.roomId ||
+                  selectedRoom?.leaseCapability === 'whole_only' ||
+                  selectedRoom?.leaseCapability === 'part_only'
+                "
+              >
+                <el-radio-button value="whole" :disabled="!canWholeLease">
+                  {{ t('contract.occupancyWhole') }}
+                </el-radio-button>
+                <el-radio-button value="part" :disabled="!canPartLease">
+                  {{ t('contract.occupancyPart') }}
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item
+              v-if="form.occupancyMode === 'part'"
+              :label="t('contract.fields.partLabel')"
+              required
+            >
+              <el-select
+                v-model="form.partLabel"
+                style="width: 100%"
+                :placeholder="t('contract.fields.partLabel')"
+              >
+                <el-option
+                  v-for="opt in roomPartOptions"
+                  :key="opt.value"
+                  :label="opt.disabled ? `${opt.label}（${t('room.occupancy.busy')}）` : opt.label"
+                  :value="opt.value"
+                  :disabled="opt.disabled"
+                />
+              </el-select>
+            </el-form-item>
             <el-form-item :label="t('contract.fields.status')">
               <el-select v-model="form.status" style="width: 100%">
                 <el-option
@@ -1836,9 +2240,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </el-form-item>
             <el-form-item :label="t('contract.fields.roomNameText')">
               <el-input v-model="form.roomNameText" />
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.subleaseMark')">
-              <el-input v-model="form.subleaseMark" />
             </el-form-item>
           </div>
         </section>

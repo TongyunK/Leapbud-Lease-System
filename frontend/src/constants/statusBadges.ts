@@ -26,6 +26,31 @@ export function roomStatusTone(status: string | null | undefined): StatusTone {
   return ROOM_STATUS_TONES[key] || 'neutral'
 }
 
+/** 房间状态列：占用填充态色 */
+const ROOM_FILL_STATUS_TONES = {
+  idle: 'idle',
+  whole: 'leased',
+  partial: 'leasing',
+  full: 'contracting',
+} as const
+
+export function roomFillStatusTone(summary: string | null | undefined): StatusTone {
+  const key = (summary || 'idle') as keyof typeof ROOM_FILL_STATUS_TONES
+  return ROOM_FILL_STATUS_TONES[key] || 'neutral'
+}
+
+/** 房间租赁能力色：可整可分 / 只能整租 / 只能分租 */
+const ROOM_LEASE_CAPABILITY_TONES = {
+  flexible: 'leasing',
+  whole_only: 'leased',
+  part_only: 'signing',
+} as const
+
+export function roomLeaseCapabilityTone(cap: string | null | undefined): StatusTone {
+  const key = (cap || 'flexible') as keyof typeof ROOM_LEASE_CAPABILITY_TONES
+  return ROOM_LEASE_CAPABILITY_TONES[key] || 'neutral'
+}
+
 export function userStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '') as keyof typeof USER_STATUS_TONES
   return USER_STATUS_TONES[key] || 'neutral'

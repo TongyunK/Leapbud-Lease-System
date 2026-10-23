@@ -15,6 +15,16 @@ enum RoomStatus {
   terminating // 退租中
 }
 
+/// 房间租赁能力
+enum RoomLeaseCapability {
+  /// 只能整租（无份位概念）
+  whole_only
+  /// 可整租或按房内份位分租（A/B/C）
+  flexible
+  /// 只能分租：无房内份位；旧系统用独立后缀房间（如 6SPi09A / 6SPi09B）
+  part_only
+}
+
 /// API 权限级别（控制器 @Roles 用；与 roles.code 对齐：admin=全权限，其余按普通用户门控）
 enum UserRole {
   admin // 管理员（全大厦、系统写操作）
@@ -444,8 +454,12 @@ model Room {
   updatedById     String?    @map("updated_by")
   /// 更新人用户
   updatedByUser   User?      @relation("RoomUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  /// 分租标记
+  /// 分租标记（兼容旧字段；固定份位字母或摘要）
   subleaseMark    String?    @map("sublease_mark")
+  /// 租赁能力：whole_only=只能整租；flexible=可整可分（房内份位）；part_only=只能分租（独立后缀房，无份位列表）
+  leaseCapability RoomLeaseCapability @default(flexible) @map("lease_capability")
+  /// 可分租份位标签（如 A、B、C）；仅 flexible；whole_only / part_only 为空
+  splitLabels     String[]   @default([]) @map("split_labels")
   /// 创建时间
   createdAt       DateTime   @default(now()) @map("created_at")
   /// 更新时间
@@ -665,8 +679,9 @@ model Contract {
   id                  String    @id @default(cuid())
   /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
   legacyId            String?   @unique @map("legacy_id")
-  /// 合约编号（业务唯一，如 CTR2609110001）
-  contractCode        String    @unique @map("contract_code")  /// 所属房间 ID
+  /// 合约编号（业务唯一，如 TL507-20261023）
+  contractCode        String    @unique @map("contract_code")
+  /// 所属房间 ID
   roomId              String    @map("room_id")
   /// 所属房间
   room                Room      @relation("ContractBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
@@ -688,8 +703,12 @@ model Contract {
   endDate             DateTime? @map("end_date") @db.Date
   /// 实际退租日期
   actualEndDate       DateTime? @map("actual_end_date") @db.Date
-  /// 租赁方式：整租 / 分租首用戶 / 分租次用戶
+  /// 租赁方式：整租 / 分租首用戶 / 分租次用戶（字典展示，可与 occupancyMode 并存）
   leaseType           String    @default("") @map("lease_type")
+  /// 占用方式：whole=整租，part=分租某份位
+  occupancyMode       String    @default("whole") @map("occupancy_mode")
+  /// 分租份位标签（occupancyMode=part 时，如 A/B/C）
+  partLabel           String    @default("") @map("part_label")
   /// 状态：草稿 / 簽約中 / 已簽約 / 交吉中 / 租賃中 / 已完成 / 退租中 / 已退租 / 已取消 / 已續約
   status              String    @default("草稿")
   /// 房间按金

@@ -1,0 +1,29 @@
+---
+description: 房间整租/分租份位模型与占用展示、发票编号后缀约定
+alwaysApply: true
+---
+
+# 房间整租 / 分租（份位占用）
+
+## 模型
+
+- 房间 `leaseCapability`：
+  - `whole_only`：只能整租（无份位，`splitLabels` 为空）
+  - `flexible`：可整可分（需 `splitLabels`，如 `['A','B','C']`，同一房间内分份）
+  - `part_only`：只能分租——**无份位列表**；旧系统用独立后缀房间表示，如 `6SPi09A`、`6SPi09B`
+- 合约 `occupancyMode`：`whole` | `part`；`partLabel`：分租份位（仅 `flexible` 选 part 时）
+- `whole_only` / `part_only`：签约时均按整间占用该房间（`occupancyMode=whole`）
+- 同一房间：要么 1 份整租占用，要么（仅 flexible）各份位最多 1 份占用中合约
+
+## 展示
+
+- **状态列**（占用填充）：`闲置中` / `整租中` / `分租中` / `满租`（对应 `occupancy.summary`：idle/whole/partial/full）
+- **租用情况**（`RoomOccupancyChips`）：整间占用显示生命周期四态；flexible 分租显示 `分租中`（可点开份位）
+- 新增合约：仅 flexible 可选整租/份位；已占用份位禁用
+
+## 编号
+
+- 合约自动号主体：整租=`roomCode`；flexible 分租=`roomCode+partLabel`（编号已以份位字母结尾则不再重复加）→ `{主体}-{YYYYMMDD}`
+- 发票：`{自动编号}-{房间后缀}`，如 `W262925-KT9B03` / `W262925-KT9B03B`
+
+参考：`backend/src/common/room-lease.ts`、`RoomListView`、`ContractListView`、`RoomOccupancyChips.vue`。

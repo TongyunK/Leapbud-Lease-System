@@ -25,6 +25,7 @@ import {
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
+import { invoiceRoomSuffix } from '../common/room-lease'
 
 function s(v?: string | null) {
   return (v ?? '').trim()
@@ -202,18 +203,22 @@ export class InvoicesService {
   }
 
   private async resolveContract(dto: { contractId?: string; contractCode?: string }) {
+    const select = {
+      id: true,
+      customerId: true,
+      roomId: true,
+      salesManagerId: true,
+      roomNameText: true,
+      occupancyMode: true,
+      partLabel: true,
+      room: { select: { roomCode: true, leaseCapability: true } },
+    } as const
     const contractId = s(dto.contractId)
     const contractCode = s(dto.contractCode)
     if (contractId) {
       const row = await this.prisma.contract.findUnique({
         where: { id: contractId },
-        select: {
-          id: true,
-          customerId: true,
-          roomId: true,
-          salesManagerId: true,
-          roomNameText: true,
-        },
+        select,
       })
       if (!row) throw new BadRequestException('Invalid contractId')
       return row
@@ -221,13 +226,7 @@ export class InvoicesService {
     if (contractCode) {
       const row = await this.prisma.contract.findFirst({
         where: { contractCode },
-        select: {
-          id: true,
-          customerId: true,
-          roomId: true,
-          salesManagerId: true,
-          roomNameText: true,
-        },
+        select,
       })
       if (!row) throw new BadRequestException(`合约编号「${contractCode}」不存在`)
       return row
@@ -293,7 +292,14 @@ export class InvoicesService {
         : nullId(dto.salesManagerId)
     await this.assertSalesManager(salesManagerId)
 
-    const invoiceCode = s(dto.invoiceCode) || (await this.nextInvoiceCode())
+    const invoiceCode =
+      s(dto.invoiceCode) ||
+      (await this.nextInvoiceCode({
+        roomCode: contract.room?.roomCode || '',
+        leaseCapability: contract.room?.leaseCapability || 'flexible',
+        occupancyMode: contract.occupancyMode || 'whole',
+        partLabel: contract.partLabel || '',
+      }))
     const status = s(dto.status) || '待開票'
     const roomNameText =
       dto.roomNameText !== undefined ? s(dto.roomNameText) : s(contract.roomNameText)
@@ -492,13 +498,22 @@ export class InvoicesService {
     return { created, skipped, failed, issues }
   }
 
-  private async nextInvoiceCode(): Promise<string> {
-    return this.numberingRules.nextCode(NumberingBizKey.invoice, {
-      isTaken: async (code) =>
-        !!(await this.prisma.invoice.findFirst({
-          where: { invoiceCode: code },
+  private async nextInvoiceCode(roomRef: {
+    roomCode: string
+    leaseCapability: string
+    occupancyMode: string
+    partLabel: string
+  }): Promise<string> {
+    const suffix = invoiceRoomSuffix(roomRef)
+    const auto = await this.numberingRules.nextCode(NumberingBizKey.invoice, {
+      isTaken: async (code) => {
+        const full = suffix ? `${code}-${suffix}` : code
+        return !!(await this.prisma.invoice.findFirst({
+          where: { invoiceCode: full },
           select: { id: true },
-        })),
+        }))
+      },
     })
+    return suffix ? `${auto}-${suffix}` : auto
   }
 }

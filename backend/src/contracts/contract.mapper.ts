@@ -116,6 +116,8 @@ export function toContractDto(row: ContractWithRelations) {
     endDate: dateOnly(row.endDate),
     actualEndDate: dateOnly(row.actualEndDate),
     leaseType: row.leaseType,
+    occupancyMode: row.occupancyMode || 'whole',
+    partLabel: row.partLabel || '',
     status: row.status,
     roomDeposit: decimalToNumber(row.roomDeposit),
     monthlyRent: decimalToNumber(row.monthlyRent),

@@ -96,10 +96,9 @@ watch(
   },
 )
 
-function onRowClick(row: RoomRecord, column?: { type?: string }, event?: Event) {
-  if (column?.type === 'selection') return
+function onRowClick(row: RoomRecord, _column?: { type?: string }, event?: Event) {
   const el = event?.target as HTMLElement | null
-  if (el?.closest('.el-checkbox, .el-table-column--selection, button, a')) return
+  if (el?.closest('button, a')) return
   emit('openRoom', row)
 }
 </script>
@@ -137,7 +136,6 @@ function onRowClick(row: RoomRecord, column?: { type?: string }, event?: Event) 
           style="width: 100%"
           @row-click="onRowClick"
         >
-          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"

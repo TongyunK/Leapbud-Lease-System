@@ -93,6 +93,7 @@ declare module 'vue' {
     RoomDetailDrawer: typeof import('./components/RoomDetailDrawer.vue')['default']
     RoomImageGallery: typeof import('./components/RoomImageGallery.vue')['default']
     RoomImageThumb: typeof import('./components/RoomImageThumb.vue')['default']
+    RoomOccupancyChips: typeof import('./components/RoomOccupancyChips.vue')['default']
     RoomTypeBadge: typeof import('./components/RoomTypeBadge.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

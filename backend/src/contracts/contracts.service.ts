@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RoomStatus } from '@prisma/client';
+import { Prisma, RoomLeaseCapability, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildingAccessService } from '../building-access/building-access.service';
 import { CreateContractDto, ContractPeriodInputDto, UpdateContractDto, ImportContractsDto } from './dto/contract.dto';
@@ -21,6 +21,14 @@ import {
 } from '../common/pagination';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import {
+  OCCUPYING_CONTRACT_STATUSES,
+  aggregateRoomStatus,
+  buildRoomOccupancy,
+  contractCodeRoomBase,
+  normalizeOccupancyMode,
+  normalizeSplitLabels,
+} from '../common/room-lease';
 
 const ALLOWED_STATUSES = new Set([
   '草稿',
@@ -327,16 +335,31 @@ export class ContractsService {
     return toContractDto(row);
   }
 
-  /** 合约编号：房间编号 + 当日日期（YYYYMMDD）；同日冲突时再拼时分秒 */
+  /** 香港日历下的 YYYYMMDD / HHmmss（合约编号用） */
+  private hkDateTimeParts(now = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value || '';
+    return {
+      datePart: `${get('year')}${get('month')}${get('day')}`,
+      timePart: `${get('hour')}${get('minute')}${get('second')}`,
+    };
+  }
+
+  /** 合约编号：房间编号-当日日期（如 TL507-20261023）；同日冲突时再拼时分秒 */
   private async nextContractCode(roomCode: string) {
     const base = s(roomCode);
     if (!base) throw new BadRequestException('roomCode is required for auto contract code');
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const y = String(now.getFullYear());
-    const m = pad(now.getMonth() + 1);
-    const d = pad(now.getDate());
-    const datePart = `${y}${m}${d}`;
+    const { datePart, timePart } = this.hkDateTimeParts();
     const taken = async (code: string) =>
       !!(await this.prisma.contract.findFirst({
         where: { contractCode: code },
@@ -346,7 +369,6 @@ export class ContractsService {
     let code = `${base}-${datePart}`;
     if (!(await taken(code))) return code;
 
-    const timePart = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     code = `${base}-${datePart}${timePart}`;
     let guard = 0;
     while ((await taken(code)) && guard < 100) {
@@ -359,10 +381,120 @@ export class ContractsService {
   private async assertRoom(roomId: string) {
     const r = await this.prisma.room.findUnique({
       where: { id: roomId },
-      select: { id: true, name: true, roomCode: true, monthlyRent: true, subleaseMark: true },
+      select: {
+        id: true,
+        name: true,
+        roomCode: true,
+        monthlyRent: true,
+        subleaseMark: true,
+        leaseCapability: true,
+        splitLabels: true,
+      },
     });
     if (!r) throw new BadRequestException('Invalid roomId');
     return r;
+  }
+
+  /** 解析并校验占用方式；冲突时抛错 */
+  private async resolveOccupancy(
+    room: {
+      id: string;
+      roomCode: string;
+      leaseCapability: RoomLeaseCapability;
+      splitLabels: string[];
+      subleaseMark: string | null;
+    },
+    dto: { occupancyMode?: string | null; partLabel?: string | null; subleaseMark?: string | null },
+    opts?: { excludeContractId?: string; status?: string },
+  ) {
+    let mode = normalizeOccupancyMode(dto.occupancyMode);
+    let partLabel = s(dto.partLabel).toUpperCase() || s(dto.subleaseMark).toUpperCase();
+
+    // 只能整租 / 只能分租（独立后缀房如 6SPi09A）：均按整间占用该房间，无份位列表
+    if (
+      room.leaseCapability === RoomLeaseCapability.whole_only ||
+      room.leaseCapability === RoomLeaseCapability.part_only
+    ) {
+      mode = 'whole';
+      partLabel = '';
+    } else if (!s(dto.occupancyMode) && partLabel) {
+      mode = 'part';
+    }
+
+    if (mode === 'part' && room.leaseCapability !== RoomLeaseCapability.flexible) {
+      throw new BadRequestException('仅「可整可分」房间可按份位分租；只能分租请使用带后缀的独立房间');
+    }
+
+    if (mode === 'part') {
+      if (!partLabel) throw new BadRequestException('分租须指定份位标签（如 A/B/C）');
+      const labels = normalizeSplitLabels(room.splitLabels);
+      if (!labels.length) {
+        throw new BadRequestException('该房间未配置分租份位，无法分租');
+      }
+      if (!labels.includes(partLabel)) {
+        throw new BadRequestException(`份位「${partLabel}」不在该房间可分租列表：${labels.join('/')}`);
+      }
+    } else {
+      partLabel = '';
+    }
+
+    const willOccupy =
+      !opts?.status ||
+      (OCCUPYING_CONTRACT_STATUSES as readonly string[]).includes(opts.status);
+    if (!willOccupy) {
+      return {
+        occupancyMode: mode,
+        partLabel,
+        subleaseMark: mode === 'part' ? partLabel : '',
+      };
+    }
+
+    const others = await this.prisma.contract.findMany({
+      where: {
+        roomId: room.id,
+        status: { in: [...OCCUPYING_CONTRACT_STATUSES] },
+        ...(opts?.excludeContractId ? { id: { not: opts.excludeContractId } } : {}),
+      },
+      select: {
+        id: true,
+        contractCode: true,
+        status: true,
+        occupancyMode: true,
+        partLabel: true,
+        customer: { select: { name: true } },
+      },
+    });
+    const occupancy = buildRoomOccupancy(
+      { leaseCapability: room.leaseCapability, splitLabels: room.splitLabels },
+      others.map((c) => ({
+        id: c.id,
+        contractCode: c.contractCode,
+        status: c.status,
+        occupancyMode: c.occupancyMode,
+        partLabel: c.partLabel,
+        customerName: c.customer?.name,
+      })),
+    );
+
+    if (mode === 'whole') {
+      if (occupancy.wholeOccupied || occupancy.slots.some((x) => x.occupied)) {
+        throw new BadRequestException('该房间已有占用中的合约，无法再整租');
+      }
+    } else {
+      if (occupancy.wholeOccupied) {
+        throw new BadRequestException('该房间整租占用中，无法再分租');
+      }
+      const slot = occupancy.slots.find((x) => x.label === partLabel);
+      if (slot?.occupied) {
+        throw new BadRequestException(`份位「${partLabel}」已被合约「${slot.contractCode}」占用`);
+      }
+    }
+
+    return {
+      occupancyMode: mode,
+      partLabel,
+      subleaseMark: mode === 'part' ? partLabel : '',
+    };
   }
 
   private async assertCustomer(customerId: string) {
@@ -492,20 +624,57 @@ export class ContractsService {
     });
   }
 
-  /** 同步房间最新合约标识与状态 */
+  /** 按该房全部占用中合约重算房间状态与最新合约摘要 */
   private async syncRoomFromContract(
     tx: Prisma.TransactionClient,
     roomId: string,
-    contractCode: string,
-    status: string,
+    _contractCode: string,
+    _status: string,
     actorId: string | null,
   ) {
-    const roomStatus = ROOM_STATUS_BY_CONTRACT[status];
+    const room = await tx.room.findUnique({
+      where: { id: roomId },
+      select: { leaseCapability: true, splitLabels: true },
+    });
+    const occupying = await tx.contract.findMany({
+      where: { roomId, status: { in: [...OCCUPYING_CONTRACT_STATUSES] } },
+      select: {
+        contractCode: true,
+        status: true,
+        occupancyMode: true,
+        partLabel: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const occupancy = buildRoomOccupancy(
+      {
+        leaseCapability: room?.leaseCapability || RoomLeaseCapability.flexible,
+        splitLabels: room?.splitLabels || [],
+      },
+      occupying.map((c) => ({
+        id: c.contractCode,
+        contractCode: c.contractCode,
+        status: c.status,
+        occupancyMode: c.occupancyMode,
+        partLabel: c.partLabel,
+      })),
+    );
+    let latest = '';
+    if (occupancy.wholeOccupied) {
+      latest = occupancy.wholeContractCode || occupying[0]?.contractCode || '';
+    } else if (occupancy.slots.some((x) => x.occupied)) {
+      latest = occupancy.slots
+        .filter((x) => x.occupied)
+        .map((x) => `${x.label}:${x.contractCode || ''}`)
+        .join(' / ');
+    } else if (occupying[0]) {
+      latest = occupying[0].contractCode;
+    }
     await tx.room.update({
       where: { id: roomId },
       data: {
-        latestContract: contractCode,
-        ...(roomStatus ? { status: roomStatus } : {}),
+        latestContract: latest || null,
+        status: aggregateRoomStatus(occupying),
         ...(actorId ? { updatedById: actorId } : {}),
       },
     });
@@ -526,11 +695,17 @@ export class ContractsService {
     const requirementId = nullId(dto.requirementId);
     await this.assertRequirement(requirementId, customerId);
 
-    const contractCode = s(dto.contractCode) || (await this.nextContractCode(room.roomCode));
     const status = this.normalizeStatus(dto.status);
+    const occupancy = await this.resolveOccupancy(room, dto, { status });
+    const codeBase = contractCodeRoomBase({
+      roomCode: room.roomCode,
+      leaseCapability: room.leaseCapability,
+      occupancyMode: occupancy.occupancyMode,
+      partLabel: occupancy.partLabel,
+    });
+    const contractCode = s(dto.contractCode) || (await this.nextContractCode(codeBase));
     const actorId = actor || null;
     const roomNameText = s(dto.roomNameText) || room.name;
-    const subleaseMark = s(dto.subleaseMark) || s(room.subleaseMark);
     const monthlyRent =
       dto.monthlyRent !== undefined ? numOrNull(dto.monthlyRent) : Number(room.monthlyRent);
     const periods = await this.parsePeriods(dto.periods);
@@ -559,6 +734,8 @@ export class ContractsService {
             endDate,
             actualEndDate: parseDateOnly(dto.actualEndDate, 'actualEndDate'),
             leaseType: s(dto.leaseType),
+            occupancyMode: occupancy.occupancyMode,
+            partLabel: occupancy.partLabel,
             status,
             roomDeposit: numOrNull(dto.roomDeposit),
             monthlyRent,
@@ -571,7 +748,7 @@ export class ContractsService {
             doorKeyDeposit: keyDeposits.doorKeyDeposit,
             mailboxKeyDeposit: keyDeposits.mailboxKeyDeposit,
             roomNameText,
-            subleaseMark,
+            subleaseMark: occupancy.subleaseMark,
             attachment: s(dto.attachment),
             remark: s(dto.remark),
             createdById: actorId,
@@ -599,10 +776,11 @@ export class ContractsService {
     if (!existing) throw new NotFoundException(`Contract ${id} not found`);
 
     let roomId = existing.roomId;
+    let room = await this.assertRoom(roomId);
     if (dto.roomId !== undefined) {
       roomId = s(dto.roomId);
       if (!roomId) throw new BadRequestException('roomId is required');
-      await this.assertRoom(roomId);
+      room = await this.assertRoom(roomId);
     }
 
     let customerId = existing.customerId;
@@ -622,7 +800,24 @@ export class ContractsService {
       await this.assertRequirement(requirementId, customerId);
     }
 
+    const touchOccupancy =
+      dto.occupancyMode !== undefined ||
+      dto.partLabel !== undefined ||
+      dto.subleaseMark !== undefined ||
+      dto.roomId !== undefined ||
+      dto.status !== undefined;
     const status = dto.status !== undefined ? this.normalizeStatus(dto.status) : existing.status;
+    const occupancy = touchOccupancy
+      ? await this.resolveOccupancy(
+          room,
+          {
+            occupancyMode: dto.occupancyMode ?? existing.occupancyMode,
+            partLabel: dto.partLabel ?? existing.partLabel,
+            subleaseMark: dto.subleaseMark ?? existing.subleaseMark,
+          },
+          { excludeContractId: id, status },
+        )
+      : null;
     const contractCode =
       dto.contractCode !== undefined ? s(dto.contractCode) : existing.contractCode;
     const actorId = actor || null;
@@ -664,6 +859,13 @@ export class ContractsService {
                 ? parseDateOnly(dto.actualEndDate, 'actualEndDate')
                 : undefined,
             leaseType: dto.leaseType !== undefined ? s(dto.leaseType) : undefined,
+            ...(occupancy
+              ? {
+                  occupancyMode: occupancy.occupancyMode,
+                  partLabel: occupancy.partLabel,
+                  subleaseMark: occupancy.subleaseMark,
+                }
+              : {}),
             status: dto.status !== undefined ? status : undefined,
             roomDeposit:
               dto.roomDeposit !== undefined ? numOrNull(dto.roomDeposit) : undefined,

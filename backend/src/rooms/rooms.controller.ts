@@ -38,6 +38,23 @@ import { parseSortDir, splitCsv } from '../common/pagination';
 export class RoomsController {
   constructor(private readonly roomsService: RoomsService) {}
 
+  @Get('stats/lease-capability')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @ApiQuery({ name: 'buildingId', required: false })
+  @ApiQuery({ name: 'buildingIds', required: false })
+  @ApiOkResponse({ description: 'Room counts by lease capability' })
+  countByLeaseCapability(
+    @Query('buildingId') buildingId?: string,
+    @Query('buildingIds') buildingIds?: string,
+  ) {
+    return this.roomsService.countByLeaseCapability({
+      buildingId,
+      buildingIds: splitCsv(buildingIds),
+    });
+  }
+
   @Get()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -47,6 +64,21 @@ export class RoomsController {
   @ApiQuery({ name: 'buildingIds', required: false, description: 'Comma-separated building IDs' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'statuses', required: false, description: 'Comma-separated statuses' })
+  @ApiQuery({
+    name: 'leaseCapability',
+    required: false,
+    description: 'whole_only | flexible | part_only',
+  })
+  @ApiQuery({
+    name: 'leaseCapabilities',
+    required: false,
+    description: 'Comma-separated lease capabilities',
+  })
+  @ApiQuery({
+    name: 'occupancySummaries',
+    required: false,
+    description: 'Comma-separated occupancy fill statuses: idle,whole,partial,full',
+  })
   @ApiQuery({ name: 'roomTypes', required: false })
   @ApiQuery({ name: 'sizeRangeIds', required: false })
   @ApiQuery({ name: 'windowConfigs', required: false })
@@ -66,6 +98,9 @@ export class RoomsController {
     @Query('buildingIds') buildingIds?: string,
     @Query('status') status?: string,
     @Query('statuses') statuses?: string,
+    @Query('leaseCapability') leaseCapability?: string,
+    @Query('leaseCapabilities') leaseCapabilities?: string,
+    @Query('occupancySummaries') occupancySummaries?: string,
     @Query('roomTypes') roomTypes?: string,
     @Query('sizeRangeIds') sizeRangeIds?: string,
     @Query('windowConfigs') windowConfigs?: string,
@@ -85,6 +120,9 @@ export class RoomsController {
       buildingIds: splitCsv(buildingIds),
       status,
       statuses: splitCsv(statuses),
+      leaseCapability,
+      leaseCapabilities: splitCsv(leaseCapabilities),
+      occupancySummaries: splitCsv(occupancySummaries),
       roomTypes: splitCsv(roomTypes),
       sizeRangeIds: splitCsv(sizeRangeIds),
       windowConfigs: splitCsv(windowConfigs),

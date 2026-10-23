@@ -922,8 +922,8 @@ button {
   border-color: #8fb89f;
   background: #f3f8f5;
   color: #0f4a32;
+  /* 勿用 translateY：父级 overflow-y:hidden 会裁掉上边框 */
   box-shadow: 0 2px 8px rgba(15, 74, 50, 0.14);
-  transform: translateY(-1px);
 }
 
 .building-chip:hover .building-chip__count {
@@ -931,7 +931,6 @@ button {
 }
 
 .building-chip:active {
-  transform: translateY(0);
   box-shadow: 0 1px 3px rgba(15, 74, 50, 0.1);
 }
 
@@ -943,7 +942,6 @@ button {
 }
 
 .building-chip.is-active:hover {
-  transform: none;
   box-shadow: inset 0 0 0 1px #0f4a32, 0 2px 8px rgba(15, 74, 50, 0.12);
 }
 
@@ -1638,6 +1636,160 @@ button {
   padding: 0 !important;
   overflow: hidden;
   background: #fff !important;
+}
+
+/* 房间列表 · 分租份位详情弹出层（与 lb-col-head / room-io popper 同系） */
+.room-occ-popper.el-popper {
+  border: 1px solid #e2e8e5 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
+  padding: 0 !important;
+  overflow: hidden;
+  background: #fff !important;
+}
+
+.room-occ-popper .el-popper__arrow::before {
+  border: 1px solid #e2e8e5 !important;
+  background: #fff !important;
+}
+
+.room-occ-popper .occ-panel {
+  padding: 12px;
+  min-width: 300px;
+}
+
+.room-occ-popper .occ-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 4px 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid #eef1ef;
+}
+
+.room-occ-popper .occ-panel__title {
+  font-size: var(--lb-table-body, 0.86rem);
+  font-weight: 700;
+  color: #243029;
+  letter-spacing: 0.01em;
+}
+
+.room-occ-popper .occ-panel__ratio {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: #0284c7;
+  background: #eef6fb;
+  box-shadow: inset 0 0 0 1px #b7d7ea;
+}
+
+.room-occ-popper .occ-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.room-occ-popper .occ-slot {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.room-occ-popper .occ-slot--busy {
+  background: linear-gradient(180deg, #e8f3fc 0%, #dfeef9 100%);
+  border-color: #c5ddf0;
+}
+
+.room-occ-popper .occ-slot--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.room-occ-popper .occ-slot--clickable:hover {
+  border-color: #8ebfdf;
+  box-shadow: 0 2px 10px rgba(23, 109, 176, 0.12);
+}
+
+.room-occ-popper .occ-slot--clickable:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #0284c7 22%, transparent);
+}
+
+.room-occ-popper .occ-slot--free {
+  background: #f6f8f7;
+  border-color: #e4ebe7;
+}
+
+.room-occ-popper .occ-slot__badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.room-occ-popper .occ-slot--busy .occ-slot__badge {
+  color: #176db0;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #9fc5e5;
+}
+
+.room-occ-popper .occ-slot--free .occ-slot__badge {
+  color: #6a7a70;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #d0d8d3;
+}
+
+.room-occ-popper .occ-slot__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.room-occ-popper .occ-slot__name {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #243029;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-occ-popper .occ-slot__code {
+  font-size: 0.76rem;
+  color: var(--lb-muted, #6a7a70);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.room-occ-popper .occ-slot__free {
+  font-size: 0.82rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.room-occ-popper .occ-slot .lb-status {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
 }
 
 .room-io-popper .el-dropdown-menu {
@@ -2620,6 +2772,10 @@ button {
 
 .detail-grid.two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail-grid .detail-span-2 {
+  grid-column: 1 / -1;
 }
 
 .detail-grid dt {

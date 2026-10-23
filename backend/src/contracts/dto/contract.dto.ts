@@ -97,6 +97,16 @@ export class CreateContractDto {
   @IsString()
   leaseType?: string;
 
+  @ApiPropertyOptional({ example: 'whole', description: 'whole=整租；part=分租某份位' })
+  @IsOptional()
+  @IsString()
+  occupancyMode?: string;
+
+  @ApiPropertyOptional({ example: 'A', description: '分租份位标签' })
+  @IsOptional()
+  @IsString()
+  partLabel?: string;
+
   @ApiPropertyOptional({ example: '草稿' })
   @IsOptional()
   @IsString()
@@ -240,6 +250,16 @@ export class UpdateContractDto {
   @IsOptional()
   @IsString()
   leaseType?: string;
+
+  @ApiPropertyOptional({ example: 'whole', description: 'whole=整租；part=分租某份位' })
+  @IsOptional()
+  @IsString()
+  occupancyMode?: string;
+
+  @ApiPropertyOptional({ example: 'A', description: '分租份位标签' })
+  @IsOptional()
+  @IsString()
+  partLabel?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
