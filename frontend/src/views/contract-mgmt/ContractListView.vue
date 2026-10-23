@@ -567,7 +567,6 @@ async function exportContractsXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('contract.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {

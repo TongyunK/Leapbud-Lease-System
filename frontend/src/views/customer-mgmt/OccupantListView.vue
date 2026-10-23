@@ -399,7 +399,6 @@ async function exportOccupantsXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('occupant.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {

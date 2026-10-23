@@ -604,7 +604,6 @@ async function exportInvoicesXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('invoice.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {

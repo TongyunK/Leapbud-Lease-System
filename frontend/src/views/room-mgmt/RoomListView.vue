@@ -546,7 +546,6 @@ async function exportRoomsXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('room.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {

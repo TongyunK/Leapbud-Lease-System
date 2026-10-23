@@ -391,7 +391,6 @@ async function exportFeesXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('contractOtherFee.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {

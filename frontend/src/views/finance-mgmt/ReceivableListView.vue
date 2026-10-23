@@ -478,7 +478,6 @@ async function exportReceivablesXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('receivable.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {

@@ -442,7 +442,6 @@ async function exportTerminationsXlsx(scope: 'page' | 'filtered' | 'all') {
     if (scope === 'page') {
       rows = [...list.value]
     } else {
-      ElMessage.info(t('leaseTermination.exportLoading'))
       rows = await fetchExportRows(scope)
     }
     if (!rows.length) {
