@@ -83,8 +83,8 @@ async function onSubmit() {
       captcha: captcha.value.trim() || undefined,
     })
     ElMessage.success(t('login.loginSuccess'))
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/room-mgmt/buildings'
-    await router.replace(redirect || '/room-mgmt/buildings')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
+    await router.replace(redirect || '/home')
   } catch {
     formError.value = t('login.loginFailed')
   } finally {

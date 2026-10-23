@@ -327,9 +327,18 @@ export default {
     success: '驗證碼已發送，請按提示完成重置',
   },
   home: {
-    welcome: '歡迎使用 Leapbud 租賃系統',
+    title: '租賃管理',
+    welcome: '歡迎使用 Leapbud 租賃管理系統，可透過下方快捷入口或左側選單進入各功能。',
+    welcomeNamed: '你好，{name}。可透過下方快捷入口或左側選單進入各大廈、客戶、合約與財務功能。',
     logout: '退出登入',
     placeholder: '業務模組將在此陸續上線',
+    empty: '目前沒有可訪問的功能快捷入口，請聯繫管理員配置菜單權限。',
+    sections: {
+      business: '業務管理',
+      finance: '財務管理',
+      system: '系統管理',
+      shortcuts: '快捷入口',
+    },
   },
   account: {
     changePassword: '修改密碼',
@@ -370,6 +379,7 @@ export default {
       phone: '電話',
       email: '郵箱',
       buildings: '可訪問大廈',
+      lastLoginAt: '最後登錄時間',
     },
     buildingsAdminHint: '管理員可查看全部大廈，無需單獨分配。',
     buildingsHint: '該用戶只能查看已勾選大廈下的房間、合約、發票等資料。',

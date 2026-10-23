@@ -19,6 +19,7 @@ import SidebarMenuNodes from '@/components/SidebarMenuNodes.vue'
 import { useUserStore } from '@/stores/user'
 import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useNavStore } from '@/stores/nav'
+import { useStatusStore } from '@/stores/status'
 import { changePasswordApi } from '@/api/auth'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
 import { useFrequentRoutes, type FrequentRouteName } from '@/composables/useFrequentRoutes'
@@ -117,6 +118,7 @@ function onLogout() {
   userStore.logout()
   navStore.clear()
   buildingScope.clear()
+  useStatusStore().clear()
   router.replace({ name: 'login' })
 }
 
@@ -197,7 +199,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
     />
 
     <aside class="sidebar" :class="{ 'is-drawer': isMobile, open: mobileOpen }">
-      <div class="sidebar-brand" @click="router.push({ name: 'buildings' }); mobileOpen = false">
+      <div class="sidebar-brand" @click="router.push({ name: 'home' }); mobileOpen = false">
         <div class="brand-mark">
           <img src="/leapbud_logo.png" alt="leapbud" class="brand-logo" />
         </div>
@@ -342,7 +344,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
         </el-dropdown>
       </header>
 
-      <div class="content-shell">
+      <div class="content-shell" :class="{ 'content-shell--home': route.name === 'home' }">
         <router-view :key="buildingScope.viewKey" />
       </div>
     </div>
@@ -1008,6 +1010,58 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .content-shell > * {
   flex: 1;
   min-height: 0;
+}
+
+/* 首页：外壳滚动，避免内容被 overflow:hidden 裁切 */
+.content-shell--home {
+  padding: 10px 12px 12px;
+  background: #eef1f0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 74, 50, 0.28) transparent;
+}
+
+.content-shell--home > * {
+  flex: 0 0 auto;
+  min-height: auto;
+  height: auto;
+  overflow: visible;
+}
+
+.content-shell--home::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-shell--home::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 8px;
+}
+
+.content-shell--home::-webkit-scrollbar-thumb {
+  background: rgba(15, 74, 50, 0.2);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.content-shell--home::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 74, 50, 0.38);
+  background-clip: padding-box;
+}
+
+.content-shell--home::-webkit-scrollbar-button,
+.content-shell--home::-webkit-scrollbar-corner {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@media (max-width: 959.98px) {
+  .content-shell--home {
+    padding: 8px;
+  }
 }
 
 @media (max-width: 1279.98px) {

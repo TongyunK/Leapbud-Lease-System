@@ -27,8 +27,17 @@ const router = createRouter({
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
-      redirect: { name: 'buildings' },
+      redirect: { name: 'home' },
       children: [
+        {
+          path: 'home',
+          name: 'home',
+          component: () => import('@/views/HomeDashboardView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'home.title',
+          },
+        },
         {
           path: 'room-mgmt/buildings',
           name: 'buildings',
@@ -291,7 +300,7 @@ router.beforeEach((to) => {
   }
 
   if (routeName === 'login' && userStore.isLoggedIn) {
-    return { name: 'buildings' }
+    return { name: 'home' }
   }
 
   if (!isPublicRoute(routeName) && to.meta.requiresAuth && !userStore.isLoggedIn) {

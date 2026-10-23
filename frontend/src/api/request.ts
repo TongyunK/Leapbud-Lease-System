@@ -64,6 +64,8 @@ request.interceptors.response.use(
       if (router.currentRoute.value.name !== 'login') {
         router.replace({ name: 'login' })
       }
+      // 退出登录或会话失效后，后续无 token 请求会返回 Missing token；静默跳转即可，勿弹技术性提示
+      return Promise.reject(error)
     }
 
     if (!config?.silentError) {

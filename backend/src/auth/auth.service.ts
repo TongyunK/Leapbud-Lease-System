@@ -37,9 +37,15 @@ export class AuthService {
       role: user.role,
     });
 
+    // 仅更新最后登录时间，避免触发 @updatedAt
+    const lastLoginAt = new Date();
+    await this.prisma.$executeRaw`
+      UPDATE "users" SET "last_login_at" = ${lastLoginAt} WHERE "id" = ${user.id}
+    `;
+
     return {
       accessToken,
-      user: toUserDto(user),
+      user: toUserDto({ ...user, lastLoginAt }),
     };
   }
 

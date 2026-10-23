@@ -78,8 +78,7 @@ const columnGetters = {
   displayName: (u: UserRecord) => u.displayName,
   role: (u: UserRecord) => u.role,
   status: (u: UserRecord) => u.status,
-  createdBy: (u: UserRecord) => u.createdBy,
-  createdAt: (u: UserRecord) => u.createdAt,
+  lastLoginAt: (u: UserRecord) => u.lastLoginAt || '',
   updatedBy: (u: UserRecord) => u.updatedBy,
   updatedAt: (u: UserRecord) => u.updatedAt,
 }
@@ -553,6 +552,25 @@ async function onDelete(row: UserRecord) {
             :min-width="colW(t('user.fields.email'), { contentMin: 180 })"
           />
           <el-table-column
+            prop="lastLoginAt"
+            :width="datetimeColWidth"
+            class-name="col-datetime"
+            label-class-name="col-datetime"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('user.fields.lastLoginAt')"
+                sortable
+                date-range
+                :sort-order="sortOrderOf('lastLoginAt')"
+                :date-range-value="dateRangeOf('lastLoginAt')"
+                @update:sort-order="(v) => setSort('lastLoginAt', v)"
+                @update:date-range-value="(v) => setDateRange('lastLoginAt', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.lastLoginAt || '—' }}</template>
+          </el-table-column>
+          <el-table-column
             prop="updatedBy"
             :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
@@ -568,25 +586,6 @@ async function onDelete(row: UserRecord) {
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
-            :min-width="auditUserColWidth"
-            show-overflow-tooltip
-          />
-          <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
-            <template #header>
-              <TableColumnHeader
-                :label="t('common.createdAt')"
-                sortable
-                date-range
-                :sort-order="sortOrderOf('createdAt')"
-                :date-range-value="dateRangeOf('createdAt')"
-                @update:sort-order="(v) => setSort('createdAt', v)"
-                @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
@@ -673,16 +672,12 @@ async function onDelete(row: UserRecord) {
             <dd>{{ row.updatedBy || '—' }}</dd>
           </div>
           <div>
+            <dt>{{ t('user.fields.lastLoginAt') }}</dt>
+            <dd>{{ row.lastLoginAt || '—' }}</dd>
+          </div>
+          <div>
             <dt>{{ t('common.updatedAt') }}</dt>
             <dd>{{ row.updatedAt || '—' }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('common.createdBy') }}</dt>
-            <dd>{{ row.createdBy || '—' }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('common.createdAt') }}</dt>
-            <dd>{{ row.createdAt || '—' }}</dd>
           </div>
         </dl>
         <div class="data-card__actions action-pills">

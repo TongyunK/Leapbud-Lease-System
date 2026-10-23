@@ -36,6 +36,7 @@ export function toUserDto(user: UserWithAudit) {
     email: user.email,
     buildingIds: buildings.map((b) => b.id),
     buildings,
+    lastLoginAt: user.lastLoginAt ? formatDateTime(user.lastLoginAt) : '',
     createdBy: auditActorLabel(user.createdByUser),
     createdAt: formatDateTime(user.createdAt),
     updatedBy: auditActorLabel(user.updatedByUser),

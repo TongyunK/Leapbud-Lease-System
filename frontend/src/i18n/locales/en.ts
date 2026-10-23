@@ -326,9 +326,19 @@ export default {
     success: 'Code sent. Follow the instructions to reset.',
   },
   home: {
-    welcome: 'Welcome to Leapbud Lease',
+    title: 'Lease Administration',
+    welcome: 'Welcome to Leapbud Lease System. Use the shortcuts below or the sidebar to get started.',
+    welcomeNamed:
+      'Hi, {name}. Use the shortcuts below or the sidebar for buildings, customers, contracts and finance.',
     logout: 'Sign out',
     placeholder: 'Business modules will appear here soon',
+    empty: 'No shortcuts available. Ask an admin to grant menu access.',
+    sections: {
+      business: 'Business',
+      finance: 'Finance',
+      system: 'System',
+      shortcuts: 'Shortcuts',
+    },
   },
   account: {
     changePassword: 'Change password',
@@ -369,6 +379,7 @@ export default {
       phone: 'Phone',
       email: 'Email',
       buildings: 'Buildings',
+      lastLoginAt: 'Last login',
     },
     buildingsAdminHint: 'Admins can see every building. No assignment is required.',
     buildingsHint: 'This user can only see rooms, contracts, invoices and related records in the selected buildings.',

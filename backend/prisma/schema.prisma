@@ -63,6 +63,8 @@ model User {
   phone        String     @default("")
   /// 邮箱
   email        String     @default("")
+  /// 最后登录时间（成功登录时写入；未登录过为空）
+  lastLoginAt  DateTime?  @map("last_login_at")
   /// 创建人用户 ID
   createdById  String?    @map("created_by")
   /// 创建人用户
