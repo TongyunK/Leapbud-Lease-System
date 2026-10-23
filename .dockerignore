@@ -3,7 +3,8 @@
 **/*.tsbuildinfo
 **/.env
 **/.git
-**/uploads
+# 仅忽略运行时附件目录，勿用 **/uploads（会误排除 src/uploads 源码导致 Docker 构建失败）
+backend/uploads
 *.log
 data
 docs
