@@ -56,6 +56,7 @@ export function toCustomerRequirementDto(row: CustomerRequirementWithRelations) 
     salesManager: auditActorLabel(row.salesManagerUser),
     requirementDate: dateOnly(row.requirementDate),
     status: row.status,
+    rentalType: row.rentalType || 'long',
     leaseDuration: row.leaseDuration,
     budget: decimalToNumber(row.budget),
     content: row.content,

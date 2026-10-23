@@ -161,7 +161,6 @@ function statusLabel(status: string) {
           style="width: 100%"
           @row-click="onRowClick"
         >
-          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -169,6 +168,7 @@ function statusLabel(status: string) {
             width="48"
             align="center"
             header-align="center"
+            fixed="left"
           />
           <el-table-column
             prop="invoiceCode"
@@ -181,6 +181,7 @@ function statusLabel(status: string) {
             class-name="col-code"
             label-class-name="col-code"
             show-overflow-tooltip
+            fixed="left"
           />
           <el-table-column
             :label="t('invoice.fields.contractCode')"

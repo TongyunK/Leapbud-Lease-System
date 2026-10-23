@@ -17,6 +17,7 @@ export function createMenuApi(payload: {
   parentId?: string | null
   type: MenuType
   name: string
+  nameEn?: string
   nameKey?: string
   routeName?: string
   path?: string
@@ -34,6 +35,7 @@ export function updateMenuApi(
     parentId?: string | null
     type?: MenuType
     name?: string
+    nameEn?: string
     nameKey?: string
     routeName?: string
     path?: string

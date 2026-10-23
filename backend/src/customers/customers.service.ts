@@ -25,6 +25,10 @@ import {
 } from '../common/pagination';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import {
+  ensureOpenAffiliation,
+  rebindOccupantAffiliation,
+} from '../common/occupant-customer-affiliation';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -303,9 +307,28 @@ export class CustomersService {
     });
   }
 
+  /** 预览下一个客户编号（不占用序号；保存时仍重新分配） */
+  async previewCustomerCode() {
+    const code = await this.numberingRules.previewCode(NumberingBizKey.customer, {
+      isTaken: async (c) =>
+        !!(await this.prisma.customer.findFirst({
+          where: { customerCode: c },
+          select: { id: true },
+        })),
+    });
+    return { code };
+  }
+
   async create(dto: CreateCustomerDto, actor = '') {
     const name = s(dto.name);
     if (!name) throw new BadRequestException('name is required');
+    if (!s(dto.accountManagerId)) {
+      throw new BadRequestException('accountManagerId is required');
+    }
+    if (!s(dto.buildingId)) {
+      throw new BadRequestException('buildingId is required');
+    }
+    // 表单新建通常留空由系统生成；导入等场景可带明确编号
     const customerCode = s(dto.customerCode) || (await this.nextCustomerCode());
 
     const linkOccupantId = s(dto.linkOccupantId);
@@ -348,6 +371,13 @@ export class CustomersService {
         let primaryId: string | null = null;
 
         if (linkOccupantId && nestedOcc) {
+          const linkRow = await tx.occupant.findUnique({ where: { id: linkOccupantId } });
+          await rebindOccupantAffiliation(tx, {
+            occupantId: linkOccupantId,
+            previousCustomerId: linkRow?.customerId,
+            newCustomerId: created.id,
+            actorId,
+          });
           await tx.occupant.update({
             where: { id: linkOccupantId },
             data: {
@@ -390,6 +420,7 @@ export class CustomersService {
               updatedById: actorId,
             },
           });
+          await ensureOpenAffiliation(tx, occ.id, created.id, actorId);
           primaryId = occ.id;
         }
 
@@ -420,7 +451,8 @@ export class CustomersService {
 
     let buildingId: string | null | undefined = undefined;
     if (dto.buildingId !== undefined) {
-      buildingId = (await this.assertBuilding(dto.buildingId)) ?? null;
+      if (!s(dto.buildingId)) throw new BadRequestException('buildingId is required');
+      buildingId = await this.assertBuilding(dto.buildingId);
     }
 
     let agreementTemplateId: string | null | undefined = undefined;
@@ -430,7 +462,10 @@ export class CustomersService {
 
     let accountManagerId: string | null | undefined = undefined;
     if (dto.accountManagerId !== undefined) {
-      accountManagerId = (await this.assertAccountManager(dto.accountManagerId)) ?? null;
+      if (!s(dto.accountManagerId)) {
+        throw new BadRequestException('accountManagerId is required');
+      }
+      accountManagerId = await this.assertAccountManager(dto.accountManagerId);
     }
 
     const actorId = actor || null;
@@ -446,6 +481,12 @@ export class CustomersService {
         if (linkOccupantId) {
           const linkRow = await tx.occupant.findUnique({ where: { id: linkOccupantId } });
           if (!linkRow) throw new NotFoundException(`Occupant ${linkOccupantId} not found`);
+          await rebindOccupantAffiliation(tx, {
+            occupantId: linkOccupantId,
+            previousCustomerId: linkRow.customerId,
+            newCustomerId: id,
+            actorId,
+          });
           await tx.occupant.update({
             where: { id: linkOccupantId },
             data: {
@@ -528,6 +569,7 @@ export class CustomersService {
                 updatedById: actorId,
               },
             });
+            await ensureOpenAffiliation(tx, occ.id, id, actorId);
             nextPrimaryId = occ.id;
           }
         }
@@ -535,7 +577,7 @@ export class CustomersService {
         return tx.customer.update({
           where: { id },
           data: {
-            customerCode: dto.customerCode !== undefined ? s(dto.customerCode) : undefined,
+            // 客户编号创建后不可修改
             name: dto.name !== undefined ? s(dto.name) : undefined,
             status: dto.status !== undefined ? s(dto.status) : undefined,
             accountManagerId,
@@ -564,6 +606,33 @@ export class CustomersService {
       }
       throw e;
     }
+  }
+
+  /** 该客户已结束归属的过往使用者（不含当前仍挂在本客户下的） */
+  async listPastOccupants(customerId: string) {
+    const existing = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException(`Customer ${customerId} not found`);
+    await this.access.assertCustomerId(customerId);
+
+    const rows = await this.prisma.occupantCustomerAffiliation.findMany({
+      where: { customerId, endedAt: { not: null } },
+      orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }],
+      include: {
+        occupant: { select: { id: true, name: true, mobilePhone: true, whatsapp: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      occupantId: r.occupantId,
+      occupantName: r.occupant.name,
+      mobilePhone: r.occupant.mobilePhone,
+      whatsapp: r.occupant.whatsapp,
+      startedAt: r.startedAt.toISOString(),
+      endedAt: r.endedAt!.toISOString(),
+    }));
   }
 
   async remove(id: string) {

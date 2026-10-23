@@ -7,6 +7,7 @@
 import { ref } from 'vue'
 import { fetchBuilding } from '@/api/buildings'
 import { fetchCustomer } from '@/api/customers'
+import { fetchOccupant } from '@/api/occupants'
 import { fetchCustomerRequirement } from '@/api/customer-requirements'
 import { fetchRoom } from '@/api/rooms'
 import { fetchContract } from '@/api/contracts'
@@ -504,6 +505,18 @@ function onOpenOccupantFromCustomer(occupant: OccupantRecord) {
   relatedOccupantDrawer.value = true
 }
 
+async function openOccupantSide(occupantId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
+  if (!occupantId) return
+  try {
+    const { data } = await fetchOccupant(occupantId)
+    relatedOccupant.value = data
+    occupantDrawerDirection.value = direction
+    relatedOccupantDrawer.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
 function onOpenRequirementFromList(requirement: CustomerRequirementRecord) {
   void openRequirementSide(requirement.id)
 }
@@ -554,6 +567,7 @@ function onOpenServiceDetailFromList(row: InvoiceServiceDetailListRecord) {
 
 defineExpose({
   openCustomerSide,
+  openOccupantSide,
   openRoomSide,
   openBuildingSide,
   openRequirementSide,
@@ -584,6 +598,7 @@ defineExpose({
     @open-terminations="openTerminationsSideFromCustomer"
     @open-deposit-refunds="openDepositRefundsSideFromCustomer"
     @open-building="openBuildingSide"
+    @open-occupant="(id) => openOccupantSide(id, 'ltr')"
   />
   <RelatedOccupantsDrawer
     v-model="relatedOccupantsListDrawer"

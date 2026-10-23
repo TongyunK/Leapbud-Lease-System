@@ -89,7 +89,6 @@ watch(
     if (ok) {
       void navStore.loadNav()
       void buildingScope.load()
-      void userStore.loadPermissions()
     } else {
       navStore.clear()
       buildingScope.clear()
@@ -101,7 +100,6 @@ onMounted(() => {
   if (userStore.isLoggedIn) {
     void navStore.loadNav()
     void buildingScope.load()
-    void userStore.loadPermissions()
   }
 })
 
@@ -789,14 +787,6 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   cursor: default;
 }
 
-.utility-building--locked :deep(.el-select__wrapper) {
-  padding-right: 10px;
-}
-
-.utility-building--locked :deep(.el-select__suffix) {
-  display: none;
-}
-
 .utility-building :deep(.el-select__selected-item),
 .utility-building :deep(.el-select__placeholder) {
   color: #0f4a32;
@@ -807,6 +797,17 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .utility-building :deep(.el-select__caret),
 .utility-building__icon {
   color: #0f4a32;
+}
+
+/* 仅一栋大厦可访问时隐藏下拉箭头，避免误导可切换 */
+.utility-building--locked :deep(.el-select__suffix),
+.utility-building--locked :deep(.el-select__caret) {
+  display: none !important;
+}
+
+.utility-building--locked :deep(.el-select__wrapper) {
+  padding-right: 10px;
+  cursor: default;
 }
 
 .utility-building :deep(.el-select__selection) {

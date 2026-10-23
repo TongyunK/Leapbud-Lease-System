@@ -44,6 +44,23 @@ const STATUS_ALIASES: Record<string, string> = {
   canceled: '已取消',
 };
 
+const ALLOWED_RENTAL_TYPES = new Set(['long', 'short']);
+
+/** 兼容中英文需求类型文案 */
+const RENTAL_TYPE_ALIASES: Record<string, string> = {
+  long: 'long',
+  longterm: 'long',
+  'long-term': 'long',
+  'long term': 'long',
+  長租: 'long',
+  长租: 'long',
+  short: 'short',
+  shortterm: 'short',
+  'short-term': 'short',
+  'short term': 'short',
+  短租: 'short',
+};
+
 function s(v: string | null | undefined) {
   return (v ?? '').trim();
 }
@@ -74,6 +91,7 @@ export class CustomerRequirementsService {
     keyword?: string;
     status?: string;
     statuses?: string[];
+    rentalTypes?: string[];
     customerId?: string;
     customerNames?: string[];
     salesManagers?: string[];
@@ -116,6 +134,7 @@ export class CustomerRequirementsService {
     keyword?: string;
     status?: string;
     statuses?: string[];
+    rentalTypes?: string[];
     customerId?: string;
     customerNames?: string[];
     salesManagers?: string[];
@@ -141,6 +160,16 @@ export class CustomerRequirementsService {
     ];
     if (statuses.length === 1) where.status = statuses[0];
     else if (statuses.length > 1) where.status = { in: statuses };
+
+    const rentalTypes = [
+      ...new Set(
+        (params.rentalTypes || [])
+          .map((v) => this.tryNormalizeRentalType(v))
+          .filter((v): v is string => Boolean(v)),
+      ),
+    ];
+    if (rentalTypes.length === 1) where.rentalType = rentalTypes[0];
+    else if (rentalTypes.length > 1) where.rentalType = { in: rentalTypes };
 
     const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
     if (customerNames.length) {
@@ -209,6 +238,7 @@ export class CustomerRequirementsService {
     }
     if (key === 'requirementDate') return [{ requirementDate: dir }];
     if (key === 'status') return [{ status: dir }, { requirementDate: 'desc' }];
+    if (key === 'rentalType') return [{ rentalType: dir }, { requirementDate: 'desc' }];
     if (key === 'leaseDuration') return [{ leaseDuration: dir }];
     if (key === 'budget') return [{ budget: dir }];
     if (key === 'sizeConfigLabel') {
@@ -245,6 +275,18 @@ export class CustomerRequirementsService {
           select: { id: true },
         })),
     });
+  }
+
+  /** 预览下一个需求编号（不占用序号；保存时仍重新分配） */
+  async previewRequirementCode() {
+    const code = await this.numberingRules.previewCode(NumberingBizKey.customerRequirement, {
+      isTaken: async (c) =>
+        !!(await this.prisma.customerRequirement.findFirst({
+          where: { requirementCode: c },
+          select: { id: true },
+        })),
+    });
+    return { code };
   }
 
   private async assertCustomer(customerId: string) {
@@ -286,6 +328,30 @@ export class CustomerRequirementsService {
     }
   }
 
+  private normalizeRentalType(rentalType?: string) {
+    const raw = s(rentalType) || 'long';
+    const v =
+      RENTAL_TYPE_ALIASES[raw] ||
+      RENTAL_TYPE_ALIASES[raw.toLowerCase()] ||
+      raw.toLowerCase();
+    if (!ALLOWED_RENTAL_TYPES.has(v)) {
+      throw new BadRequestException(
+        `rentalType must be one of: ${[...ALLOWED_RENTAL_TYPES].join(' / ')}`,
+      );
+    }
+    return v;
+  }
+
+  private tryNormalizeRentalType(rentalType?: string): string | null {
+    const raw = s(rentalType);
+    if (!raw) return null;
+    try {
+      return this.normalizeRentalType(raw);
+    } catch {
+      return null;
+    }
+  }
+
   private tryParseDateOnly(v: string | null | undefined): Date | null | undefined {
     const raw = s(v);
     if (!raw) return null;
@@ -322,6 +388,7 @@ export class CustomerRequirementsService {
           salesManagerId,
           requirementDate: parseDateOnly(dto.requirementDate),
           status: this.normalizeStatus(dto.status),
+          rentalType: this.normalizeRentalType(dto.rentalType),
           leaseDuration: s(dto.leaseDuration),
           budget: dto.budget == null ? null : dto.budget,
           content: s(dto.content),
@@ -376,13 +443,14 @@ export class CustomerRequirementsService {
       const row = await this.prisma.customerRequirement.update({
         where: { id },
         data: {
-          requirementCode:
-            dto.requirementCode !== undefined ? s(dto.requirementCode) : undefined,
+          // 需求编号创建后不可修改
           customerId: dto.customerId !== undefined ? s(dto.customerId) : undefined,
           salesManagerId,
           requirementDate:
             dto.requirementDate !== undefined ? parseDateOnly(dto.requirementDate) : undefined,
           status: dto.status !== undefined ? this.normalizeStatus(dto.status) : undefined,
+          rentalType:
+            dto.rentalType !== undefined ? this.normalizeRentalType(dto.rentalType) : undefined,
           leaseDuration: dto.leaseDuration !== undefined ? s(dto.leaseDuration) : undefined,
           budget: dto.budget !== undefined ? dto.budget : undefined,
           content: dto.content !== undefined ? s(dto.content) : undefined,
@@ -406,15 +474,24 @@ export class CustomerRequirementsService {
     }
   }
 
-  async remove(id: string) {
+  /** 软取消：状态改为「已取消」，不物理删除 */
+  async remove(id: string, actor = '') {
     const existing = await this.prisma.customerRequirement.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Customer requirement ${id} not found`);
-    await this.prisma.customerRequirement.delete({ where: { id } });
+    if (existing.status !== '已取消') {
+      await this.prisma.customerRequirement.update({
+        where: { id },
+        data: {
+          status: '已取消',
+          ...(actor ? { updatedById: actor } : {}),
+        },
+      });
+    }
     return { success: true };
   }
 
-  async removeMany(ids: string[]) {
-    return runBatchRemove(ids, (id) => this.remove(id));
+  async removeMany(ids: string[], actor = '') {
+    return runBatchRemove(ids, (id) => this.remove(id, actor));
   }
 
   /** 批量导入：有需求编号则 upsert；按客户编号或客户名称关联；经理/配置按名称匹配 */
@@ -575,6 +652,21 @@ export class CustomerRequirementsService {
         continue;
       }
 
+      const rentalTypeRaw = s(item.rentalType);
+      const rentalType = rentalTypeRaw
+        ? this.tryNormalizeRentalType(rentalTypeRaw)
+        : 'long';
+      if (rentalType == null) {
+        skipped += 1;
+        pushImportIssue(
+          issues,
+          'skipped',
+          `需求類型「${rentalTypeRaw}」無效`,
+          keys,
+        );
+        continue;
+      }
+
       const requirementDate = this.tryParseDateOnly(item.requirementDate);
       if (requirementDate === undefined) {
         skipped += 1;
@@ -614,6 +706,7 @@ export class CustomerRequirementsService {
         salesManagerId,
         requirementDate,
         status,
+        rentalType,
         leaseDuration: s(item.leaseDuration),
         budget,
         content,

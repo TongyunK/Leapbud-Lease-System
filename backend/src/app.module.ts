@@ -28,6 +28,7 @@ import { ReceiptsModule } from './receipts/receipts.module';
 import { DocumentTemplatesModule } from './document-templates/document-templates.module';
 import { NumberingRulesModule } from './numbering-rules/numbering-rules.module';
 import { PermissionsModule } from './permissions/permissions.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { PermissionsModule } from './permissions/permissions.module';
     HealthModule,
     AuthModule,
     PermissionsModule,
+    UploadsModule,
     UsersModule,
     BuildingsModule,
     RoomsModule,

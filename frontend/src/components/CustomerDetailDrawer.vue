@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CustomerRecord } from '@/types/customer'
+import {
+  fetchCustomerPastOccupants,
+  type CustomerPastOccupant,
+} from '@/api/customers'
 import { useIsMobile } from '@/composables/useMediaQuery'
+import { formatDateTime } from '@/utils/format'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import AttachmentLink from '@/components/AttachmentLink.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import { customerStatusTone } from '@/constants/statusBadges'
@@ -32,6 +38,7 @@ const emit = defineEmits<{
   openTerminations: [customer: CustomerRecord]
   openDepositRefunds: [customer: CustomerRecord]
   openBuilding: [buildingId: string]
+  openOccupant: [occupantId: string]
 }>()
 
 const { t } = useI18n()
@@ -39,8 +46,33 @@ const isMobile = useIsMobile()
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '560px'))
+const pastListSize = computed(() => (isMobile.value ? '100%' : '420px'))
 
 const primary = computed(() => props.customer?.primaryOccupant ?? null)
+const pastOccupants = ref<CustomerPastOccupant[]>([])
+const pastLoading = ref(false)
+const pastListVisible = ref(false)
+
+watch(
+  () => [visible.value, props.customer?.id] as const,
+  async ([open, id]) => {
+    if (!open || !id) {
+      pastOccupants.value = []
+      pastListVisible.value = false
+      return
+    }
+    pastLoading.value = true
+    try {
+      const { data } = await fetchCustomerPastOccupants(id)
+      pastOccupants.value = data
+    } catch {
+      pastOccupants.value = []
+    } finally {
+      pastLoading.value = false
+    }
+  },
+  { immediate: true },
+)
 
 function statusLabel(status: string) {
   return t(`customer.status.${status}`, status)
@@ -48,6 +80,19 @@ function statusLabel(status: string) {
 
 function dash(v?: string | null) {
   return v?.trim() ? v : '—'
+}
+
+function periodLabel(startedAt: string, endedAt: string) {
+  return `${formatDateTime(startedAt)} → ${formatDateTime(endedAt)}`
+}
+
+function openPastList() {
+  if (!pastOccupants.value.length) return
+  pastListVisible.value = true
+}
+
+function openPastOccupant(occupantId: string) {
+  emit('openOccupant', occupantId)
 }
 
 function emitIfCount(
@@ -221,7 +266,7 @@ function emitIfCount(
           </div>
           <div class="full">
             <dt>{{ t('customer.fields.businessRegCopy') }}</dt>
-            <dd class="path-text">{{ dash(customer.businessRegCopy) }}</dd>
+            <dd><AttachmentLink :value="customer.businessRegCopy" /></dd>
           </div>
           <div class="full">
             <dt>{{ t('customer.fields.remark') }}</dt>
@@ -271,15 +316,29 @@ function emitIfCount(
           </div>
           <div class="full">
             <dt>{{ t('occupant.fields.idCardImage') }}</dt>
-            <dd class="path-text">{{ dash(primary?.idCardImage) }}</dd>
+            <dd><AttachmentLink :value="primary?.idCardImage" /></dd>
           </div>
           <div class="full">
             <dt>{{ t('occupant.fields.addressProofCopy') }}</dt>
-            <dd class="path-text">{{ dash(primary?.addressProofCopy) }}</dd>
+            <dd><AttachmentLink :value="primary?.addressProofCopy" /></dd>
           </div>
           <div class="full">
             <dt>{{ t('occupant.fields.remark') }}</dt>
             <dd>{{ dash(primary?.remark) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="detail-section">
+        <dl class="detail-grid two">
+          <div>
+            <dt>{{ t('customer.sections.pastOccupants') }}</dt>
+            <dd>
+              <CountListPill
+                :count="pastLoading ? 0 : pastOccupants.length"
+                @click="openPastList"
+              />
+            </dd>
           </div>
         </dl>
       </section>
@@ -292,12 +351,64 @@ function emitIfCount(
       />
     </template>
   </el-drawer>
+
+  <el-drawer
+    v-model="pastListVisible"
+    :size="pastListSize"
+    :title="t('customer.sections.pastOccupants')"
+    :direction="direction"
+    append-to-body
+    class="responsive-drawer"
+  >
+    <p v-if="!pastOccupants.length" class="past-hint">{{ t('customer.pastOccupantEmpty') }}</p>
+    <ul v-else class="past-list">
+      <li v-for="row in pastOccupants" :key="row.id">
+        <button type="button" class="fk-link" @click="openPastOccupant(row.occupantId)">
+          {{ row.occupantName }}
+        </button>
+        <span class="past-meta">{{ periodLabel(row.startedAt, row.endedAt) }}</span>
+      </li>
+    </ul>
+  </el-drawer>
 </template>
 
 <style scoped>
 .path-text {
   word-break: break-all;
   font-size: 0.82rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.past-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.past-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.past-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--lb-border, rgba(40, 70, 55, 0.1));
+}
+
+.past-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.past-meta {
+  font-size: 0.78rem;
   color: var(--lb-muted, #6a7a70);
 }
 </style>

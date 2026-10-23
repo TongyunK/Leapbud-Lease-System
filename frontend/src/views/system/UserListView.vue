@@ -517,6 +517,10 @@ async function onDelete(row: UserRecord) {
           </el-table-column>
           <el-table-column
             :min-width="colW(t('user.fields.status'), { interactive: true, contentMin: 110 })"
+            align="center"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #header>
               <TableColumnHeader

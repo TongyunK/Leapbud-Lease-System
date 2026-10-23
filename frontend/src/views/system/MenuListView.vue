@@ -5,23 +5,21 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Rank } from '@element-plus/icons-vue'
-import { createMenuApi, fetchMenus, reorderMenusApi, updateMenuApi } from '@/api/menus'
+import { fetchMenus, reorderMenusApi, updateMenuApi } from '@/api/menus'
 import { fetchRoleMenuMatrixApi, saveRoleMenuMatrixApi } from '@/api/roles'
 import type { MenuRecord, MenuType } from '@/types/menu'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useNavStore } from '@/stores/nav'
+import { menuDisplayName } from '@/utils/menuLabel'
 
 const { t, locale, te } = useI18n()
 const isMobile = useIsMobile()
 const navStore = useNavStore()
 const menuActionWidth = computed(() => {
   void locale.value
-  return Math.max(
-    measureActionColWidth([t('sysMenu.addChild'), t('common.edit')]),
-    measureActionColWidth([t('common.edit')]),
-  )
+  return measureActionColWidth([t('common.edit')])
 })
 
 const loading = ref(false)
@@ -45,6 +43,7 @@ const form = reactive({
   parentId: '' as string | '',
   type: 'menu' as MenuType,
   name: '',
+  nameEn: '',
   sortOrder: 0,
   active: true,
 })
@@ -52,7 +51,7 @@ const form = reactive({
 const parentOptions = computed(() =>
   flat.value
     .filter((m) => m.type === 'directory' && (!editing.value || m.id !== editing.value.id))
-    .map((m) => ({ value: m.id, label: m.name })),
+    .map((m) => ({ value: m.id, label: menuLabel(m) })),
 )
 
 const typeOptions = computed(() => [
@@ -61,9 +60,8 @@ const typeOptions = computed(() => [
 ])
 
 function menuLabel(node: MenuRecord) {
-  const key = node.nameKey?.trim()
-  if (key && te(key)) return t(key)
-  return node.name
+  void locale.value
+  return menuDisplayName(node, locale.value, t, te)
 }
 
 function parentKey(parentId: string | null | undefined) {
@@ -253,24 +251,13 @@ async function saveMatrix() {
   }
 }
 
-function openCreate(parentId?: string | null) {
-  editing.value = null
-  Object.assign(form, {
-    parentId: parentId || '',
-    type: parentId ? 'menu' : 'directory',
-    name: '',
-    sortOrder: (flat.value.at(-1)?.sortOrder ?? 0) + 1,
-    active: true,
-  })
-  formVisible.value = true
-}
-
 function openEdit(row: MenuRecord) {
   editing.value = row
   Object.assign(form, {
     parentId: row.parentId || '',
     type: row.type,
-    name: row.name,
+    name: row.name || '',
+    nameEn: row.nameEn || '',
     sortOrder: row.sortOrder,
     active: row.active,
   })
@@ -278,30 +265,27 @@ function openEdit(row: MenuRecord) {
 }
 
 async function saveForm() {
-  if (!form.name.trim()) {
+  if (!editing.value) return
+  const nameZh = form.name.trim()
+  const nameEn = form.nameEn.trim()
+  if (!nameZh) {
     ElMessage.warning(t('sysMenu.nameRequired'))
     return
   }
+  if (!nameEn) {
+    ElMessage.warning(t('sysMenu.nameEnRequired'))
+    return
+  }
   try {
-    if (editing.value) {
-      await updateMenuApi(editing.value.id, {
-        parentId: form.parentId || null,
-        type: form.type,
-        name: form.name.trim(),
-        sortOrder: form.sortOrder,
-        active: form.active,
-      })
-      ElMessage.success(t('sysMenu.updated'))
-    } else {
-      await createMenuApi({
-        parentId: form.parentId || null,
-        type: form.type,
-        name: form.name.trim(),
-        sortOrder: form.sortOrder,
-        active: form.active,
-      })
-      ElMessage.success(t('sysMenu.created'))
-    }
+    await updateMenuApi(editing.value.id, {
+      parentId: form.parentId || null,
+      type: form.type,
+      name: nameZh,
+      nameEn,
+      sortOrder: form.sortOrder,
+      active: form.active,
+    })
+    ElMessage.success(t('sysMenu.updated'))
     formVisible.value = false
     await loadMatrix()
     void navStore.loadNav()
@@ -403,6 +387,9 @@ async function toggleActive(row: MenuRecord) {
             width="100"
             align="center"
             fixed="right"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #default="{ row }">
               <el-switch :model-value="row.active" @change="() => toggleActive(row)" />
@@ -418,14 +405,12 @@ async function toggleActive(row: MenuRecord) {
             <template #default="{ row }">
               <div class="action-pills">
                 <button
-                  v-if="perms.create && row.type === 'directory'" v-admin-glow="perms.codes.create"
+                  v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
-                  class="action-pill action-pill--view"
-                  @click="openCreate(row.id)"
+                  class="action-pill action-pill--edit"
+                  @click="openEdit(row)"
                 >
-                  {{ t('sysMenu.addChild') }}
-                </button>
-                <button v-if="perms.update" v-admin-glow="perms.codes.update" type="button" class="action-pill action-pill--edit" @click="openEdit(row)">
                   {{ t('common.edit') }}
                 </button>
               </div>
@@ -437,7 +422,7 @@ async function toggleActive(row: MenuRecord) {
 
     <el-dialog
       v-model="formVisible"
-      :title="editing ? t('sysMenu.edit') : t('sysMenu.create')"
+      :title="t('sysMenu.edit')"
       :width="dialogWidth"
       destroy-on-close
     >
@@ -470,6 +455,9 @@ async function toggleActive(row: MenuRecord) {
         <el-form-item :label="t('sysMenu.fields.name')" required>
           <el-input v-model="form.name" />
         </el-form-item>
+        <el-form-item :label="t('sysMenu.fields.nameEn')" required>
+          <el-input v-model="form.nameEn" />
+        </el-form-item>
         <el-form-item :label="t('sysMenu.fields.sortOrder')">
           <el-input-number
             v-model="form.sortOrder"
@@ -481,7 +469,13 @@ async function toggleActive(row: MenuRecord) {
         <el-form-item :label="t('sysMenu.fields.active')">
           <el-switch v-model="form.active" />
         </el-form-item>
-        <AuditDetailSection v-if="editing" :record="editing" />
+        <AuditDetailSection
+          v-if="editing"
+          :created-by="editing.createdBy"
+          :created-at="editing.createdAt"
+          :updated-by="editing.updatedBy"
+          :updated-at="editing.updatedAt"
+        />
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
@@ -629,4 +623,5 @@ async function toggleActive(row: MenuRecord) {
   border-color: #0f4a32;
   box-shadow: 0 0 0 3px rgba(15, 74, 50, 0.14);
 }
+
 </style>

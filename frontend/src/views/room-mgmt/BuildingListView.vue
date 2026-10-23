@@ -694,6 +694,9 @@ async function saveForm() {
           <el-table-column
             :min-width="colW(t('building.fields.active'), { interactive: true, contentMin: 88 })"
             align="center"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #header>
               <TableColumnHeader

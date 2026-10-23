@@ -379,6 +379,10 @@ async function toggleActive(row: ContractConfigOption) {
           </el-table-column>
           <el-table-column
             :min-width="colW(t('contractConfig.fields.active'), { interactive: true, contentMin: 128 })"
+            align="center"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #header>
               <TableColumnHeader

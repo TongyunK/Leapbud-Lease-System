@@ -14,6 +14,8 @@ const props = withDefaults(
     ok: number
     fail: number
     resultTone: BatchResultTone
+    /** i18n 前缀，默认批量删除文案；可换成如 customerRequirement.batchCancelUi */
+    uiKey?: string
   }>(),
   {
     phase: 'idle',
@@ -23,6 +25,7 @@ const props = withDefaults(
     ok: 0,
     fail: 0,
     resultTone: 'success',
+    uiKey: 'common.batchDeleteUi',
   },
 )
 
@@ -32,19 +35,23 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+function ui(path: string, params?: Record<string, unknown>) {
+  return params ? t(`${props.uiKey}.${path}`, params) : t(`${props.uiKey}.${path}`)
+}
+
 const title = computed(() => {
-  if (props.phase === 'result') return t('common.batchDeleteUi.resultTitle')
-  return t('common.batchDeleteUi.progressTitle')
+  if (props.phase === 'result') return ui('resultTitle')
+  return ui('progressTitle')
 })
 
 const statusText = computed(() => {
   if (props.total > 0) {
-    return t('common.batchDeleteUi.processing', {
+    return ui('processing', {
       current: props.current,
       total: props.total,
     })
   }
-  return t('common.batchDeleteUi.processingUnknown')
+  return ui('processingUnknown')
 })
 
 const progressStatus = computed(() => {
@@ -63,9 +70,9 @@ const resultIconClass = computed(() => {
 })
 
 const resultLead = computed(() => {
-  if (props.resultTone === 'error') return t('common.batchDeleteUi.resultFailedLead')
-  if (props.resultTone === 'warning') return t('common.batchDeleteUi.resultPartialLead')
-  return t('common.batchDeleteUi.resultLead')
+  if (props.resultTone === 'error') return ui('resultFailedLead')
+  if (props.resultTone === 'warning') return ui('resultPartialLead')
+  return ui('resultLead')
 })
 
 function handleBeforeClose(done: () => void) {
@@ -102,11 +109,11 @@ function onClose() {
       <p class="batch-status">{{ statusText }}</p>
       <dl class="batch-stats">
         <div class="batch-stat">
-          <dt>{{ t('common.batchDeleteUi.stats.ok') }}</dt>
+          <dt>{{ ui('stats.ok') }}</dt>
           <dd>{{ ok }}</dd>
         </div>
         <div class="batch-stat">
-          <dt>{{ t('common.batchDeleteUi.stats.fail') }}</dt>
+          <dt>{{ ui('stats.fail') }}</dt>
           <dd>{{ fail }}</dd>
         </div>
       </dl>
@@ -119,11 +126,11 @@ function onClose() {
       </div>
       <dl class="batch-stats result-stats">
         <div class="batch-stat">
-          <dt>{{ t('common.batchDeleteUi.stats.ok') }}</dt>
+          <dt>{{ ui('stats.ok') }}</dt>
           <dd>{{ ok }}</dd>
         </div>
         <div class="batch-stat">
-          <dt>{{ t('common.batchDeleteUi.stats.fail') }}</dt>
+          <dt>{{ ui('stats.fail') }}</dt>
           <dd>{{ fail }}</dd>
         </div>
       </dl>
@@ -132,7 +139,7 @@ function onClose() {
     <template v-if="phase === 'result'" #footer>
       <div class="dialog-footer">
         <el-button type="primary" class="lb-btn-primary" @click="onClose">
-          {{ t('common.batchDeleteUi.close') }}
+          {{ ui('close') }}
         </el-button>
       </div>
     </template>

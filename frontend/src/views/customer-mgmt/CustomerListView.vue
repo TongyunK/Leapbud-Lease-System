@@ -11,6 +11,7 @@ import {
   fetchCustomer,
   fetchCustomers,
   importCustomersApi,
+  previewCustomerCodeApi,
   updateCustomerApi,
 } from '@/api/customers'
 import type { CustomerWritePayload, CustomerListQuery } from '@/api/customers'
@@ -25,6 +26,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import AttachmentField from '@/components/AttachmentField.vue'
 import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import RelatedOccupantsDrawer from '@/components/RelatedOccupantsDrawer.vue'
@@ -62,14 +64,12 @@ import {
 import { fetchBuildings } from '@/api/buildings'
 import { fetchUsers } from '@/api/users'
 import { fetchCustomerSources } from '@/api/customer-sources'
-import { fetchDocumentTemplates } from '@/api/document-templates'
-import { fetchOccupants, createOccupantApi } from '@/api/occupants'
+import { fetchOccupants, fetchOccupant, createOccupantApi } from '@/api/occupants'
 import { fetchRooms } from '@/api/rooms'
 import type { BuildingRecord } from '@/types/building'
 import type { UserRecord } from '@/types/user'
 import type { RoomRecord } from '@/types/room'
 import type { CustomerSourceOption } from '@/types/customer-source'
-import type { DocumentTemplateRecord } from '@/types/document-template'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
@@ -105,7 +105,6 @@ const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(nu
 const buildings = ref<BuildingRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sourceOptions = ref<CustomerSourceOption[]>([])
-const agreementTemplates = ref<DocumentTemplateRecord[]>([])
 const rooms = ref<RoomRecord[]>([])
 /** 表单内租用房间多选（存 roomCode，序列化进 rentedRooms） */
 const rentedRoomCodes = ref<string[]>([])
@@ -340,31 +339,6 @@ const sourceSelectOptions = computed(() => {
   return labels
 })
 
-/** 启用协议模板 + 当前客户已绑但未在列表中的项（停用后仍可回显） */
-const agreementTemplateSelectOptions = computed(() => {
-  const opts = [...agreementTemplates.value]
-  const currentId = form.agreementTemplateId.trim()
-  if (currentId && !opts.some((o) => o.id === currentId)) {
-    const name =
-      editing.value?.agreementTemplateName?.trim() ||
-      t('customer.fields.agreementTemplate')
-    opts.unshift({
-      id: currentId,
-      name,
-      type: 'agreement',
-      fileName: '',
-      storageKey: '',
-      enabled: false,
-      remark: '',
-      createdBy: '',
-      updatedBy: '',
-      createdAt: '',
-      updatedAt: '',
-    })
-  }
-  return opts
-})
-
 const occupantSelectOptions = ref<OccupantRecord[]>([])
 const occupantSelectLoading = ref(false)
 
@@ -431,19 +405,17 @@ watch(useExistingOccupant, (yes) => {
 })
 
 async function loadOptions() {
-  const [buildingsRes, usersRes, sourcesRes, roomsRes, templatesRes] = await Promise.all([
+  const [buildingsRes, usersRes, sourcesRes, roomsRes] = await Promise.all([
     fetchBuildings({ activeOnly: false }),
     fetchUsers(),
     fetchCustomerSources({ activeOnly: true }),
     fetchRooms(),
-    fetchDocumentTemplates({ type: 'agreement', enabledOnly: true }),
     loadNameContactFilterOptions(),
   ])
   buildings.value = buildingsRes.data.items
   users.value = usersRes.data
   sourceOptions.value = sourcesRes.data
   rooms.value = roomsRes.data.items
-  agreementTemplates.value = templatesRes.data
 }
 
 onMounted(() => {
@@ -511,9 +483,15 @@ function applyOccupantToForm(
   })
 }
 
-function openCreate() {
+async function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
+  const selectedBuildingId = buildingScope.selectedId
+  form.buildingId =
+    selectedBuildingId && buildings.value.some((b) => b.id === selectedBuildingId && b.active)
+      ? selectedBuildingId
+      : ''
+  form.accountManagerId = userStore.user?.id?.trim() || ''
   Object.assign(occupantForm, emptyOccupantForm())
   rentedRoomCodes.value = []
   useExistingOccupant.value = false
@@ -522,6 +500,14 @@ function openCreate() {
   primaryOccupantSelect.value = ''
   customerOccupants.value = []
   formVisible.value = true
+  try {
+    const { data } = await previewCustomerCodeApi()
+    if (formVisible.value && !editing.value) {
+      form.customerCode = data?.code?.trim() || ''
+    }
+  } catch {
+    /* 预览失败时保留占位提示 */
+  }
 }
 
 async function openEdit(row: CustomerRecord) {
@@ -598,7 +584,7 @@ function buildOccupantPayload() {
 function payloadFromForm(opts?: { includeOccupant?: boolean }) {
   const includeOccupant = opts?.includeOccupant !== false
   return {
-    customerCode: form.customerCode.trim(),
+    // 客户编号不可改：新建由后端自动编号，编辑不提交编号字段
     name: form.name.trim(),
     status: form.status.trim(),
     accountManagerId: form.accountManagerId.trim() || null,
@@ -627,12 +613,16 @@ function payloadFromForm(opts?: { includeOccupant?: boolean }) {
 }
 
 async function saveForm() {
-  if (!form.customerCode.trim()) {
-    ElMessage.warning(t('customer.codeRequired'))
-    return
-  }
   if (!form.name.trim()) {
     ElMessage.warning(t('customer.nameRequired'))
+    return
+  }
+  if (!form.accountManagerId.trim()) {
+    ElMessage.warning(t('customer.managerRequired'))
+    return
+  }
+  if (!form.buildingId.trim()) {
+    ElMessage.warning(t('customer.buildingRequired'))
     return
   }
   if (!editing.value && useExistingOccupant.value && !linkOccupantId.value) {
@@ -645,6 +635,14 @@ async function saveForm() {
   }
   if (!occupantForm.name.trim()) {
     ElMessage.warning(t('customer.occupantNameRequired'))
+    return
+  }
+  if (!occupantForm.whatsapp.trim()) {
+    ElMessage.warning(t('customer.occupantWhatsappRequired'))
+    return
+  }
+  if (!occupantForm.mobilePhone.trim()) {
+    ElMessage.warning(t('customer.occupantMobilePhoneRequired'))
     return
   }
   try {
@@ -785,6 +783,18 @@ function onOpenOccupantFromCustomer(occupant: OccupantRecord) {
   relatedOccupant.value = occupant
   occupantDrawerDirection.value = 'ltr'
   relatedOccupantDrawer.value = true
+}
+
+async function openOccupantSide(occupantId?: string | null) {
+  if (!occupantId) return
+  try {
+    const { data } = await fetchOccupant(occupantId)
+    relatedOccupant.value = data
+    occupantDrawerDirection.value = 'ltr'
+    relatedOccupantDrawer.value = true
+  } catch {
+    /* interceptor */
+  }
 }
 
 async function openCustomerFromOccupant(customerId: string) {
@@ -1461,6 +1471,7 @@ async function onImportFile(ev: Event) {
       @open-terminations="openTerminationsSide"
       @open-deposit-refunds="openDepositRefundsSide"
       @open-building="openBuildingSide"
+      @open-occupant="openOccupantSide"
     />
     <RelatedOccupantsDrawer
       v-model="relatedOccupantsListDrawer"
@@ -1546,8 +1557,12 @@ async function onImportFile(ev: Event) {
         <section class="form-section">
           <h3>{{ t('customer.sections.info') }}</h3>
           <div class="form-grid">
-            <el-form-item :label="t('customer.fields.customerCode')" required>
-              <el-input v-model="form.customerCode" />
+            <el-form-item :label="t('customer.fields.customerCode')">
+              <el-input
+                v-model="form.customerCode"
+                disabled
+                :placeholder="editing ? undefined : t('customer.codeAutoHint')"
+              />
             </el-form-item>
             <el-form-item :label="t('customer.fields.name')" required>
               <el-input v-model="form.name" />
@@ -1562,10 +1577,9 @@ async function onImportFile(ev: Event) {
                 />
               </el-select>
             </el-form-item>
-            <el-form-item :label="t('customer.fields.accountManager')">
+            <el-form-item :label="t('customer.fields.accountManager')" required>
               <el-select
                 v-model="form.accountManagerId"
-                clearable
                 filterable
                 style="width: 100%"
                 :placeholder="t('customer.fields.accountManager')"
@@ -1594,10 +1608,9 @@ async function onImportFile(ev: Event) {
                 />
               </el-select>
             </el-form-item>
-            <el-form-item :label="t('customer.fields.buildingName')">
+            <el-form-item :label="t('customer.fields.buildingName')" required>
               <el-select
                 v-model="form.buildingId"
-                clearable
                 filterable
                 style="width: 100%"
                 :placeholder="t('customer.fields.buildingName')"
@@ -1607,22 +1620,6 @@ async function onImportFile(ev: Event) {
                   :key="b.id"
                   :label="b.name"
                   :value="b.id"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('customer.fields.agreementTemplate')">
-              <el-select
-                v-model="form.agreementTemplateId"
-                clearable
-                filterable
-                style="width: 100%"
-                :placeholder="t('common.pleaseSelect')"
-              >
-                <el-option
-                  v-for="tpl in agreementTemplateSelectOptions"
-                  :key="tpl.id"
-                  :label="tpl.fileName ? `${tpl.name}（${tpl.fileName}）` : tpl.name"
-                  :value="tpl.id"
                 />
               </el-select>
             </el-form-item>
@@ -1645,7 +1642,7 @@ async function onImportFile(ev: Event) {
               <el-input v-model="form.businessNature" />
             </el-form-item>
             <el-form-item :label="t('customer.fields.businessRegCopy')" class="span-2">
-              <el-input v-model="form.businessRegCopy" readonly class="path-input" />
+              <AttachmentField v-model="form.businessRegCopy" />
             </el-form-item>
             <el-form-item :label="t('customer.fields.remark')" class="span-2">
               <el-input v-model="form.remark" type="textarea" :rows="2" />
@@ -1674,16 +1671,15 @@ async function onImportFile(ev: Event) {
 
         <section class="form-section">
           <h3>{{ t('customer.sections.occupant') }}</h3>
-          <p class="form-section-hint">{{ t('customer.occupantHint') }}</p>
           <div class="form-grid">
             <el-form-item
               v-if="!editing"
               :label="t('customer.useExistingOccupant')"
               class="span-2"
             >
-              <el-radio-group v-model="useExistingOccupant">
-                <el-radio :value="true">{{ t('common.yes') }}</el-radio>
-                <el-radio :value="false">{{ t('common.no') }}</el-radio>
+              <el-radio-group v-model="useExistingOccupant" class="lb-yesno-seg">
+                <el-radio-button :value="true">{{ t('common.yes') }}</el-radio-button>
+                <el-radio-button :value="false">{{ t('common.no') }}</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item
@@ -1751,10 +1747,10 @@ async function onImportFile(ev: Event) {
             <el-form-item :label="t('occupant.fields.name')" required>
               <el-input v-model="occupantForm.name" />
             </el-form-item>
-            <el-form-item :label="t('occupant.fields.mobilePhone')">
+            <el-form-item :label="t('occupant.fields.mobilePhone')" required>
               <el-input v-model="occupantForm.mobilePhone" />
             </el-form-item>
-            <el-form-item :label="t('occupant.fields.whatsapp')">
+            <el-form-item :label="t('occupant.fields.whatsapp')" required>
               <el-input v-model="occupantForm.whatsapp" />
             </el-form-item>
             <el-form-item :label="t('occupant.fields.contactPhone')">
@@ -1773,10 +1769,10 @@ async function onImportFile(ev: Event) {
               <el-input v-model="occupantForm.address" type="textarea" :rows="2" />
             </el-form-item>
             <el-form-item :label="t('occupant.fields.idCardImage')" class="span-2">
-              <el-input v-model="occupantForm.idCardImage" readonly class="path-input" />
+              <AttachmentField v-model="occupantForm.idCardImage" />
             </el-form-item>
             <el-form-item :label="t('occupant.fields.addressProofCopy')" class="span-2">
-              <el-input v-model="occupantForm.addressProofCopy" readonly class="path-input" />
+              <AttachmentField v-model="occupantForm.addressProofCopy" />
             </el-form-item>
             <el-form-item :label="t('occupant.fields.remark')" class="span-2">
               <el-input v-model="occupantForm.remark" type="textarea" :rows="2" />
@@ -1857,5 +1853,44 @@ async function onImportFile(ev: Event) {
   color: var(--lb-muted, #6a7a70);
   font-size: 0.86rem;
   line-height: 1.4;
+}
+
+.lb-yesno-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(15, 74, 50, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(15, 74, 50, 0.1);
+}
+
+.lb-yesno-seg :deep(.el-radio-button) {
+  --el-radio-button-checked-bg-color: var(--lb-brand, #0f4a32);
+  --el-radio-button-checked-border-color: var(--lb-brand, #0f4a32);
+  --el-radio-button-checked-text-color: #fff;
+}
+
+.lb-yesno-seg :deep(.el-radio-button__inner) {
+  min-width: 64px;
+  padding: 7px 18px;
+  border: none !important;
+  border-radius: 8px !important;
+  background: transparent;
+  color: var(--lb-muted, #6a7a70);
+  font-weight: 600;
+  box-shadow: none !important;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.lb-yesno-seg :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: var(--lb-brand, #0f4a32);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(15, 74, 50, 0.22) !important;
+}
+
+.lb-yesno-seg :deep(.el-radio-button__inner:hover) {
+  color: var(--lb-brand, #0f4a32);
 }
 </style>

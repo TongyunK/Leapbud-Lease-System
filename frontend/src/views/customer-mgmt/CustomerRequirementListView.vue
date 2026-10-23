@@ -11,16 +11,22 @@ import {
   fetchCustomerRequirement,
   fetchCustomerRequirements,
   importCustomerRequirementsApi,
+  previewRequirementCodeApi,
   updateCustomerRequirementApi,
 } from '@/api/customer-requirements'
 import type { CustomerRequirementImportItem, CustomerRequirementListQuery } from '@/api/customer-requirements'
 import { fetchCustomers } from '@/api/customers'
 import { fetchRoomConfigs } from '@/api/room-configs'
+import { fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
-import { CUSTOMER_REQUIREMENT_STATUSES } from '@/types/customer-requirement'
+import {
+  CUSTOMER_REQUIREMENT_RENTAL_TYPES,
+  CUSTOMER_REQUIREMENT_STATUSES,
+} from '@/types/customer-requirement'
 import type { CustomerRecord } from '@/types/customer'
 import type { RoomConfigOption } from '@/types/room-config'
+import type { RoomRecord } from '@/types/room'
 import type { UserRecord } from '@/types/user'
 import type { BuildingRecord } from '@/types/building'
 import { fetchBuildings } from '@/api/buildings'
@@ -32,21 +38,33 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import AttachmentField from '@/components/AttachmentField.vue'
 import CustomerRequirementDetailDrawer from '@/components/CustomerRequirementDetailDrawer.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import {
+  customerRequirementRentalTypeTone,
+  customerRequirementStatusTone,
+  customerStatusTone,
+  roomStatusTone,
+} from '@/constants/statusBadges'
 import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import type { ContractRecord } from '@/types/contract'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { customerRequirementStatusTone } from '@/constants/statusBadges'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
-import { formatDateTime, formatMoney } from '@/utils/format'
+import { formatDateTime, formatMoney, formatNumber2 } from '@/utils/format'
+import {
+  displayLeaseDuration,
+  formatLeaseDuration,
+  parseLeaseDuration,
+  type LeaseDurationUnit,
+} from '@/utils/leaseDuration'
 import {
   customerRequirementIoTemplateExampleRow,
   customerRequirementToIoRow,
@@ -57,11 +75,15 @@ import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
 const perms = useResourcePermissions('customerRequirements')
-const { actionColWidth } = useActionColWidth()
+/** 跟進 + 取消，按当前语言文案测宽（英文 Follow up 比「编辑」宽） */
+const requirementActionColWidth = computed(() => {
+  void locale.value
+  return measureActionColWidth([t('customerRequirement.followUp'), t('common.cancel')])
+})
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const formVisible = ref(false)
@@ -118,6 +140,7 @@ const {
   buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => ({
     keyword: kw,
     statuses: f.status?.length ? [...f.status] : undefined,
+    rentalTypes: f.rentalType?.length ? [...f.rentalType] : undefined,
     customerNames: f.customerName?.length ? [...f.customerName] : undefined,
     salesManagers: f.salesManager?.length ? [...f.salesManager] : undefined,
     sizeConfigLabels: f.sizeConfigLabel?.length ? [...f.sizeConfigLabel] : undefined,
@@ -169,12 +192,12 @@ async function onSelectAll() {
   }
 }
 
-async function onBatchDelete() {
+async function onBatchCancel() {
   if (!perms.batchDelete.value || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
-      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
-      t('common.deleteTitle'),
+      t('customerRequirement.batchCancelConfirm', { n: selectedIds.value.length }),
+      t('customerRequirement.batchCancel'),
       { type: 'warning' },
     )
   } catch {
@@ -184,7 +207,11 @@ async function onBatchDelete() {
   batchDeleting.value = true
   beginBatch(ids.length)
   try {
-    const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteCustomerRequirementsApi(chunk), setBatchProgress)
+    const { ok, fail } = await runServerBatchDelete(
+      ids,
+      (chunk) => batchDeleteCustomerRequirementsApi(chunk),
+      setBatchProgress,
+    )
     finishBatch(ok, fail)
     clearSelection()
     await loadList()
@@ -199,6 +226,12 @@ const statusFilterOptions = computed(() =>
   CUSTOMER_REQUIREMENT_STATUSES.map((s) => ({
     value: s,
     label: t(`customerRequirement.status.${s}`),
+  })),
+)
+const rentalTypeFilterOptions = computed(() =>
+  CUSTOMER_REQUIREMENT_RENTAL_TYPES.map((s) => ({
+    value: s,
+    label: t(`customerRequirement.rentalType.${s}`),
   })),
 )
 
@@ -242,7 +275,26 @@ const windowConfigFilterOptions = computed(() =>
     .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant')),
 )
 
-const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '860px'))
+
+const matchedRooms = ref<RoomRecord[]>([])
+const matchedRoomsLoading = ref(false)
+/** 匹配房间单选（快捷新增合约一般只选一间） */
+const matchedSelectedRoomId = ref('')
+const matchedSelectedRoom = computed(
+  () => matchedRooms.value.find((r) => r.id === matchedSelectedRoomId.value) ?? null,
+)
+const matchedRoomTableKey = computed(
+  () => `matched-${tableLayoutKey.value}-${form.leaseDurationUnit}`,
+)
+
+/** 匹配房间快捷新增合约：后续实现 */
+function onMatchedRoomsCreateContract() {
+  /* placeholder — 使用 matchedSelectedRoom */
+  void matchedSelectedRoom.value
+}
+let matchedRoomsTimer: ReturnType<typeof setTimeout> | null = null
+let matchedRoomsReqSeq = 0
 
 function todayIso() {
   const d = new Date()
@@ -256,7 +308,9 @@ const form = reactive({
   salesManagerId: '' as string,
   requirementDate: todayIso(),
   status: '跟進中',
-  leaseDuration: '',
+  rentalType: 'long' as (typeof CUSTOMER_REQUIREMENT_RENTAL_TYPES)[number],
+  leaseDurationAmount: null as number | null,
+  leaseDurationUnit: 'month' as LeaseDurationUnit,
   budget: null as number | null,
   content: '',
   remark: '',
@@ -265,6 +319,40 @@ const form = reactive({
   acConfigId: '' as string,
   windowConfigId: '' as string,
 })
+
+/** 年/月 → 月租；日 → 日租；時 → 時租 */
+const matchedRentLabel = computed(() => {
+  const u = form.leaseDurationUnit
+  if (u === 'day') return t('room.fields.dailyRent')
+  if (u === 'hour') return t('room.fields.hourlyRent')
+  return t('room.fields.monthlyRent')
+})
+
+/** 預算單位：年/月按月，日按日，時按時 */
+const budgetUnitLabel = computed(() => {
+  const u = form.leaseDurationUnit
+  if (u === 'day') return t('customerRequirement.budgetUnit.day')
+  if (u === 'hour') return t('customerRequirement.budgetUnit.hour')
+  return t('customerRequirement.budgetUnit.month')
+})
+
+function roomRentAmount(row: {
+  monthlyRent?: number
+  dailyRent?: number
+  hourlyRent?: number
+}) {
+  const u = form.leaseDurationUnit
+  if (u === 'day') return Number(row.dailyRent) || 0
+  if (u === 'hour') return Number(row.hourlyRent) || 0
+  return Number(row.monthlyRent) || 0
+}
+
+function matchedRoomsSortBy(): string {
+  const u = form.leaseDurationUnit
+  if (u === 'day') return 'dailyRent'
+  if (u === 'hour') return 'hourlyRent'
+  return 'monthlyRent'
+}
 
 async function loadOptions() {
   const [custRes, userRes, confRes, buildingsRes] = await Promise.all([
@@ -282,21 +370,140 @@ async function loadOptions() {
   windowOptions.value = configs.filter((c) => c.type === 'window')
 }
 
+/** 下拉选项：保证当前登录用户始终可选（避免默认值因不在列表中被清空） */
+const salesManagerOptions = computed(() => {
+  const list = [...users.value]
+  const me = userStore.user
+  const myId = me?.id?.trim()
+  if (myId && !list.some((u) => u.id === myId)) {
+    list.unshift({
+      id: myId,
+      account: me?.account || myId,
+      displayName: me?.displayName || me?.account || myId,
+      role: me?.role || '',
+      roleName: me?.roleName,
+      roles: me?.roles,
+      status: 'active',
+      phone: '',
+      email: '',
+      createdBy: '',
+      createdAt: '',
+      updatedBy: '',
+      updatedAt: '',
+    })
+  }
+  return list
+})
+
+function currentUserId() {
+  return userStore.user?.id?.trim() || ''
+}
+
 onMounted(() => {
   void loadList()
   void loadOptions()
 })
 
-function openCreate() {
+const selectedCustomer = computed(() =>
+  customers.value.find((c) => c.id === form.customerId.trim()) ?? null,
+)
+
+function customerStatusLabel(status?: string | null) {
+  if (!status?.trim()) return '—'
+  const key = `customer.status.${status}`
+  return t(key) === key ? status : t(key)
+}
+
+async function loadMatchedRooms() {
+  if (!formVisible.value) {
+    matchedRooms.value = []
+    return
+  }
+  const seq = ++matchedRoomsReqSeq
+  matchedRoomsLoading.value = true
+  try {
+    const acLabel = acOptions.value.find((o) => o.id === form.acConfigId)?.label?.trim()
+    const windowLabel = windowOptions.value.find((o) => o.id === form.windowConfigId)?.label?.trim()
+    const buildingId = selectedCustomer.value?.buildingId?.trim() || undefined
+    const { data } = await fetchRooms({
+      status: 'idle',
+      buildingId,
+      sizeRangeIds: form.sizeConfigId.trim() ? [form.sizeConfigId.trim()] : undefined,
+      acConfigs: acLabel ? [acLabel] : undefined,
+      windowConfigs: windowLabel ? [windowLabel] : undefined,
+      sortBy: matchedRoomsSortBy(),
+      sortDir: 'asc',
+      page: 1,
+      pageSize: 100,
+    })
+    if (seq !== matchedRoomsReqSeq) return
+    let items = data.items || []
+    const budget = form.budget
+    if (budget != null && Number(budget) > 0) {
+      items = items.filter((r) => roomRentAmount(r) <= Number(budget))
+    }
+    matchedRooms.value = items
+  } catch {
+    if (seq === matchedRoomsReqSeq) matchedRooms.value = []
+  } finally {
+    if (seq === matchedRoomsReqSeq) matchedRoomsLoading.value = false
+  }
+}
+
+function scheduleLoadMatchedRooms() {
+  if (matchedRoomsTimer) clearTimeout(matchedRoomsTimer)
+  matchedRoomsTimer = setTimeout(() => {
+    void loadMatchedRooms()
+  }, 280)
+}
+
+watch(
+  () =>
+    [
+      formVisible.value,
+      form.customerId,
+      form.sizeConfigId,
+      form.acConfigId,
+      form.windowConfigId,
+      form.budget,
+      form.leaseDurationUnit,
+      selectedCustomer.value?.buildingId,
+    ] as const,
+  ([open]) => {
+    if (!open) {
+      matchedRooms.value = []
+      matchedSelectedRoomId.value = ''
+      matchedRoomsLoading.value = false
+      return
+    }
+    scheduleLoadMatchedRooms()
+  },
+)
+
+watch(matchedRooms, () => {
+  matchedSelectedRoomId.value = ''
+})
+
+async function openCreate() {
   if (!perms.create.value) return
   editing.value = null
+  if (!users.value.length) {
+    try {
+      await loadOptions()
+    } catch {
+      /* ignore */
+    }
+  }
+  const myId = currentUserId()
   Object.assign(form, {
     requirementCode: '',
     customerId: '',
-    salesManagerId: '',
+    salesManagerId: myId,
     requirementDate: todayIso(),
     status: '跟進中',
-    leaseDuration: '',
+    rentalType: 'long',
+    leaseDurationAmount: null,
+    leaseDurationUnit: 'month' as LeaseDurationUnit,
     budget: null,
     content: '',
     remark: '',
@@ -306,18 +513,34 @@ function openCreate() {
     windowConfigId: '',
   })
   formVisible.value = true
+  // destroy-on-close 重挂载后，若选项尚未就绪可能冲掉默认值，再写一次
+  if (myId) form.salesManagerId = myId
+  try {
+    const { data } = await previewRequirementCodeApi()
+    if (formVisible.value && !editing.value) {
+      form.requirementCode = data?.code?.trim() || ''
+      if (myId && !form.salesManagerId) form.salesManagerId = myId
+    }
+  } catch {
+    /* 预览失败时保留占位提示 */
+  }
 }
 
 function openEdit(row: CustomerRequirementRecord) {
   if (!perms.update.value) return
   editing.value = row
+  const lease = parseLeaseDuration(row.leaseDuration)
+  const rentalType =
+    row.rentalType === 'short' ? 'short' : ('long' as (typeof CUSTOMER_REQUIREMENT_RENTAL_TYPES)[number])
   Object.assign(form, {
     requirementCode: row.requirementCode,
     customerId: row.customerId,
     salesManagerId: row.salesManagerId || '',
     requirementDate: row.requirementDate || todayIso(),
     status: row.status || '跟進中',
-    leaseDuration: row.leaseDuration || '',
+    rentalType,
+    leaseDurationAmount: lease.amount,
+    leaseDurationUnit: lease.unit,
     budget: row.budget,
     content: row.content || '',
     remark: row.remark || '',
@@ -331,12 +554,13 @@ function openEdit(row: CustomerRequirementRecord) {
 
 function payloadFromForm() {
   return {
-    requirementCode: form.requirementCode.trim() || undefined,
+    // 需求编号不可改：新建由后端自动编号，编辑不提交编号字段
     customerId: form.customerId.trim(),
     salesManagerId: form.salesManagerId.trim() || null,
     requirementDate: form.requirementDate || null,
     status: form.status,
-    leaseDuration: form.leaseDuration.trim(),
+    rentalType: form.rentalType,
+    leaseDuration: formatLeaseDuration(form.leaseDurationAmount, form.leaseDurationUnit),
     budget: form.budget,
     content: form.content.trim(),
     remark: form.remark.trim(),
@@ -369,25 +593,34 @@ async function saveForm() {
   }
 }
 
-async function onDelete(row: CustomerRequirementRecord) {
+async function onCancel(row: CustomerRequirementRecord) {
   if (!perms.delete.value) return
+  if (row.status === '已取消') {
+    ElMessage.info(t('customerRequirement.alreadyCancelled'))
+    return
+  }
   try {
     await ElMessageBox.confirm(
-      t('customerRequirement.deleteConfirm', { code: row.requirementCode }),
-      t('common.deleteTitle'),
+      t('customerRequirement.cancelConfirm', { code: row.requirementCode }),
+      t('common.cancel'),
       { type: 'warning' },
     )
     await deleteCustomerRequirementApi(row.id)
-    ElMessage.success(t('customerRequirement.deleted'))
+    ElMessage.success(t('customerRequirement.cancelled'))
     await loadList()
   } catch {
-    /* cancel */
+    /* dismiss */
   }
 }
 
 function statusLabel(status: string) {
   const key = `customerRequirement.status.${status}`
   return t(key) === key ? status : t(key)
+}
+
+function rentalTypeLabel(rentalType: string) {
+  const key = `customerRequirement.rentalType.${rentalType}`
+  return t(key) === key ? rentalType : t(key)
 }
 
 function userLabel(u: UserRecord) {
@@ -546,6 +779,7 @@ async function onImportFile(ev: Event) {
         salesManager: parsed.salesManager || undefined,
         requirementDate: parsed.requirementDate || null,
         status: parsed.status,
+        rentalType: parsed.rentalType || undefined,
         leaseDuration: parsed.leaseDuration,
         budget: parsed.budget,
         content: parsed.content,
@@ -798,6 +1032,33 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            :min-width="
+              statusColW(
+                t('customerRequirement.fields.rentalType'),
+                rentalTypeFilterOptions.map((o) => o.label),
+              )
+            "
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('customerRequirement.fields.rentalType')"
+                filterable
+                sortable
+                :options="rentalTypeFilterOptions"
+                :model-value="filters.rentalType || []"
+                :sort-order="sortOrderOf('rentalType')"
+                @update:model-value="(v) => setFilter('rentalType', v)"
+                @update:sort-order="(v) => setSort('rentalType', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="customerRequirementRentalTypeTone(row.rentalType)"
+                :label="rentalTypeLabel(row.rentalType || 'long')"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="colW(t('customerRequirement.fields.leaseDuration'), { interactive: true, contentMin: 100 })"
           >
             <template #header>
@@ -808,7 +1069,9 @@ async function onImportFile(ev: Event) {
                 @update:sort-order="(v) => setSort('leaseDuration', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.leaseDuration || '—' }}</template>
+            <template #default="{ row }">
+              {{ displayLeaseDuration(row.leaseDuration, t) || '—' }}
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('customerRequirement.fields.budget'), { interactive: true, contentMin: 100 })"
@@ -929,7 +1192,7 @@ async function onImportFile(ev: Event) {
           <el-table-column
             v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="requirementActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -937,18 +1200,20 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button
+                  v-if="perms.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click="openEdit(row as CustomerRequirementRecord)"
                 >
-                  {{ t('common.edit') }}
+                  {{ t('customerRequirement.followUp') }}
                 </button>
                 <button
+                  v-if="perms.delete && (row as CustomerRequirementRecord).status !== '已取消'"
                   type="button"
                   class="action-pill action-pill--danger"
-                  @click="onDelete(row as CustomerRequirementRecord)"
+                  @click="onCancel(row as CustomerRequirementRecord)"
                 >
-                  {{ t('common.delete') }}
+                  {{ t('common.cancel') }}
                 </button>
               </div>
             </template>
@@ -973,9 +1238,9 @@ async function onImportFile(ev: Event) {
               type="button"
               class="lb-pager__batch-btn"
               :disabled="batchDeleting || selectAllLoading"
-              @click="onBatchDelete"
+              @click="onBatchCancel"
             >
-              {{ t('common.batchDelete') }}
+              {{ t('customerRequirement.batchCancel') }}
             </button>
           </template>
         </TablePagination>
@@ -1027,9 +1292,25 @@ async function onImportFile(ev: Event) {
           <el-form-item :label="t('customerRequirement.fields.requirementCode')">
             <el-input
               v-model="form.requirementCode"
-              :placeholder="t('customerRequirement.codeAutoHint')"
-              :disabled="!!editing"
+              disabled
+              :placeholder="editing ? undefined : t('customerRequirement.codeAutoHint')"
             />
+          </el-form-item>
+          <el-form-item :label="t('customerRequirement.fields.salesManager')">
+            <el-select
+              v-model="form.salesManagerId"
+              filterable
+              clearable
+              style="width: 100%"
+              :placeholder="t('customerRequirement.fields.salesManager')"
+            >
+              <el-option
+                v-for="u in salesManagerOptions"
+                :key="u.id"
+                :label="userLabel(u)"
+                :value="u.id"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.customerName')" required>
             <el-select
@@ -1052,21 +1333,15 @@ async function onImportFile(ev: Event) {
               </el-option>
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('customerRequirement.fields.salesManager')">
-            <el-select
-              v-model="form.salesManagerId"
-              filterable
-              clearable
-              style="width: 100%"
-              :placeholder="t('customerRequirement.fields.salesManager')"
-            >
-              <el-option
-                v-for="u in users"
-                :key="u.id"
-                :label="userLabel(u)"
-                :value="u.id"
+          <el-form-item :label="t('customerRequirement.fields.customerStatus')">
+            <div class="customer-status-ro">
+              <StatusBadge
+                v-if="selectedCustomer?.status"
+                :tone="customerStatusTone(selectedCustomer.status)"
+                :label="customerStatusLabel(selectedCustomer.status)"
               />
-            </el-select>
+              <span v-else class="customer-status-empty">—</span>
+            </div>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.requirementDate')">
             <el-date-picker
@@ -1076,28 +1351,71 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('customerRequirement.fields.status')">
-            <el-select v-model="form.status" style="width: 100%">
-              <el-option
-                v-for="s in CUSTOMER_REQUIREMENT_STATUSES"
-                :key="s"
-                :label="t(`customerRequirement.status.${s}`)"
-                :value="s"
-              />
-            </el-select>
-          </el-form-item>
+          <div class="status-rental-pair">
+            <el-form-item :label="t('customerRequirement.fields.status')">
+              <el-select v-model="form.status" style="width: 100%">
+                <el-option
+                  v-for="s in CUSTOMER_REQUIREMENT_STATUSES"
+                  :key="s"
+                  :label="t(`customerRequirement.status.${s}`)"
+                  :value="s"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('customerRequirement.fields.rentalType')" required>
+              <el-select v-model="form.rentalType" style="width: 100%">
+                <el-option
+                  v-for="rt in CUSTOMER_REQUIREMENT_RENTAL_TYPES"
+                  :key="rt"
+                  :label="t(`customerRequirement.rentalType.${rt}`)"
+                  :value="rt"
+                />
+              </el-select>
+            </el-form-item>
+          </div>
           <el-form-item :label="t('customerRequirement.fields.leaseDuration')">
-            <el-input v-model="form.leaseDuration" />
+            <div class="lease-duration-row">
+              <el-input-number
+                v-model="form.leaseDurationAmount"
+                :min="1"
+                :precision="0"
+                controls-position="right"
+                class="lease-duration-row__amount"
+              />
+              <el-select v-model="form.leaseDurationUnit" class="lease-duration-row__unit">
+                <el-option
+                  value="year"
+                  :label="t('customerRequirement.leaseUnit.year')"
+                />
+                <el-option
+                  value="month"
+                  :label="t('customerRequirement.leaseUnit.month')"
+                />
+                <el-option
+                  value="day"
+                  :label="t('customerRequirement.leaseUnit.day')"
+                />
+                <el-option
+                  value="hour"
+                  :label="t('customerRequirement.leaseUnit.hour')"
+                />
+              </el-select>
+            </div>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.budget')">
-            <el-input-number
-              v-model="form.budget"
-              :min="0"
-              :precision="2"
-              controls-position="right"
-              style="width: 100%"
-            />
+            <div class="budget-row">
+              <el-input-number
+                v-model="form.budget"
+                :min="0"
+                :precision="2"
+                controls-position="right"
+                class="budget-row__amount"
+              />
+              <span class="budget-row__unit">{{ budgetUnitLabel }}</span>
+            </div>
           </el-form-item>
+        </div>
+        <div class="form-grid form-grid--3">
           <el-form-item :label="t('customerRequirement.fields.sizeConfig')">
             <el-select v-model="form.sizeConfigId" clearable filterable style="width: 100%">
               <el-option
@@ -1125,14 +1443,130 @@ async function onImportFile(ev: Event) {
           </el-form-item>
         </div>
         <el-form-item :label="t('customerRequirement.fields.content')">
-          <el-input v-model="form.content" type="textarea" :rows="3" />
+          <el-input v-model="form.content" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item :label="t('customerRequirement.fields.remark')">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item :label="t('customerRequirement.fields.attachment')">
-          <el-input v-model="form.attachment" placeholder="/upload/..." />
+          <AttachmentField v-model="form.attachment" />
         </el-form-item>
+
+        <section class="matched-rooms">
+          <div class="matched-rooms__head">
+            <h3>{{ t('customerRequirement.sections.matchedRooms') }}</h3>
+            <div class="matched-rooms__head-actions">
+              <el-button
+                type="primary"
+                :icon="Plus"
+                class="lb-btn-primary"
+                size="small"
+                :disabled="!matchedSelectedRoom"
+                @click="onMatchedRoomsCreateContract"
+              >
+                {{ t('contract.create') }}
+              </el-button>
+              <span class="matched-rooms__count">
+                {{ t('customerRequirement.matchedRoomsCount', { n: matchedRooms.length }) }}
+              </span>
+            </div>
+          </div>
+          <div v-loading="matchedRoomsLoading" class="matched-rooms__body">
+            <p v-if="!matchedRoomsLoading && !matchedRooms.length" class="matched-rooms__empty">
+              {{ t('customerRequirement.matchedRoomsEmpty') }}
+            </p>
+            <el-table
+              v-else
+              :key="matchedRoomTableKey"
+              class="matched-rooms__table"
+              :data="matchedRooms"
+              row-key="id"
+              stripe
+              border
+              height="292"
+              style="width: 100%"
+            >
+              <el-table-column width="42" align="center" header-align="center">
+                <template #default="{ row }">
+                  <el-radio
+                    v-model="matchedSelectedRoomId"
+                    :value="row.id"
+                    class="matched-room-radio"
+                    @click.stop
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column
+                type="index"
+                label="#"
+                width="52"
+                align="center"
+                header-align="center"
+              />
+              <el-table-column
+                prop="name"
+                :label="t('room.fields.name')"
+                :min-width="colW(t('room.fields.name'), { contentMin: 120 })"
+              >
+                <template #default="{ row }">
+                  <button
+                    type="button"
+                    class="fk-link"
+                    @click.stop="relationDrawers?.openRoomSide(row.id, 'ltr')"
+                  >
+                    {{ row.name || '—' }}
+                  </button>
+                </template>
+              </el-table-column>
+              <el-table-column
+                prop="buildingName"
+                :label="t('room.fields.building')"
+                :min-width="colW(t('room.fields.building'), { contentMin: 140 })"
+                show-overflow-tooltip
+              />
+              <el-table-column
+                :label="t('room.fields.status')"
+                :min-width="colW(t('room.fields.status'), { contentMin: 92 })"
+              >
+                <template #default="{ row }">
+                  <StatusBadge
+                    :tone="roomStatusTone(row.status)"
+                    :label="t(`room.status.${row.status}`)"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="matchedRentLabel"
+                :min-width="colW(matchedRentLabel, { contentMin: 100 })"
+                align="right"
+              >
+                <template #default="{ row }">{{ formatMoney(roomRentAmount(row)) }}</template>
+              </el-table-column>
+              <el-table-column
+                :label="t('room.fields.sizeSqft')"
+                :min-width="colW(t('room.fields.sizeSqft'), { contentMin: 88 })"
+                align="right"
+              >
+                <template #default="{ row }">{{ formatNumber2(row.sizeSqft) }}</template>
+              </el-table-column>
+              <el-table-column
+                :label="t('room.fields.acConfig')"
+                :min-width="colW(t('room.fields.acConfig'), { contentMin: 96 })"
+                show-overflow-tooltip
+              >
+                <template #default="{ row }">{{ row.acConfig || '—' }}</template>
+              </el-table-column>
+              <el-table-column
+                :label="t('room.fields.windowConfig')"
+                :min-width="colW(t('room.fields.windowConfig'), { contentMin: 72 })"
+                show-overflow-tooltip
+              >
+                <template #default="{ row }">{{ row.windowConfig || '—' }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
         <AuditDetailSection
           v-if="editing"
           :created-by="editing.createdBy"
@@ -1153,6 +1587,7 @@ async function onImportFile(ev: Event) {
 
     <BatchProgressDialog
       v-model="batchState.visible"
+      ui-key="customerRequirement.batchCancelUi"
       :phase="batchState.phase"
       :total="batchState.total"
       :current="batchState.current"
@@ -1180,6 +1615,145 @@ async function onImportFile(ev: Event) {
   gap: 0 16px;
 }
 
+.form-grid--3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.customer-status-ro {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.customer-status-empty {
+  color: var(--lb-muted, #6a7a70);
+}
+
+.lease-duration-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+}
+
+.lease-duration-row__amount {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.lease-duration-row__amount :deep(.el-input__wrapper) {
+  width: 100%;
+}
+
+.lease-duration-row__unit {
+  flex: 0 0 88px;
+  width: 88px;
+}
+
+.budget-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+}
+
+.budget-row__amount {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.budget-row__amount :deep(.el-input__wrapper) {
+  width: 100%;
+}
+
+.budget-row__unit {
+  flex: 0 0 auto;
+  min-width: 3.2em;
+  color: var(--lb-muted, #6a7a70);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+/* 狀態 + 需求類型：同一行（右侧半栏内再分两列，样式同房间类型下拉） */
+.status-rental-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .status-rental-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+.matched-rooms {
+  margin-top: 8px;
+  margin-bottom: 16px;
+  padding-top: 12px;
+  padding-bottom: 4px;
+  border-top: 1px solid var(--lb-border, #d7ded9);
+}
+
+.matched-rooms__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.matched-rooms__head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--lb-brand, #0f4a32);
+}
+
+.matched-rooms__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.matched-rooms__count {
+  font-size: 0.82rem;
+  color: var(--lb-muted, #6a7a70);
+  white-space: nowrap;
+}
+
+.matched-rooms__body {
+  min-height: 120px;
+}
+
+.matched-rooms__empty {
+  margin: 0;
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 0.86rem;
+  color: var(--lb-muted, #6a7a70);
+  background: rgba(15, 74, 50, 0.03);
+  border: 1px dashed var(--lb-border, #d7ded9);
+  border-radius: 10px;
+}
+
+.matched-rooms__table {
+  width: 100%;
+}
+
+.matched-room-radio {
+  height: auto;
+  margin-right: 0;
+}
+
+.matched-room-radio :deep(.el-radio__label) {
+  display: none;
+}
+
 .room-io-file {
   display: none;
 }
@@ -1192,7 +1766,8 @@ async function onImportFile(ev: Event) {
 }
 
 @media (max-width: 640px) {
-  .form-grid {
+  .form-grid,
+  .form-grid--3 {
     grid-template-columns: 1fr;
   }
 }

@@ -8,6 +8,7 @@ export const CUSTOMER_REQUIREMENT_IO_FIELD_KEYS = [
   'salesManager',
   'requirementDate',
   'status',
+  'rentalType',
   'leaseDuration',
   'budget',
   'content',
@@ -61,6 +62,7 @@ const HEADER_ALIASES: Record<CustomerRequirementIoFieldKey, string[]> = {
   ],
   requirementDate: ['創建日期', '创建日期', 'Created Date'],
   status: ['狀態', '状态', 'Status'],
+  rentalType: ['需求類型', '需求类型', '長租/短租', '长租/短租', 'Requirement Type', 'Rental Type'],
   leaseDuration: ['租賃時長', '租赁时长', 'Lease Duration'],
   budget: ['預算', '预算', 'Budget'],
   content: ['需求內容', '需求内容', 'Requirement Details'],
@@ -87,6 +89,9 @@ export function customerRequirementToIoRow(
     [h('salesManager')]: o.salesManager || '',
     [h('requirementDate')]: o.requirementDate || '',
     [h('status')]: o.status || '',
+    [h('rentalType')]: o.rentalType
+      ? t(`customerRequirement.rentalType.${o.rentalType}`)
+      : t('customerRequirement.rentalType.long'),
     [h('leaseDuration')]: o.leaseDuration || '',
     [h('budget')]: o.budget ?? '',
     [h('content')]: o.content || '',
@@ -113,6 +118,7 @@ export function customerRequirementIoTemplateExampleRow(
     [h('salesManager')]: '',
     [h('requirementDate')]: '2026-09-10',
     [h('status')]: '跟進中',
+    [h('rentalType')]: t('customerRequirement.rentalType.long'),
     [h('leaseDuration')]: '12個月',
     [h('budget')]: 15000,
     [h('content')]: '需要近地鐵的辦公室',
@@ -190,6 +196,7 @@ export type CustomerRequirementIoPayload = {
   salesManager: string
   requirementDate: string
   status: string
+  rentalType: string
   leaseDuration: string
   budget: number | null
   content: string
@@ -198,6 +205,32 @@ export type CustomerRequirementIoPayload = {
   sizeConfig: string
   acConfig: string
   windowConfig: string
+}
+
+function normalizeImportedRentalType(raw: string): string {
+  const v = raw.trim().toLowerCase()
+  if (!v) return 'long'
+  if (
+    v === 'short' ||
+    v === 'shortterm' ||
+    v === 'short-term' ||
+    v === 'short term' ||
+    raw.trim() === '短租'
+  ) {
+    return 'short'
+  }
+  if (
+    v === 'long' ||
+    v === 'longterm' ||
+    v === 'long-term' ||
+    v === 'long term' ||
+    raw.trim() === '長租' ||
+    raw.trim() === '长租'
+  ) {
+    return 'long'
+  }
+  // 已翻译文案（当前语言）
+  return 'long'
 }
 
 export function rowToCustomerRequirementIoPayload(
@@ -216,6 +249,16 @@ export function rowToCustomerRequirementIoPayload(
     budget = Number.isFinite(n) ? n : null
   }
 
+  const rentalTypeRaw = pickCustomerRequirementIoValue(row, 'rentalType', t)
+  let rentalType = normalizeImportedRentalType(rentalTypeRaw)
+  if (rentalTypeRaw) {
+    const longLabel = t('customerRequirement.rentalType.long').toLowerCase()
+    const shortLabel = t('customerRequirement.rentalType.short').toLowerCase()
+    const lower = rentalTypeRaw.trim().toLowerCase()
+    if (lower === shortLabel) rentalType = 'short'
+    else if (lower === longLabel) rentalType = 'long'
+  }
+
   return {
     requirementCode: pickCustomerRequirementIoValue(row, 'requirementCode', t),
     customerCode,
@@ -223,6 +266,7 @@ export function rowToCustomerRequirementIoPayload(
     salesManager: pickCustomerRequirementIoValue(row, 'salesManager', t),
     requirementDate: pickCustomerRequirementIoValue(row, 'requirementDate', t),
     status: pickCustomerRequirementIoValue(row, 'status', t) || '跟進中',
+    rentalType,
     leaseDuration: pickCustomerRequirementIoValue(row, 'leaseDuration', t),
     budget,
     content: pickCustomerRequirementIoValue(row, 'content', t),

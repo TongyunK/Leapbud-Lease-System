@@ -70,7 +70,7 @@ export class NestedOccupantDto {
 }
 
 export class CreateCustomerDto {
-  @ApiPropertyOptional({ example: 'CSM260485', description: '客户编号；留空则自动生成' })
+  @ApiPropertyOptional({ example: 'CSM260485', description: '客户编号（已忽略，系统自动生成）' })
   @IsOptional()
   @IsString()
   customerCode?: string;
@@ -85,11 +85,10 @@ export class CreateCustomerDto {
   @IsString()
   status?: string;
 
-  @ApiPropertyOptional({ description: '客户经理用户 ID；传 null/空 表示未关联' })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @ApiProperty({ description: '客户经理用户 ID（必填）' })
   @IsString()
-  accountManagerId?: string | null;
+  @MinLength(1)
+  accountManagerId!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -131,11 +130,10 @@ export class CreateCustomerDto {
   @IsString()
   rentedRooms?: string;
 
-  @ApiPropertyOptional({ description: '所属大厦 ID；传 null/空 表示未关联' })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @ApiProperty({ description: '所属大厦 ID（必填）' })
   @IsString()
-  buildingId?: string | null;
+  @MinLength(1)
+  buildingId!: string;
 
   @ApiPropertyOptional({ description: '协议打印模板覆盖 ID；传 null/空 表示未指定' })
   @IsOptional()

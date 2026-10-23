@@ -78,6 +78,18 @@ export class CustomersController {
     });
   }
 
+  @Get('code-preview')
+  @ApiOkResponse({ description: 'Preview next customer code without consuming sequence' })
+  previewCode() {
+    return this.customersService.previewCustomerCode();
+  }
+
+  @Get(':id/past-occupants')
+  @ApiOkResponse({ description: 'Past occupants previously affiliated with this customer' })
+  listPastOccupants(@Param('id') id: string) {
+    return this.customersService.listPastOccupants(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.customersService.findOne(id);

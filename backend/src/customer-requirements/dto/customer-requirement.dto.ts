@@ -38,6 +38,11 @@ export class CreateCustomerRequirementDto {
   @IsString()
   status?: string;
 
+  @ApiPropertyOptional({ example: 'long', description: 'long 长租 / short 短租' })
+  @IsOptional()
+  @IsString()
+  rentalType?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -111,6 +116,11 @@ export class UpdateCustomerRequirementDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional({ example: 'long', description: 'long 长租 / short 短租' })
+  @IsOptional()
+  @IsString()
+  rentalType?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -188,6 +198,11 @@ export class ImportCustomerRequirementItemDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional({ example: 'long', description: 'long / short / 長租 / 短租' })
+  @IsOptional()
+  @IsString()
+  rentalType?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

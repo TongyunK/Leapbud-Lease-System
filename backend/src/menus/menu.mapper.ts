@@ -10,7 +10,7 @@ export const menuAuditInclude = auditUserInclude;
 
 function formatDateTime(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 export type MenuDto = {
@@ -18,6 +18,7 @@ export type MenuDto = {
   parentId: string | null;
   type: MenuType;
   name: string;
+  nameEn: string;
   nameKey: string;
   routeName: string;
   path: string;
@@ -38,6 +39,7 @@ export function toMenuDto(row: MenuWithAudit): MenuDto {
     parentId: row.parentId,
     type: row.type,
     name: row.name,
+    nameEn: row.nameEn ?? '',
     nameKey: row.nameKey,
     routeName: row.routeName,
     path: row.path,

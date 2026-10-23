@@ -61,6 +61,15 @@ const ACTION_LABEL: Record<PermissionAction, string> = {
   batchDelete: '批量刪除',
 };
 
+/** 个别模块动作文案（权限码不变；客户需求：跟进/取消） */
+const ACTION_LABEL_BY_MODULE: Partial<Record<string, Partial<Record<PermissionAction, string>>>> = {
+  customerRequirements: {
+    update: '跟進',
+    delete: '取消',
+    batchDelete: '批量取消',
+  },
+};
+
 const ACTIONS: PermissionAction[] = [
   'create',
   'update',
@@ -69,12 +78,16 @@ const ACTIONS: PermissionAction[] = [
   'batchDelete',
 ];
 
+function actionLabel(module: string, action: PermissionAction): string {
+  return ACTION_LABEL_BY_MODULE[module]?.[action] || ACTION_LABEL[action];
+}
+
 export const PERMISSION_CATALOG: PermissionDef[] = PERMISSION_MODULES.flatMap((m) =>
   ACTIONS.map((action, idx) => ({
     code: `${m.module}:${action}`,
     module: m.module,
     action,
-    name: `${ACTION_LABEL[action]}${m.moduleName}`,
+    name: `${actionLabel(m.module, action)}${m.moduleName}`,
     sortOrder: m.sortOrder * 10 + idx,
   })),
 );

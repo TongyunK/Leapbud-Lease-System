@@ -58,6 +58,19 @@ export function customerRequirementStatusTone(status: string | null | undefined)
   return CUSTOMER_REQUIREMENT_STATUS_TONES[key] || 'neutral'
 }
 
+/** 需求类型色：长租绿 / 短租橙 */
+const CUSTOMER_REQUIREMENT_RENTAL_TYPE_TONES: Record<string, StatusTone> = {
+  long: 'idle',
+  short: 'signing',
+}
+
+export function customerRequirementRentalTypeTone(
+  rentalType: string | null | undefined,
+): StatusTone {
+  const key = (rentalType || '').trim()
+  return CUSTOMER_REQUIREMENT_RENTAL_TYPE_TONES[key] || 'neutral'
+}
+
 /** 合约状态色 */
 const CONTRACT_STATUS_TONES: Record<string, StatusTone> = {
   草稿: 'neutral',

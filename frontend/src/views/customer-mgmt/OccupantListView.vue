@@ -25,6 +25,7 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import AttachmentField from '@/components/AttachmentField.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -199,7 +200,6 @@ const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
 const emptyForm = () => ({
   name: '',
   customerId: '' as string,
-  relatedCustomerName: '',
   whatsapp: '',
   mobilePhone: '',
   contactPhone: '',
@@ -253,7 +253,6 @@ function openEdit(row: OccupantRecord) {
   Object.assign(form, {
     name: row.name || '',
     customerId: row.customerId || '',
-    relatedCustomerName: row.relatedCustomerName || '',
     whatsapp: row.whatsapp || '',
     mobilePhone: row.mobilePhone || '',
     contactPhone: row.contactPhone || '',
@@ -273,7 +272,6 @@ function payloadFromForm() {
   return {
     name: form.name.trim(),
     customerId,
-    relatedCustomerName: form.relatedCustomerName.trim(),
     whatsapp: form.whatsapp.trim(),
     mobilePhone: form.mobilePhone.trim(),
     contactPhone: form.contactPhone.trim(),
@@ -290,6 +288,14 @@ function payloadFromForm() {
 async function saveForm() {
   if (!form.name.trim()) {
     ElMessage.warning(t('occupant.nameRequired'))
+    return
+  }
+  if (!form.whatsapp.trim()) {
+    ElMessage.warning(t('occupant.whatsappRequired'))
+    return
+  }
+  if (!form.mobilePhone.trim()) {
+    ElMessage.warning(t('occupant.mobilePhoneRequired'))
     return
   }
   try {
@@ -810,13 +816,10 @@ async function onImportFile(ev: Event) {
               </el-option>
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('occupant.fields.relatedCustomerName')" class="span-2">
-            <el-input v-model="form.relatedCustomerName" />
-          </el-form-item>
-          <el-form-item :label="t('occupant.fields.whatsapp')">
+          <el-form-item :label="t('occupant.fields.whatsapp')" required>
             <el-input v-model="form.whatsapp" />
           </el-form-item>
-          <el-form-item :label="t('occupant.fields.mobilePhone')">
+          <el-form-item :label="t('occupant.fields.mobilePhone')" required>
             <el-input v-model="form.mobilePhone" />
           </el-form-item>
           <el-form-item :label="t('occupant.fields.contactPhone')">
@@ -835,10 +838,10 @@ async function onImportFile(ev: Event) {
             <el-input v-model="form.address" type="textarea" :rows="2" />
           </el-form-item>
           <el-form-item :label="t('occupant.fields.idCardImage')" class="span-2">
-            <el-input v-model="form.idCardImage" readonly class="path-input" />
+            <AttachmentField v-model="form.idCardImage" />
           </el-form-item>
           <el-form-item :label="t('occupant.fields.addressProofCopy')" class="span-2">
-            <el-input v-model="form.addressProofCopy" readonly class="path-input" />
+            <AttachmentField v-model="form.addressProofCopy" />
           </el-form-item>
           <el-form-item :label="t('occupant.fields.remark')" class="span-2">
             <el-input v-model="form.remark" type="textarea" :rows="2" />

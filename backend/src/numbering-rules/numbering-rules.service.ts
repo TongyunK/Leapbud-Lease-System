@@ -110,10 +110,14 @@ export class NumberingRulesService {
   }
 
   /**
-   * 按业务键生成下一个编号；无规则或停用时回退到默认格式。
+   * 计算下一个可用编号（可选择是否写入序号）。
    * 通过 isTaken / reserved 跳过冲突编号。
    */
-  async nextCode(bizKey: NumberingBizKey, options?: NextCodeOptions): Promise<string> {
+  private async allocateCode(
+    bizKey: NumberingBizKey,
+    options: NextCodeOptions | undefined,
+    commit: boolean,
+  ): Promise<string> {
     const now = new Date();
     const defaults = NUMBERING_DEFAULTS[bizKey];
 
@@ -127,10 +131,15 @@ export class NumberingRulesService {
       let currentSeq = useRule ? rule.currentSeq : startValue - 1;
       let periodKey = useRule ? rule.periodKey : '';
 
-      const nextPeriod = periodKeyOf(now, resetCycle);
-      if (resetCycle !== NumberingResetCycle.none && nextPeriod !== periodKey) {
-        currentSeq = startValue - 1;
-        periodKey = nextPeriod;
+      if (resetCycle !== NumberingResetCycle.none) {
+        const nextPeriod = periodKeyOf(now, resetCycle);
+        if (!periodKey) {
+          // 首次写入周期键：沿用已有序号，避免把历史 currentSeq 误重置为起始值
+          periodKey = nextPeriod;
+        } else if (nextPeriod !== periodKey) {
+          currentSeq = startValue - 1;
+          periodKey = nextPeriod;
+        }
       }
 
       let seq = currentSeq + 1;
@@ -149,7 +158,7 @@ export class NumberingRulesService {
         throw new ConflictException(`Unable to allocate numbering for ${bizKey}`);
       }
 
-      if (useRule && rule) {
+      if (commit && useRule && rule) {
         await tx.numberingRule.update({
           where: { id: rule.id },
           data: { currentSeq: seq, periodKey },
@@ -158,5 +167,17 @@ export class NumberingRulesService {
 
       return code;
     });
+  }
+
+  /**
+   * 按业务键生成下一个编号并推进序号；无规则或停用时回退到默认格式。
+   */
+  async nextCode(bizKey: NumberingBizKey, options?: NextCodeOptions): Promise<string> {
+    return this.allocateCode(bizKey, options, true);
+  }
+
+  /** 预览下一个编号（不推进序号） */
+  async previewCode(bizKey: NumberingBizKey, options?: NextCodeOptions): Promise<string> {
+    return this.allocateCode(bizKey, options, false);
   }
 }

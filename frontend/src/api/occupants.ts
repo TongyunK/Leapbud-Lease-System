@@ -42,6 +42,20 @@ export function fetchOccupant(id: string) {
   return request.get<OccupantRecord>(`/occupants/${id}`)
 }
 
+export type OccupantPastCustomer = {
+  id: string
+  customerId: string
+  customerCode: string
+  customerName: string
+  startedAt: string
+  endedAt: string
+}
+
+/** 使用者过往所属客户（已结束归属） */
+export function fetchOccupantPastCustomers(occupantId: string) {
+  return request.get<OccupantPastCustomer[]>(`/occupants/${occupantId}/past-customers`)
+}
+
 export type OccupantWritePayload = Partial<
   Omit<
     OccupantRecord,

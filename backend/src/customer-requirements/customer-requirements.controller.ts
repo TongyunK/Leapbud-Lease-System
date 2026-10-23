@@ -39,6 +39,7 @@ export class CustomerRequirementsController {
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'statuses', required: false, description: 'Comma-separated statuses' })
+  @ApiQuery({ name: 'rentalTypes', required: false, description: 'Comma-separated: long,short' })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'customerNames', required: false })
   @ApiQuery({ name: 'salesManagers', required: false })
@@ -58,6 +59,7 @@ export class CustomerRequirementsController {
     @Query('keyword') keyword?: string,
     @Query('status') status?: string,
     @Query('statuses') statuses?: string,
+    @Query('rentalTypes') rentalTypes?: string,
     @Query('customerId') customerId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('salesManagers') salesManagers?: string,
@@ -77,6 +79,7 @@ export class CustomerRequirementsController {
       keyword,
       status,
       statuses: splitCsv(statuses),
+      rentalTypes: splitCsv(rentalTypes),
       customerId,
       customerNames: splitCsv(customerNames),
       salesManagers: splitCsv(salesManagers),
@@ -94,6 +97,12 @@ export class CustomerRequirementsController {
     });
   }
 
+  @Get('code-preview')
+  @ApiOkResponse({ description: 'Preview next requirement code without consuming sequence' })
+  previewCode() {
+    return this.customerRequirementsService.previewRequirementCode();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.customerRequirementsService.findOne(id);
@@ -108,9 +117,9 @@ export class CustomerRequirementsController {
 
   @RequirePermissions('customerRequirements:batchDelete')
   @Post('batch-delete')
-  @ApiOkResponse({ description: 'Batch delete customer requirements by ids' })
-  removeMany(@Body() dto: BatchDeleteDto) {
-    return this.customerRequirementsService.removeMany(dto.ids);
+  @ApiOkResponse({ description: 'Batch cancel customer requirements (set status to 已取消)' })
+  removeMany(@Body() dto: BatchDeleteDto, @CurrentUser() user?: JwtPayload) {
+    return this.customerRequirementsService.removeMany(dto.ids, actorUserId(user));
   }
 
   @RequirePermissions('customerRequirements:create')
@@ -131,7 +140,8 @@ export class CustomerRequirementsController {
 
   @RequirePermissions('customerRequirements:delete')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.customerRequirementsService.remove(id);
+  @ApiOkResponse({ description: 'Cancel customer requirement (set status to 已取消)' })
+  remove(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
+    return this.customerRequirementsService.remove(id, actorUserId(user));
   }
 }

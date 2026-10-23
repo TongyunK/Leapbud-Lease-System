@@ -26,6 +26,10 @@ import {
 } from '../common/pagination';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import {
+  ensureOpenAffiliation,
+  rebindOccupantAffiliation,
+} from '../common/occupant-customer-affiliation';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -224,26 +228,34 @@ export class OccupantsService {
     });
     const actorId = actor || null;
 
-    const row = await this.prisma.occupant.create({
-      data: {
-        name,
-        customerId: customer?.id ?? null,
-        customerCode: customer?.customerCode || s(dto.customerCode),
-        relatedCustomerName: s(dto.relatedCustomerName) || customer?.name || '',
-        whatsapp: s(dto.whatsapp),
-        mobilePhone: s(dto.mobilePhone),
-        contactPhone: s(dto.contactPhone),
-        email: s(dto.email),
-        fax: s(dto.fax),
-        address: s(dto.address),
-        idCardNo: s(dto.idCardNo),
-        idCardImage: s(dto.idCardImage),
-        addressProofCopy: s(dto.addressProofCopy),
-        remark: s(dto.remark),
-        createdById: actorId,
-        updatedById: actorId,
-      },
-      include: occupantInclude,
+    const row = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.occupant.create({
+        data: {
+          name,
+          customerId: customer?.id ?? null,
+          customerCode: customer?.customerCode || s(dto.customerCode),
+          relatedCustomerName: s(dto.relatedCustomerName) || customer?.name || '',
+          whatsapp: s(dto.whatsapp),
+          mobilePhone: s(dto.mobilePhone),
+          contactPhone: s(dto.contactPhone),
+          email: s(dto.email),
+          fax: s(dto.fax),
+          address: s(dto.address),
+          idCardNo: s(dto.idCardNo),
+          idCardImage: s(dto.idCardImage),
+          addressProofCopy: s(dto.addressProofCopy),
+          remark: s(dto.remark),
+          createdById: actorId,
+          updatedById: actorId,
+        },
+      });
+      if (customer?.id) {
+        await ensureOpenAffiliation(tx, created.id, customer.id, actorId);
+      }
+      return tx.occupant.findUniqueOrThrow({
+        where: { id: created.id },
+        include: occupantInclude,
+      });
     });
     return toOccupantDto(row);
   }
@@ -255,8 +267,10 @@ export class OccupantsService {
     let customerId = existing.customerId;
     let customerCode = existing.customerCode;
     let relatedCustomerName = existing.relatedCustomerName;
+    let customerChanged = false;
 
     if (dto.customerId !== undefined || dto.customerCode !== undefined) {
+      customerChanged = true;
       if (dto.customerId === null) {
         customerId = null;
         if (dto.customerCode !== undefined) customerCode = s(dto.customerCode);
@@ -277,30 +291,70 @@ export class OccupantsService {
       relatedCustomerName = s(dto.relatedCustomerName);
     }
 
-    const row = await this.prisma.occupant.update({
-      where: { id },
-      data: {
-        name: dto.name !== undefined ? s(dto.name) : undefined,
-        customerId,
-        customerCode:
-          dto.customerCode !== undefined ? s(dto.customerCode) || customerCode : customerCode,
-        relatedCustomerName,
-        whatsapp: dto.whatsapp !== undefined ? s(dto.whatsapp) : undefined,
-        mobilePhone: dto.mobilePhone !== undefined ? s(dto.mobilePhone) : undefined,
-        contactPhone: dto.contactPhone !== undefined ? s(dto.contactPhone) : undefined,
-        email: dto.email !== undefined ? s(dto.email) : undefined,
-        fax: dto.fax !== undefined ? s(dto.fax) : undefined,
-        address: dto.address !== undefined ? s(dto.address) : undefined,
-        idCardNo: dto.idCardNo !== undefined ? s(dto.idCardNo) : undefined,
-        idCardImage: dto.idCardImage !== undefined ? s(dto.idCardImage) : undefined,
-        addressProofCopy:
-          dto.addressProofCopy !== undefined ? s(dto.addressProofCopy) : undefined,
-        remark: dto.remark !== undefined ? s(dto.remark) : undefined,
-        ...(actor ? { updatedById: actor } : {}),
-      },
-      include: occupantInclude,
+    const actorId = actor || null;
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (customerChanged) {
+        await rebindOccupantAffiliation(tx, {
+          occupantId: id,
+          previousCustomerId: existing.customerId,
+          newCustomerId: customerId,
+          actorId,
+        });
+      }
+      await tx.occupant.update({
+        where: { id },
+        data: {
+          name: dto.name !== undefined ? s(dto.name) : undefined,
+          customerId: customerChanged ? customerId : undefined,
+          customerCode:
+            dto.customerCode !== undefined ? s(dto.customerCode) || customerCode : customerCode,
+          relatedCustomerName,
+          whatsapp: dto.whatsapp !== undefined ? s(dto.whatsapp) : undefined,
+          mobilePhone: dto.mobilePhone !== undefined ? s(dto.mobilePhone) : undefined,
+          contactPhone: dto.contactPhone !== undefined ? s(dto.contactPhone) : undefined,
+          email: dto.email !== undefined ? s(dto.email) : undefined,
+          fax: dto.fax !== undefined ? s(dto.fax) : undefined,
+          address: dto.address !== undefined ? s(dto.address) : undefined,
+          idCardNo: dto.idCardNo !== undefined ? s(dto.idCardNo) : undefined,
+          idCardImage: dto.idCardImage !== undefined ? s(dto.idCardImage) : undefined,
+          addressProofCopy:
+            dto.addressProofCopy !== undefined ? s(dto.addressProofCopy) : undefined,
+          remark: dto.remark !== undefined ? s(dto.remark) : undefined,
+          ...(actorId ? { updatedById: actorId } : {}),
+        },
+      });
+      return tx.occupant.findUniqueOrThrow({
+        where: { id },
+        include: occupantInclude,
+      });
     });
     return toOccupantDto(row);
+  }
+
+  /** 该使用者已结束归属的过往客户（不含当前所属） */
+  async listPastCustomers(occupantId: string) {
+    const existing = await this.prisma.occupant.findUnique({
+      where: { id: occupantId },
+      select: { id: true, customerId: true },
+    });
+    if (!existing) throw new NotFoundException(`Occupant ${occupantId} not found`);
+    await this.access.assertCustomerId(existing.customerId);
+
+    const rows = await this.prisma.occupantCustomerAffiliation.findMany({
+      where: { occupantId, endedAt: { not: null } },
+      orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }],
+      include: {
+        customer: { select: { id: true, customerCode: true, name: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      customerId: r.customerId,
+      customerCode: r.customer.customerCode,
+      customerName: r.customer.name,
+      startedAt: r.startedAt.toISOString(),
+      endedAt: r.endedAt!.toISOString(),
+    }));
   }
 
   async remove(id: string) {
@@ -517,39 +571,43 @@ export class OccupantsService {
       }
 
       try {
-        const row = await this.prisma.occupant.create({
-          data: {
-            name,
-            customerId: customer?.id ?? null,
-            customerCode: customer?.customerCode || customerCode,
-            relatedCustomerName: relatedCustomerName || customer?.name || '',
-            whatsapp: s(item.whatsapp),
-            mobilePhone,
-            contactPhone: s(item.contactPhone),
-            email: s(item.email),
-            fax: s(item.fax),
-            address: s(item.address),
-            idCardNo,
-            idCardImage: s(item.idCardImage),
-            addressProofCopy: s(item.addressProofCopy),
-            remark: s(item.remark),
-            createdById: actorId,
-            updatedById: actorId,
-          },
-          select: { id: true, customerId: true },
+        await this.prisma.$transaction(async (tx) => {
+          const created = await tx.occupant.create({
+            data: {
+              name,
+              customerId: customer?.id ?? null,
+              customerCode: customer?.customerCode || customerCode,
+              relatedCustomerName: relatedCustomerName || customer?.name || '',
+              whatsapp: s(item.whatsapp),
+              mobilePhone,
+              contactPhone: s(item.contactPhone),
+              email: s(item.email),
+              fax: s(item.fax),
+              address: s(item.address),
+              idCardNo,
+              idCardImage: s(item.idCardImage),
+              addressProofCopy: s(item.addressProofCopy),
+              remark: s(item.remark),
+              createdById: actorId,
+              updatedById: actorId,
+            },
+            select: { id: true, customerId: true },
+          });
+          if (created.customerId) {
+            await ensureOpenAffiliation(tx, created.id, created.customerId, actorId);
+            if (!primaryByCustomer.get(created.customerId)) {
+              await tx.customer.update({
+                where: { id: created.customerId },
+                data: { primaryOccupantId: created.id },
+              });
+              primaryByCustomer.set(created.customerId, created.id);
+            }
+          }
         });
         for (const k of keys) seenKeys.add(k);
         // 无强键时也登记姓名，避免批内完全空联络重复
         if (!keys.length) seenKeys.add(`n:${name.toLowerCase()}`);
         created += 1;
-
-        if (row.customerId && !primaryByCustomer.get(row.customerId)) {
-          await this.prisma.customer.update({
-            where: { id: row.customerId },
-            data: { primaryOccupantId: row.id },
-          });
-          primaryByCustomer.set(row.customerId, row.id);
-        }
       } catch (e) {
         failed += 1;
         const msg = e instanceof Error ? e.message : '建立使用者失敗';

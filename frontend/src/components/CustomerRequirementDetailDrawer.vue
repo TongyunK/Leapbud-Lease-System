@@ -4,10 +4,15 @@ import { useI18n } from 'vue-i18n'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import AttachmentLink from '@/components/AttachmentLink.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { customerRequirementStatusTone } from '@/constants/statusBadges'
+import {
+  customerRequirementRentalTypeTone,
+  customerRequirementStatusTone,
+} from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
+import { displayLeaseDuration } from '@/utils/leaseDuration'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -40,6 +45,11 @@ function dash(v?: string | null) {
 
 function statusLabel(status: string) {
   return t(`customerRequirement.status.${status}`, status)
+}
+
+function rentalTypeLabel(rentalType?: string | null) {
+  const key = rentalType === 'short' ? 'short' : 'long'
+  return t(`customerRequirement.rentalType.${key}`)
 }
 
 function onCustomerClick() {
@@ -88,6 +98,15 @@ function onCustomerClick() {
             </dd>
           </div>
           <div>
+            <dt>{{ t('customerRequirement.fields.rentalType') }}</dt>
+            <dd>
+              <StatusBadge
+                :tone="customerRequirementRentalTypeTone(requirement.rentalType)"
+                :label="rentalTypeLabel(requirement.rentalType)"
+              />
+            </dd>
+          </div>
+          <div>
             <dt>{{ t('customerRequirement.fields.salesManager') }}</dt>
             <dd>{{ dash(requirement.salesManager) }}</dd>
           </div>
@@ -97,7 +116,7 @@ function onCustomerClick() {
           </div>
           <div>
             <dt>{{ t('customerRequirement.fields.leaseDuration') }}</dt>
-            <dd>{{ dash(requirement.leaseDuration) }}</dd>
+            <dd>{{ displayLeaseDuration(requirement.leaseDuration, t) || '—' }}</dd>
           </div>
           <div>
             <dt>{{ t('customerRequirement.fields.budget') }}</dt>
@@ -131,7 +150,7 @@ function onCustomerClick() {
           </div>
           <div class="full">
             <dt>{{ t('customerRequirement.fields.attachment') }}</dt>
-            <dd class="path-text">{{ dash(requirement.attachment) }}</dd>
+            <dd><AttachmentLink :value="requirement.attachment" /></dd>
           </div>
         </dl>
       </section>

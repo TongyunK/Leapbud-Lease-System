@@ -173,7 +173,6 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
           style="width: 100%"
           @row-click="onRowClick"
         >
-          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -181,6 +180,7 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
             width="48"
             align="center"
             header-align="center"
+            fixed="left"
           />
           <el-table-column
             prop="receivableCode"
@@ -193,6 +193,7 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
             class-name="col-code"
             label-class-name="col-code"
             show-overflow-tooltip
+            fixed="left"
           />
           <el-table-column
             prop="invoiceCode"

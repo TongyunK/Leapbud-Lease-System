@@ -316,6 +316,10 @@ async function toggleActive(row: NumberingRule) {
           </el-table-column>
           <el-table-column
             :min-width="colW(t('autoNumbering.fields.active'), { interactive: true, contentMin: 100 })"
+            align="center"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #header>
               <TableColumnHeader

@@ -44,7 +44,7 @@ const HEADER_ALIASES: Record<OccupantIoFieldKey, string[]> = {
   contactPhone: ['聯絡電話', '联络电话'],
   email: ['電郵', '郵箱', '邮箱'],
   fax: ['傳真', '传真'],
-  address: ['通訊地址', '地址'],
+  address: ['通訊地址', '通信地址', '地址'],
   idCardNo: ['身份證號碼', '身份證號', '身份证号码', '身份证号'],
   idCardImage: ['身份證圖片', '身份證副本', '身份证图片', '身份证副本'],
   addressProofCopy: ['住址証明副本', '地址證明副本', '住址证明副本', '地址证明副本'],

@@ -3,17 +3,16 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { MenuRecord } from '@/types/menu'
 import { resolveMenuIcon } from '@/utils/menuIcons'
+import { menuDisplayName } from '@/utils/menuLabel'
 
 const props = defineProps<{
   nodes: MenuRecord[]
 }>()
 
-const { t, te } = useI18n()
+const { t, te, locale } = useI18n()
 
 function labelOf(node: MenuRecord) {
-  const key = node.nameKey?.trim()
-  if (key && te(key)) return t(key)
-  return node.name
+  return menuDisplayName(node, locale.value, t, te)
 }
 
 const items = computed(() => props.nodes || [])

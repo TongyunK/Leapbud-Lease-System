@@ -1265,6 +1265,54 @@ button {
   background-color: #0f4a32 !important;
 }
 
+/* 表格内开关略缩，贴近徽章行高；表单内仍用上方 22px */
+.table-card .el-table .el-switch,
+.related-list__table .el-switch {
+  height: 18px;
+  font-size: 12px;
+  line-height: 18px;
+  --el-switch-height: 18px;
+  --el-switch-button-size: 14px;
+}
+
+.table-card .el-table .el-switch .el-switch__core,
+.related-list__table .el-switch .el-switch__core {
+  height: 18px !important;
+  min-width: 34px !important;
+  border-radius: 10px !important;
+}
+
+.table-card .el-table .el-switch .el-switch__action,
+.related-list__table .el-switch .el-switch__action {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* 开关列：表头与开关水平居中 */
+.table-card .el-table th.col-switch > .cell,
+.table-card .el-table td.col-switch > .cell,
+.related-list__table th.col-switch > .cell,
+.related-list__table td.col-switch > .cell,
+.table-card .el-table td.el-table__cell > .cell:has(.el-switch),
+.related-list__table td.el-table__cell > .cell:has(.el-switch) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.table-card .el-table th.col-switch .lb-col-head,
+.related-list__table th.col-switch .lb-col-head {
+  justify-content: center;
+  width: 100%;
+}
+
+.table-card .el-table th.col-switch .lb-col-head__hit,
+.related-list__table th.col-switch .lb-col-head__hit {
+  justify-content: center;
+  margin-inline: auto;
+}
+
 .table-card .el-table.el-table--border::before,
 .table-card .el-table.el-table--border::after,
 .table-card .el-table--border .el-table__inner-wrapper::after {

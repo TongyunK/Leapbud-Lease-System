@@ -79,6 +79,26 @@ export function fetchCustomer(id: string) {
   return request.get<CustomerRecord>(`/customers/${id}`)
 }
 
+export type CustomerPastOccupant = {
+  id: string
+  occupantId: string
+  occupantName: string
+  mobilePhone: string
+  whatsapp: string
+  startedAt: string
+  endedAt: string
+}
+
+/** 客户过往使用者（已结束归属） */
+export function fetchCustomerPastOccupants(customerId: string) {
+  return request.get<CustomerPastOccupant[]>(`/customers/${customerId}/past-occupants`)
+}
+
+/** 预览下一个客户编号（不占用序号） */
+export function previewCustomerCodeApi() {
+  return request.get<{ code: string }>('/customers/code-preview')
+}
+
 export function createCustomerApi(payload: CustomerWritePayload) {
   return request.post<CustomerRecord>('/customers', payload)
 }

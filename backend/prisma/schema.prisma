@@ -117,6 +117,10 @@ model User {
   createdOccupants         Occupant[]         @relation("OccupantCreatedBy")
   /// 作为更新人：使用者
   updatedOccupants         Occupant[]         @relation("OccupantUpdatedBy")
+  /// 作为创建人：使用者-客户归属历史
+  createdOccupantCustomerAffiliations OccupantCustomerAffiliation[] @relation("OccupantCustomerAffiliationCreatedBy")
+  /// 作为结束人：使用者-客户归属历史
+  endedOccupantCustomerAffiliations   OccupantCustomerAffiliation[] @relation("OccupantCustomerAffiliationEndedBy")
   /// 作为创建人：角色
   createdRoles             Role[]             @relation("RoleCreatedBy")
   /// 作为更新人：角色
@@ -553,6 +557,8 @@ model Customer {
   updatedAt        DateTime   @updatedAt @map("updated_at")
   /// 下属使用者（实际租赁名义人）
   occupants        Occupant[] @relation("OccupantBelongsToCustomer")
+  /// 使用者归属历史（含已结束）
+  occupantAffiliations OccupantCustomerAffiliation[]
   /// 下属客户需求
   requirements     CustomerRequirement[] @relation("CustomerRequirementBelongsToCustomer")
   /// 下属合约
@@ -599,6 +605,8 @@ model CustomerRequirement {
   requirementDate  DateTime? @map("requirement_date") @db.Date
   /// 状态：跟進中 / 已簽約 / 已取消
   status           String    @default("跟進中")
+  /// 需求类型：long 长租（后续走合约）/ short 短租（可直接开票收据，无需合约）
+  rentalType       String    @default("long") @map("rental_type")
   /// 租赁时长（文本，如 12个月）
   leaseDuration    String    @default("") @map("lease_duration")
   /// 预算
@@ -639,6 +647,7 @@ model CustomerRequirement {
   @@index([customerId])
   @@index([salesManagerId])
   @@index([status])
+  @@index([rentalType])
   @@index([requirementDate])
   @@index([sizeConfigId])
   @@index([acConfigId])
@@ -1290,6 +1299,8 @@ model Occupant {
   createdAt           DateTime  @default(now()) @map("created_at")
   /// 更新时间
   updatedAt           DateTime  @updatedAt @map("updated_at")
+  /// 客户归属历史（含已结束）
+  customerAffiliations OccupantCustomerAffiliation[]
 
   @@index([customerId])
   @@index([customerCode])
@@ -1297,6 +1308,40 @@ model Occupant {
   @@index([createdById])
   @@index([updatedById])
   @@map("occupants")
+}
+
+/// 使用者与客户的归属历史（当前所属仍以 occupants.customer_id 为准；换绑时结束旧记录并开启新记录）
+model OccupantCustomerAffiliation {
+  /// 主键
+  id            String    @id @default(cuid())
+  /// 所属使用者 ID
+  occupantId    String    @map("occupant_id")
+  /// 所属使用者
+  occupant      Occupant  @relation(fields: [occupantId], references: [id], onDelete: Cascade)
+  /// 所属客户 ID
+  customerId    String    @map("customer_id")
+  /// 所属客户
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 开始归属时间
+  startedAt     DateTime  @default(now()) @map("started_at")
+  /// 结束归属时间（空表示当前仍归属该客户）
+  endedAt       DateTime? @map("ended_at")
+  /// 创建人（开启归属）用户 ID
+  createdById   String?   @map("created_by")
+  /// 创建人用户
+  createdByUser User?     @relation("OccupantCustomerAffiliationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 结束人（换绑/解除）用户 ID
+  endedById     String?   @map("ended_by")
+  /// 结束人用户
+  endedByUser   User?     @relation("OccupantCustomerAffiliationEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([occupantId, endedAt])
+  @@index([customerId, endedAt])
+  @@index([createdById])
+  @@index([endedById])
+  @@map("occupant_customer_affiliations")
 }
 
 /// 菜单类型
@@ -1361,9 +1406,11 @@ model Menu {
   children    Menu[]   @relation("MenuTree")
   /// 菜单类型：directory=目录，menu=菜单页
   type        MenuType @default(menu)
-  /// 显示名称（默认繁中）
+  /// 中文显示名称（繁中）
   name        String
-  /// i18n 键（如 menu.users；空则用 name）
+  /// 英文显示名称
+  nameEn      String   @default("") @map("name_en")
+  /// i18n 键（如 menu.users；英文名未填时作兜底）
   nameKey     String   @default("") @map("name_key")
   /// 前端路由 name（如 users）
   routeName   String   @default("") @map("route_name")

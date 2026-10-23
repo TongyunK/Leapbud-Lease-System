@@ -329,6 +329,10 @@ async function toggleActive(row: RoomTypeOption) {
           </el-table-column>
           <el-table-column
             :min-width="colW(t('roomType.fields.active'), { interactive: true, contentMin: 128 })"
+            align="center"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #header>
               <TableColumnHeader

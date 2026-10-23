@@ -12,6 +12,8 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AcIcon: typeof import('./components/icons/AcIcon.vue')['default']
+    AttachmentField: typeof import('./components/AttachmentField.vue')['default']
+    AttachmentLink: typeof import('./components/AttachmentLink.vue')['default']
     AuditDetailSection: typeof import('./components/AuditDetailSection.vue')['default']
     BatchProgressDialog: typeof import('./components/BatchProgressDialog.vue')['default']
     BuildingDetailDrawer: typeof import('./components/BuildingDetailDrawer.vue')['default']
@@ -42,6 +44,7 @@ declare module 'vue' {
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
     ElIcon: typeof import('element-plus/es')['ElIcon']
     ElImage: typeof import('element-plus/es')['ElImage']
+    ElImageViewer: typeof import('element-plus/es')['ElImageViewer']
     ElInput: typeof import('element-plus/es')['ElInput']
     ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
     ElMenu: typeof import('element-plus/es')['ElMenu']
@@ -51,6 +54,7 @@ declare module 'vue' {
     ElPopover: typeof import('element-plus/es')['ElPopover']
     ElProgress: typeof import('element-plus/es')['ElProgress']
     ElRadio: typeof import('element-plus/es')['ElRadio']
+    ElRadioButton: typeof import('element-plus/es')['ElRadioButton']
     ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
     ElRow: typeof import('element-plus/es')['ElRow']
     ElSelect: typeof import('element-plus/es')['ElSelect']

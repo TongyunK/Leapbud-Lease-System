@@ -22,10 +22,15 @@ export class CreateMenuDto {
   @IsEnum(MenuType)
   type!: MenuType;
 
-  @ApiProperty({ example: '用戶管理' })
+  @ApiProperty({ example: '用戶管理', description: '中文名称' })
   @IsString()
   @MinLength(1)
   name!: string;
+
+  @ApiPropertyOptional({ example: 'Users', description: '英文名称' })
+  @IsOptional()
+  @IsString()
+  nameEn?: string;
 
   @ApiPropertyOptional({ example: 'menu.users' })
   @IsOptional()
@@ -74,11 +79,16 @@ export class UpdateMenuDto {
   @IsEnum(MenuType)
   type?: MenuType;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: '中文名称' })
   @IsOptional()
   @IsString()
   @MinLength(1)
   name?: string;
+
+  @ApiPropertyOptional({ description: '英文名称' })
+  @IsOptional()
+  @IsString()
+  nameEn?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

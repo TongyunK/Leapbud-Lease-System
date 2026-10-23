@@ -18,8 +18,11 @@ import {
   assignRolePermissionsApi,
   fetchPermissionCatalogApi,
   fetchRolePermissionsApi,
+  type PermissionItem,
   type PermissionModuleGroup,
 } from '@/api/permissions'
+import { permissionItemLabel, permissionModuleLabel } from '@/utils/permissionLabel'
+import { menuDisplayName } from '@/utils/menuLabel'
 import { fetchMenus } from '@/api/menus'
 import type { RoleRecord } from '@/types/role'
 import type { MenuRecord } from '@/types/menu'
@@ -45,6 +48,12 @@ const navStore = useNavStore()
 const userStore = useUserStore()
 const perms = useResourcePermissions('roles')
 const { colW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+
+function permLabel(item: PermissionItem) {
+  void locale.value
+  return permissionItemLabel(item, t, te)
+}
+
 const roleActionWidth = computed(() => {
   void locale.value
   return measureActionColWidth([
@@ -275,9 +284,8 @@ const checkedMenuIds = ref<string[]>([])
 const menuTreeRef = ref<InstanceType<typeof ElTree> | null>(null)
 
 function menuLabel(node: MenuRecord) {
-  const key = node.nameKey?.trim()
-  if (key && te(key)) return t(key)
-  return node.name
+  void locale.value
+  return menuDisplayName(node, locale.value, t, te)
 }
 
 function collectMenuIds(nodes: MenuRecord[]): string[] {
@@ -553,6 +561,10 @@ async function savePermissions() {
           </el-table-column>
           <el-table-column
             :min-width="colW(t('role.fields.active'), { interactive: true, contentMin: 110 })"
+            align="center"
+            header-align="center"
+            class-name="col-switch"
+            label-class-name="col-switch"
           >
             <template #header>
               <TableColumnHeader
@@ -682,7 +694,13 @@ async function savePermissions() {
         <el-form-item :label="t('role.fields.active')">
           <el-switch v-model="form.active" />
         </el-form-item>
-        <AuditDetailSection v-if="editing" :record="editing" />
+        <AuditDetailSection
+          v-if="editing"
+          :created-by="editing.createdBy"
+          :created-at="editing.createdAt"
+          :updated-by="editing.updatedBy"
+          :updated-at="editing.updatedAt"
+        />
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
@@ -787,7 +805,9 @@ async function savePermissions() {
         <div v-loading="permsLoading" class="perms-list-wrap">
           <div v-for="group in permsCatalog" :key="group.module" class="perms-module">
             <div class="perms-module-head">
-              <span class="perms-module-name">{{ group.moduleName }}</span>
+              <span class="perms-module-name">
+                {{ permissionModuleLabel(group.module, t, te, group.moduleName) }}
+              </span>
               <button
                 type="button"
                 class="menus-text-btn"
@@ -805,7 +825,7 @@ async function savePermissions() {
                 :class="{ 'is-on': checkedPermCodes.includes(item.code) }"
                 :label="item.code"
               >
-                {{ item.name }}
+                {{ permLabel(item) }}
               </el-checkbox>
             </el-checkbox-group>
           </div>
@@ -941,11 +961,20 @@ async function savePermissions() {
 }
 
 .perms-checks :deep(.perms-check .el-checkbox__inner::after) {
-  left: 5px;
-  top: 2px;
-  width: 3px;
+  box-sizing: content-box;
+  width: 4px;
   height: 8px;
+  left: 50%;
+  top: 46%;
   border-width: 1.5px;
+  transform: translate(-50%, -55%) rotate(45deg) scaleY(0);
+  transform-origin: center;
+}
+
+.perms-checks :deep(.perms-check.is-checked .el-checkbox__inner::after),
+.perms-checks :deep(.perms-check.is-on .el-checkbox__inner::after),
+.perms-checks :deep(.perms-check .el-checkbox__input.is-checked .el-checkbox__inner::after) {
+  transform: translate(-50%, -55%) rotate(45deg) scaleY(1);
 }
 
 .perms-checks :deep(.perms-check.is-checked .el-checkbox__inner),

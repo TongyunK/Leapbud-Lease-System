@@ -161,7 +161,6 @@ function onRowClick(row: OccupantRecord, column?: { type?: string }, event?: Eve
           style="width: 100%"
           @row-click="onRowClick"
         >
-          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -169,12 +168,14 @@ function onRowClick(row: OccupantRecord, column?: { type?: string }, event?: Eve
             width="48"
             align="center"
             header-align="center"
+            fixed="left"
           />
           <el-table-column
             prop="name"
             :label="t('occupant.fields.name')"
             :min-width="textColW(t('occupant.fields.name'), { kind: 'name' })"
             show-overflow-tooltip
+            fixed="left"
           />
           <el-table-column
             prop="mobilePhone"

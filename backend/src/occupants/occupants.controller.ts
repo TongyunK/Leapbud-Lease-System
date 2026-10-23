@@ -81,6 +81,12 @@ export class OccupantsController {
     });
   }
 
+  @Get(':id/past-customers')
+  @ApiOkResponse({ description: 'Past customers previously affiliated with this occupant' })
+  listPastCustomers(@Param('id') id: string) {
+    return this.occupantsService.listPastCustomers(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.occupantsService.findOne(id);

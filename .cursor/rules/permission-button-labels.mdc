@@ -1,0 +1,29 @@
+---
+description: 列表功能按钮文案与角色管理权限芯片文案必须同步
+alwaysApply: true
+---
+
+# 功能按钮名 ↔ 角色权限名同步
+
+列表页操作按钮文案与「角色管理 → 功能按钮权限」芯片文案**不会自动联动**，改一侧必须改另一侧。
+
+## 两套文案
+
+| 位置 | 配置处 |
+|------|--------|
+| 列表操作按钮（跟进 / 取消 / 批量取消等） | 各业务 `i18n` 键，如 `customerRequirement.followUp` |
+| 角色管理权限芯片 | `permission.actions.*`；模块特例用 `permission.actionsByModule.<module>.*` |
+
+权限码（如 `customerRequirements:update`）一般**不改**，只改显示名。
+
+## 修改清单（每次改按钮名都要做）
+
+1. **前端 i18n**（`zh-TW.ts` / `en.ts`）：业务按钮键 + 对应 `permission.actions` 或 `actionsByModule`
+2. **后端目录**（可选但建议）：`backend/src/permissions/permission.catalog.ts` 的 `ACTION_LABEL` / `ACTION_LABEL_BY_MODULE`（启动 sync 写入 DB `name`；界面仍以 i18n 为准）
+3. 展示逻辑：`frontend/src/utils/permissionLabel.ts` 的 `permissionItemLabel`（已支持 `actionsByModule` 优先）
+
+## 示例（客户需求）
+
+- 按钮：跟进 / 取消 / 批量取消
+- 权限特例：`permission.actionsByModule.customerRequirements` → `update` / `delete` / `batchDelete`
+- 权限码仍为 `customerRequirements:update|delete|batchDelete`

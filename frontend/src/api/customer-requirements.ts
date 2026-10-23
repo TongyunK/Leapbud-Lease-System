@@ -8,6 +8,7 @@ export type CustomerRequirementWritePayload = {
   salesManagerId?: string | null
   requirementDate?: string | null
   status?: string
+  rentalType?: string
   leaseDuration?: string
   budget?: number | null
   content?: string
@@ -22,6 +23,7 @@ export type CustomerRequirementListQuery = {
   keyword?: string
   status?: string
   statuses?: string[]
+  rentalTypes?: string[]
   customerId?: string
   customerNames?: string[]
   salesManagers?: string[]
@@ -45,6 +47,7 @@ export function fetchCustomerRequirements(params?: CustomerRequirementListQuery)
   if (params?.keyword) query.keyword = params.keyword
   if (params?.status) query.status = params.status
   if (params?.statuses?.length) query.statuses = params.statuses.join(',')
+  if (params?.rentalTypes?.length) query.rentalTypes = params.rentalTypes.join(',')
   if (params?.customerId) query.customerId = params.customerId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')
@@ -68,6 +71,11 @@ export function fetchCustomerRequirements(params?: CustomerRequirementListQuery)
 
 export function fetchCustomerRequirement(id: string) {
   return request.get<CustomerRequirementRecord>(`/customer-requirements/${id}`)
+}
+
+/** 预览下一个需求编号（不占用序号） */
+export function previewRequirementCodeApi() {
+  return request.get<{ code: string }>('/customer-requirements/code-preview')
 }
 
 export function createCustomerRequirementApi(payload: CustomerRequirementWritePayload) {
@@ -112,6 +120,7 @@ export type CustomerRequirementImportItem = {
   salesManager?: string
   requirementDate?: string | null
   status?: string
+  rentalType?: string
   leaseDuration?: string
   budget?: number | null
   content?: string
