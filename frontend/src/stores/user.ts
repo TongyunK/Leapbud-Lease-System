@@ -54,13 +54,20 @@ export const useUserStore = defineStore('user', () => {
   const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
   const user = ref<UserInfo | null>(readStoredUser())
   const permissions = ref<string[]>(readStoredPermissions())
-  /** 当前无任何非 admin 角色拥有的权限码（仅 admin 会话有意义） */
+  /** 当前无任何非 superAdmin 角色拥有的权限码（仅超级管理员会话有意义，用于描边） */
   const adminExclusiveCodes = ref<string[]>(readStoredAdminExclusive())
 
   const isLoggedIn = computed(() => Boolean(token.value))
   const role = computed(() => (user.value?.role ? String(user.value.role) : null))
-  /** 角色编码为 admin 时具备系统管理与全大厦权限 */
-  const isAdmin = computed(() => role.value === 'admin')
+  /** 角色编码为 superAdmin（大小写不敏感）；专用于行内改字段等敏感能力 */
+  const isSuperAdmin = computed(
+    () => String(role.value || '').trim().toLowerCase() === 'superadmin',
+  )
+  /** admin 或 superAdmin：系统管理与全大厦权限 */
+  const isAdmin = computed(() => {
+    const r = String(role.value || '').trim().toLowerCase()
+    return r === 'admin' || r === 'superadmin'
+  })
 
   function setPermissions(codes: string[]) {
     permissions.value = [...new Set(codes.map(String))]
@@ -78,13 +85,14 @@ export const useUserStore = defineStore('user', () => {
 
   function can(code: string): boolean {
     if (!code) return false
-    if (isAdmin.value) return true
+    // 仅超级管理员默认全权限；管理员与其它角色一律看权限表
+    if (isSuperAdmin.value) return true
     return permissions.value.includes(code)
   }
 
-  /** admin 登录时：该功能码目前只有 admin 角色拥有 */
+  /** 超级管理员登录时：该功能码目前只有 superAdmin 拥有（用于发光描边提示） */
   function isAdminExclusive(code: string): boolean {
-    if (!isAdmin.value || !code) return false
+    if (!isSuperAdmin.value || !code) return false
     return adminExclusiveCodes.value.includes(code)
   }
 
@@ -111,7 +119,7 @@ export const useUserStore = defineStore('user', () => {
       const { data } = await fetchMyPermissionsApi()
       const codes = data?.codes ?? []
       setPermissions(codes)
-      setAdminExclusiveCodes(isAdmin.value ? (data?.adminExclusiveCodes ?? []) : [])
+      setAdminExclusiveCodes(isSuperAdmin.value ? (data?.adminExclusiveCodes ?? []) : [])
       return codes
     } catch {
       return permissions.value
@@ -144,6 +152,7 @@ export const useUserStore = defineStore('user', () => {
     isLoggedIn,
     role,
     isAdmin,
+    isSuperAdmin,
     can,
     isAdminExclusive,
     login,

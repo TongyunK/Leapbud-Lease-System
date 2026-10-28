@@ -48,8 +48,15 @@ const buildingOptions = ref<BuildingRecord[]>([])
 const roleCatalog = ref<RoleRecord[]>([])
 
 const statusOptions: UserStatus[] = ['active', 'disabled']
-const ADMIN_ROLE_CODE = 'admin'
 const DEFAULT_ROLE_CODE = 'user'
+
+/** admin / superAdmin：默认可访问全部大厦，无需分配 */
+function isAllBuildingsRole(role?: string | null) {
+  const r = String(role || '')
+    .trim()
+    .toLowerCase()
+  return r === 'admin' || r === 'superadmin'
+}
 
 function roleLabel(code: string) {
   const fromCatalog = roleCatalog.value.find((r) => r.code === code)?.name
@@ -246,7 +253,7 @@ watch(
   async ([open, role]) => {
     buildingSelectObserver?.disconnect()
     buildingSelectObserver = null
-    if (!open || role === ADMIN_ROLE_CODE) return
+    if (!open || isAllBuildingsRole(role)) return
     await nextTick()
     fitBuildingTags()
     const el = buildingSelectRef.value?.$el
@@ -259,7 +266,7 @@ watch(
 onBeforeUnmount(() => buildingSelectObserver?.disconnect())
 
 function buildingLabel(row: UserRecord) {
-  if (row.role === ADMIN_ROLE_CODE) return t('user.allBuildings')
+  if (isAllBuildingsRole(row.role)) return t('user.allBuildings')
   const names = (row.buildings || []).map((b) => b.name)
   return names.length ? names.join('、') : '—'
 }
@@ -338,7 +345,7 @@ async function saveForm() {
         status: form.status,
         phone: form.phone.trim(),
         email: form.email.trim(),
-        buildingIds: form.role === ADMIN_ROLE_CODE ? [] : [...form.buildingIds],
+        buildingIds: isAllBuildingsRole(form.role) ? [] : [...form.buildingIds],
       }
       await updateUserApi(editing.value.id, payload)
       ElMessage.success(t('user.updated'))
@@ -351,7 +358,7 @@ async function saveForm() {
         status: form.status,
         phone: form.phone.trim(),
         email: form.email.trim(),
-        buildingIds: form.role === ADMIN_ROLE_CODE ? [] : [...form.buildingIds],
+        buildingIds: isAllBuildingsRole(form.role) ? [] : [...form.buildingIds],
       })
       ElMessage.success(t('user.created'))
     }
@@ -744,7 +751,7 @@ async function onDelete(row: UserRecord) {
             <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
           </el-form-item>
           <el-form-item :label="t('user.fields.buildings')" class="span-2">
-            <p v-if="form.role === ADMIN_ROLE_CODE" class="form-hint">{{ t('user.buildingsAdminHint') }}</p>
+            <p v-if="isAllBuildingsRole(form.role)" class="form-hint">{{ t('user.buildingsAdminHint') }}</p>
             <template v-else>
               <el-select
                 ref="buildingSelectRef"

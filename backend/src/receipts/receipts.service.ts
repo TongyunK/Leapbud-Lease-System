@@ -3,13 +3,23 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  StreamableFile,
 } from '@nestjs/common'
-import { NumberingBizKey, Prisma } from '@prisma/client'
+import { NumberingBizKey, Prisma, ReceiptKind } from '@prisma/client'
+import { createReadStream } from 'fs'
+import { promises as fs } from 'fs'
+import * as path from 'path'
 import { PrismaService } from '../prisma/prisma.service'
 import { BuildingAccessService } from '../building-access/building-access.service'
 import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/receipt.dto'
-import { receiptInclude, toReceiptDto } from './receipt.mapper'
+import {
+  isExternalReceiptAttachmentKey,
+  receiptAttachmentStorageRel,
+  receiptInclude,
+  toReceiptAttachmentDto,
+  toReceiptDto,
+} from './receipt.mapper'
 import {
   dateRangeFilter,
   paginateArgs,
@@ -20,6 +30,84 @@ import {
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
+
+/** 开单生成定金收据时所需的合约字段 */
+export type BookingDepositContractSource = {
+  id: string
+  customerId: string
+  bookingDeposit: Prisma.Decimal | number | null
+  paymentDate: Date | null
+  paymentMethod: string
+  paymentVoucher: string
+  bookingDepositReceiptId?: string | null
+}
+
+function uploadsRoot() {
+  return path.join(process.cwd(), 'uploads')
+}
+
+/** multer 文件名 UTF-8 修复 */
+function decodeMulterFilename(name: string): string {
+  const raw = s(name)
+  if (!raw) return raw
+  try {
+    const decoded = Buffer.from(raw, 'latin1').toString('utf8')
+    if (decoded.includes('\uFFFD')) return raw
+    const rawHasCjk = /[\u4e00-\u9fff]/.test(raw)
+    const decodedHasCjk = /[\u4e00-\u9fff]/.test(decoded)
+    if (!rawHasCjk && decodedHasCjk) return decoded
+    return raw
+  } catch {
+    return raw
+  }
+}
+
+function safeAttachmentFileName(original: string): string {
+  const decoded = decodeMulterFilename(original) || 'file.bin'
+  const base = path.basename(decoded).replace(/[\\/]/g, '_')
+  if (!base || base.includes('..')) {
+    throw new BadRequestException('非法文件名')
+  }
+  return base
+}
+
+function assertAttachmentFile(file: Express.Multer.File) {
+  if (!file?.buffer?.length) {
+    throw new BadRequestException('请上传文件')
+  }
+  const fileName = safeAttachmentFileName(file.originalname)
+  return { fileName, buffer: file.buffer }
+}
+
+function mimeFromFileName(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase()
+  const map: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.zip': 'application/zip',
+    '.txt': 'text/plain',
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
+function fileNameFromStorageKey(storageKey: string): string {
+  const base = path.basename(receiptAttachmentStorageRel(storageKey) || storageKey)
+  return (
+    base.replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i, '') ||
+    base ||
+    'voucher'
+  )
+}
 
 function s(v?: string | null) {
   return (v ?? '').trim()
@@ -53,11 +141,35 @@ export class ReceiptsService {
     private readonly access: BuildingAccessService,
   ) {}
 
+  /** 按收据类型统计（受大厦范围约束） */
+  async countByKind(): Promise<{
+    all: number
+    invoice: number
+    booking_deposit: number
+  }> {
+    const where: Prisma.ReceiptWhereInput = {}
+    await this.access.constrain(where, 'viaCustomer')
+    const rows = await this.prisma.receipt.groupBy({
+      by: ['kind'],
+      where,
+      _count: { _all: true },
+    })
+    const counts = { all: 0, invoice: 0, booking_deposit: 0 }
+    for (const row of rows) {
+      const n = row._count._all
+      counts.all += n
+      if (row.kind === ReceiptKind.booking_deposit) counts.booking_deposit += n
+      else counts.invoice += n
+    }
+    return counts
+  }
+
   async findAll(params: {
     keyword?: string
     customerId?: string
     customerNames?: string[]
     paymentMethods?: string[]
+    kinds?: string[]
     contractCodes?: string[]
     invoiceCodes?: string[]
     receivableCodes?: string[]
@@ -102,6 +214,7 @@ export class ReceiptsService {
     customerId?: string
     customerNames?: string[]
     paymentMethods?: string[]
+    kinds?: string[]
     contractCodes?: string[]
     invoiceCodes?: string[]
     receivableCodes?: string[]
@@ -118,6 +231,11 @@ export class ReceiptsService {
 
     if (params.customerId?.trim()) where.customerId = params.customerId.trim()
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
+    const kinds = (params.kinds || [])
+      .map((k) => k.trim())
+      .filter((k): k is ReceiptKind => k === ReceiptKind.booking_deposit || k === ReceiptKind.invoice)
+    if (kinds.length === 1) where.kind = kinds[0]
+    else if (kinds.length > 1) where.kind = { in: kinds }
     if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim()
     if (params.receivableId?.trim()) where.receivableId = params.receivableId.trim()
 
@@ -153,9 +271,8 @@ export class ReceiptsService {
           { receiptCode: { contains: keyword, mode: 'insensitive' } },
           { paymentMethod: { contains: keyword, mode: 'insensitive' } },
           { remark: { contains: keyword, mode: 'insensitive' } },
-          { voucher1: { contains: keyword, mode: 'insensitive' } },
-          { voucher2: { contains: keyword, mode: 'insensitive' } },
           { changeLog: { contains: keyword, mode: 'insensitive' } },
+          { attachments: { some: { fileName: { contains: keyword, mode: 'insensitive' } } } },
           { customer: { name: { contains: keyword, mode: 'insensitive' } } },
           { customer: { customerCode: { contains: keyword, mode: 'insensitive' } } },
           { contract: { contractCode: { contains: keyword, mode: 'insensitive' } } },
@@ -181,6 +298,7 @@ export class ReceiptsService {
     const dir = parseSortDir(sortDir) ?? 'desc'
     const key = (sortBy || '').trim()
     if (key === 'receiptCode') return [{ receiptCode: dir }]
+    if (key === 'kind') return [{ kind: dir }, { receiptCode: dir }]
     if (key === 'customerName') return [{ customer: { name: dir } }]
     if (key === 'contractCode') return [{ contract: { contractCode: dir } }]
     if (key === 'invoiceCode') return [{ invoice: { invoiceCode: dir } }]
@@ -189,8 +307,6 @@ export class ReceiptsService {
     if (key === 'paymentMethod') return [{ paymentMethod: dir }, { receiptCode: 'desc' }]
     if (key === 'amount') return [{ amount: dir }]
     if (key === 'remark') return [{ remark: dir }]
-    if (key === 'voucher1') return [{ voucher1: dir }]
-    if (key === 'voucher2') return [{ voucher2: dir }]
     if (key === 'changeLog') return [{ changeLog: dir }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
@@ -398,14 +514,49 @@ export class ReceiptsService {
     }
   }
 
+  /**
+   * 按关联收据金额合计回写应收：已收 = Σ收据金额，未收 = max(0, 开票金额 − 已收)。
+   */
+  private async syncReceivableFromReceipts(receivableId: string | null | undefined) {
+    const id = (receivableId || '').trim()
+    if (!id) return
+    const recv = await this.prisma.receivable.findUnique({
+      where: { id },
+      select: { id: true, invoiceAmount: true },
+    })
+    if (!recv) return
+    const agg = await this.prisma.receipt.aggregate({
+      where: { receivableId: id },
+      _sum: { amount: true },
+    })
+    const receivedRaw = agg._sum.amount == null ? 0 : Number(agg._sum.amount.toString())
+    const received = Number.isFinite(receivedRaw) ? receivedRaw : 0
+    const invoiceAmt = Number(recv.invoiceAmount.toString())
+    const outstanding = Math.max(0, (Number.isFinite(invoiceAmt) ? invoiceAmt : 0) - received)
+    await this.prisma.receivable.update({
+      where: { id },
+      data: {
+        receivedAmount: new Prisma.Decimal(received),
+        receivableAmount: new Prisma.Decimal(outstanding),
+      },
+    })
+  }
+
   async create(dto: CreateReceiptDto, actorId?: string | null) {
     const links = await this.resolveLinks(dto)
     const receiptCode = s(dto.receiptCode) || (await this.nextReceiptCode())
+    // 关联发票时一律视为发票收据；否则尊重传入 kind，默认 invoice
+    const kind = links.invoiceId
+      ? ReceiptKind.invoice
+      : dto.kind === ReceiptKind.booking_deposit
+        ? ReceiptKind.booking_deposit
+        : ReceiptKind.invoice
 
     try {
       const row = await this.prisma.receipt.create({
         data: {
           receiptCode,
+          kind,
           customerId: links.customerId,
           contractId: links.contractId,
           invoiceId: links.invoiceId,
@@ -414,17 +565,103 @@ export class ReceiptsService {
           paymentMethod: s(dto.paymentMethod),
           amount: decimalField(dto.amount, 'amount'),
           remark: s(dto.remark),
-          voucher1: s(dto.voucher1),
-          voucher2: s(dto.voucher2),
           changeLog: s(dto.changeLog),
           createdById: actorId || null,
           updatedById: actorId || null,
         },
         include: receiptInclude,
       })
+      await this.syncReceivableFromReceipts(links.receivableId)
       return toReceiptDto(row)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(`收据编号「${receiptCode}」已存在`)
+      }
+      throw e
+    }
+  }
+
+  /**
+   * 开单幂等：按合约定金生成「定金收据」，并回写 contract.bookingDepositReceiptId。
+   * 金额可为 0；已有指针或已有同合约定金收据则复用。
+   * 若合约有收款凭证路径，同步写入收据附件表（引用同一 storageKey，不复制文件）。
+   */
+  async ensureBookingDepositReceipt(
+    contract: BookingDepositContractSource,
+    actorId?: string | null,
+    tx?: Prisma.TransactionClient,
+  ): Promise<string> {
+    const db = tx ?? this.prisma
+    if (contract.bookingDepositReceiptId) {
+      return contract.bookingDepositReceiptId
+    }
+
+    const existing = await db.receipt.findFirst({
+      where: { contractId: contract.id, kind: ReceiptKind.booking_deposit },
+      select: { id: true },
+    })
+    if (existing) {
+      await db.contract.update({
+        where: { id: contract.id },
+        data: { bookingDepositReceiptId: existing.id },
+      })
+      return existing.id
+    }
+
+    const receiptCode = await this.nextReceiptCode()
+    const amountRaw =
+      contract.bookingDeposit == null ? 0 : Number(contract.bookingDeposit.toString())
+    const amount = Number.isNaN(amountRaw) ? 0 : amountRaw
+    const voucherKey = s(contract.paymentVoucher)
+
+    try {
+      const created = await db.receipt.create({
+        data: {
+          receiptCode,
+          kind: ReceiptKind.booking_deposit,
+          customerId: contract.customerId,
+          contractId: contract.id,
+          paymentDate: contract.paymentDate,
+          paymentMethod: s(contract.paymentMethod),
+          amount: new Prisma.Decimal(amount),
+          remark: '定金收據',
+          createdById: actorId || null,
+          updatedById: actorId || null,
+          ...(voucherKey
+            ? {
+                attachments: {
+                  create: {
+                    fileName: fileNameFromStorageKey(voucherKey),
+                    storageKey: voucherKey,
+                    sortOrder: 0,
+                    createdById: actorId || null,
+                    updatedById: actorId || null,
+                  },
+                },
+              }
+            : {}),
+        },
+        select: { id: true },
+      })
+      await db.contract.update({
+        where: { id: contract.id },
+        data: { bookingDepositReceiptId: created.id },
+      })
+      return created.id
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // 并发下可能已由另一事务创建；回读并钉指针
+        const raced = await db.receipt.findFirst({
+          where: { contractId: contract.id, kind: ReceiptKind.booking_deposit },
+          select: { id: true },
+        })
+        if (raced) {
+          await db.contract.update({
+            where: { id: contract.id },
+            data: { bookingDepositReceiptId: raced.id },
+          })
+          return raced.id
+        }
         throw new ConflictException(`收据编号「${receiptCode}」已存在`)
       }
       throw e
@@ -493,11 +730,20 @@ export class ReceiptsService {
       dto.receiptCode !== undefined ? s(dto.receiptCode) || existing.receiptCode : existing.receiptCode
     if (!receiptCode) throw new BadRequestException('receiptCode is required')
 
+    let kind: ReceiptKind | undefined
+    if (invoiceId) {
+      kind = ReceiptKind.invoice
+    } else if (dto.kind !== undefined) {
+      kind = dto.kind
+    }
+
+    const prevReceivableId = existing.receivableId
     try {
       const row = await this.prisma.receipt.update({
         where: { id },
         data: {
           receiptCode,
+          ...(kind !== undefined ? { kind } : {}),
           customerId,
           contractId,
           invoiceId,
@@ -509,13 +755,15 @@ export class ReceiptsService {
           paymentMethod: dto.paymentMethod !== undefined ? s(dto.paymentMethod) : undefined,
           amount: dto.amount !== undefined ? decimalField(dto.amount, 'amount') : undefined,
           remark: dto.remark !== undefined ? s(dto.remark) : undefined,
-          voucher1: dto.voucher1 !== undefined ? s(dto.voucher1) : undefined,
-          voucher2: dto.voucher2 !== undefined ? s(dto.voucher2) : undefined,
           changeLog: dto.changeLog !== undefined ? s(dto.changeLog) : undefined,
           updatedById: actorId || null,
         },
         include: receiptInclude,
       })
+      await this.syncReceivableFromReceipts(receivableId)
+      if (prevReceivableId && prevReceivableId !== receivableId) {
+        await this.syncReceivableFromReceipts(prevReceivableId)
+      }
       return toReceiptDto(row)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -525,22 +773,149 @@ export class ReceiptsService {
     }
   }
 
-  async remove(id: string) {
+  private absPath(storageKey: string) {
+    const rel = receiptAttachmentStorageRel(storageKey)
+    if (!rel || rel.includes('..')) {
+      throw new BadRequestException('非法附件路径')
+    }
+    return path.join(uploadsRoot(), rel)
+  }
+
+  private storageKeyForReceiptAttachment(receiptId: string, fileName: string) {
+    const id = s(receiptId)
+    const base = path.basename(s(fileName))
+    if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) {
+      throw new BadRequestException('非法收据 ID')
+    }
+    if (!base || base.includes('..') || base.includes('/') || base.includes('\\')) {
+      throw new BadRequestException('非法文件名')
+    }
+    const unique = `${Date.now()}_${base}`
+    return `receipts/${id}/${unique}`
+  }
+
+  private async removeStoredAttachmentFile(storageKey: string) {
+    if (!storageKey || isExternalReceiptAttachmentKey(storageKey)) return
+    // 共享自 uploads/attachments 的凭证不随收据删除而删物理文件
+    const rel = receiptAttachmentStorageRel(storageKey)
+    if (rel.startsWith('attachments/')) return
+    const abs = this.absPath(storageKey)
+    await fs.rm(abs, { force: true }).catch(() => undefined)
+  }
+
+  private async removeReceiptAttachmentDir(receiptId: string) {
+    const dir = path.join(uploadsRoot(), 'receipts', receiptId)
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined)
+  }
+
+  async uploadAttachments(receiptId: string, files: Express.Multer.File[], actor = '') {
+    const receipt = await this.prisma.receipt.findUnique({ where: { id: receiptId } })
+    if (!receipt) throw new NotFoundException(`Receipt ${receiptId} not found`)
+    await this.access.assertCustomerId(receipt.customerId)
+    if (!files?.length) throw new BadRequestException('请至少上传一个文件')
+
+    const maxSort = await this.prisma.receiptAttachment.aggregate({
+      where: { receiptId },
+      _max: { sortOrder: true },
+    })
+    let nextSort = (maxSort._max.sortOrder ?? -1) + 1
+    const actorId = actor || null
+    const created = []
+
+    for (const file of files) {
+      const { fileName, buffer } = assertAttachmentFile(file)
+      const storageKey = this.storageKeyForReceiptAttachment(receiptId, fileName)
+      const abs = this.absPath(storageKey)
+      await fs.mkdir(path.dirname(abs), { recursive: true })
+      await fs.writeFile(abs, buffer)
+      const row = await this.prisma.receiptAttachment.create({
+        data: {
+          receiptId,
+          fileName,
+          storageKey,
+          sortOrder: nextSort++,
+          createdById: actorId,
+          updatedById: actorId,
+        },
+      })
+      created.push(toReceiptAttachmentDto(row))
+    }
+    return created
+  }
+
+  async removeAttachment(receiptId: string, attachmentId: string) {
+    const row = await this.prisma.receiptAttachment.findFirst({
+      where: { id: attachmentId, receiptId },
+    })
+    if (!row) throw new NotFoundException(`Receipt attachment ${attachmentId} not found`)
+    const receipt = await this.prisma.receipt.findUnique({
+      where: { id: receiptId },
+      select: { customerId: true },
+    })
+    if (!receipt) throw new NotFoundException(`Receipt ${receiptId} not found`)
+    await this.access.assertCustomerId(receipt.customerId)
+    await this.prisma.receiptAttachment.delete({ where: { id: attachmentId } })
+    await this.removeStoredAttachmentFile(row.storageKey)
+    return { success: true }
+  }
+
+  async getAttachmentFile(receiptId: string, attachmentId: string): Promise<StreamableFile> {
+    const row = await this.prisma.receiptAttachment.findFirst({
+      where: { id: attachmentId, receiptId },
+    })
+    if (!row) throw new NotFoundException(`Receipt attachment ${attachmentId} not found`)
+    const receipt = await this.prisma.receipt.findUnique({
+      where: { id: receiptId },
+      select: { customerId: true },
+    })
+    if (!receipt) throw new NotFoundException(`Receipt ${receiptId} not found`)
+    await this.access.assertCustomerId(receipt.customerId)
+    if (isExternalReceiptAttachmentKey(row.storageKey)) {
+      throw new BadRequestException('该附件为外部地址，请直接使用 publicUrl')
+    }
+    const abs = this.absPath(row.storageKey)
     try {
+      await fs.access(abs)
+    } catch {
+      throw new NotFoundException('附件文件不存在')
+    }
+    const stream = createReadStream(abs)
+    return new StreamableFile(stream, {
+      type: mimeFromFileName(row.fileName),
+      disposition: `inline; filename*=UTF-8''${encodeURIComponent(row.fileName)}`,
+    })
+  }
+
+  async remove(id: string) {
+    const existing = await this.prisma.receipt.findUnique({
+      where: { id },
+      include: { attachments: true },
+    })
+    if (!existing) throw new NotFoundException('Receipt not found')
+    await this.access.assertCustomerId(existing.customerId)
+    const receivableId = existing.receivableId
+    try {
+      // 附件 Cascade；合约定金指针 SetNull
       await this.prisma.receipt.delete({ where: { id } })
-      return { success: true }
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-        throw new NotFoundException('Receipt not found')
+      if (e instanceof Prisma.PrismaClientKnownRequestError) {
+        if (e.code === 'P2025') throw new NotFoundException('Receipt not found')
+        if (e.code === 'P2003') {
+          throw new ConflictException('无法删除：收据仍有关联数据，请先处理关联记录')
+        }
       }
       throw e
     }
+    for (const att of existing.attachments) {
+      await this.removeStoredAttachmentFile(att.storageKey)
+    }
+    await this.removeReceiptAttachmentDir(id)
+    await this.syncReceivableFromReceipts(receivableId)
+    return { success: true }
   }
 
   async removeMany(ids: string[]) {
-    return runBatchRemove(ids, async (id) => {
-      await this.prisma.receipt.delete({ where: { id } })
-    })
+    return runBatchRemove(ids, (id) => this.remove(id))
   }
 
   async importBatch(dto: ImportReceiptsDto, actorId?: string | null) {

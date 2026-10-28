@@ -2,11 +2,22 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ContractRecord } from '@/types/contract'
 import type { ReceivableRecord } from '@/types/receivable'
-import { fetchReceivables } from '@/api/receivables'
+import {
+  batchDeleteReceivablesApi,
+  deleteReceivableApi,
+  fetchReceivables,
+} from '@/api/receivables'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useResourcePermissions } from '@/composables/useResourcePermissions'
+import {
+  useTableSelection,
+  runBatchDelete,
+  runServerBatchDelete,
+} from '@/composables/useTableSelection'
 import TablePagination from '@/components/TablePagination.vue'
 import { formatMoney } from '@/utils/format'
 import { useTableColWidth } from '@/composables/useTableColWidth'
@@ -38,17 +49,30 @@ const emit = defineEmits<{
   openReceivable: [receivable: ReceivableRecord]
   openInvoice: [invoiceId: string]
   openContract: [contractId: string]
+  changed: []
 }>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
+const perms = useResourcePermissions('receivables')
 const { colW, codeColW, tableLayoutKey } = useTableColWidth()
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<ReceivableRecord>()
+
 const receivables = ref<ReceivableRecord[]>([])
 const loading = ref(false)
 const keyword = ref('')
+const batchDeleting = ref(false)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '860px'))
+const canDelete = computed(() => perms.delete.value || perms.batchDelete.value)
 
 const title = computed(() => {
   const ctx = props.titleContext?.trim()
@@ -123,11 +147,13 @@ watch(
     if (open && (customerId || invoiceId || depositRefundId || contractId)) {
       keyword.value = ''
       resetPage()
+      clearSelection()
       void loadReceivables()
     }
     if (!open) {
       receivables.value = []
       keyword.value = ''
+      clearSelection()
     }
   },
 )
@@ -135,8 +161,45 @@ watch(
 function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: Event) {
   if (column?.type === 'selection') return
   const el = event?.target as HTMLElement | null
-  if (el?.closest('.el-checkbox, .el-table-column--selection, button, a')) return
+  if (el?.closest('.el-checkbox, .el-table-column--selection, .action-pills, button, a')) return
   emit('openReceivable', row)
+}
+
+async function onSelectAll() {
+  await selectRows(filtered.value)
+}
+
+async function onToolbarDelete() {
+  if (!canDelete.value) return
+  if (!selectedIds.value.length) {
+    ElMessage.warning(t('common.selectFirst'))
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  try {
+    const { ok, fail } = perms.batchDelete.value
+      ? await runServerBatchDelete(ids, (chunk) => batchDeleteReceivablesApi(chunk))
+      : await runBatchDelete(ids, (id) => deleteReceivableApi(id))
+    if (fail === 0) ElMessage.success(t('common.batchDeleteDone', { ok }))
+    else ElMessage.warning(t('common.batchDeletePartial', { ok, fail }))
+    clearSelection()
+    await loadReceivables()
+    emit('changed')
+  } catch {
+    /* interceptor */
+  } finally {
+    batchDeleting.value = false
+  }
 }
 </script>
 
@@ -157,6 +220,17 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
           :prefix-icon="Search"
           :placeholder="t('receivable.searchPlaceholder')"
         />
+        <div v-if="canDelete" class="related-list__actions">
+          <button
+            v-admin-glow="perms.batchDelete ? perms.codes.batchDelete : perms.codes.delete"
+            type="button"
+            class="action-pill action-pill--danger"
+            :disabled="batchDeleting"
+            @click="onToolbarDelete"
+          >
+            {{ t('common.delete') }}
+          </button>
+        </div>
       </div>
 
       <div class="related-list__body">
@@ -164,15 +238,27 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
         <el-table
           v-else
           :key="tableLayoutKey"
+          ref="tableRef"
           class="related-list__table related-list__table--clickable"
           :data="paged"
+          row-key="id"
           height="100%"
           stripe
           border
           scrollbar-always-on
           style="width: 100%"
+          @selection-change="onSelectionChange"
           @row-click="onRowClick"
         >
+          <el-table-column
+            v-if="canDelete"
+            type="selection"
+            width="48"
+            align="center"
+            header-align="center"
+            reserve-selection
+            fixed="left"
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -282,6 +368,10 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="pageSizes"
+          :selected-count="canDelete ? selectedCount : 0"
+          :enable-select-all="canDelete"
+          @select-all="onSelectAll"
+          @clear-selection="clearSelection"
         />
       </div>
     </div>
@@ -299,10 +389,24 @@ function onRowClick(row: ReceivableRecord, column?: { type?: string }, event?: E
 
 .related-list__toolbar {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .related-list__search {
+  flex: 1 1 240px;
   max-width: 360px;
+}
+
+.related-list__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .related-list__body {

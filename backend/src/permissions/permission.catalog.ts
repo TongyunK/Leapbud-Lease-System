@@ -48,6 +48,8 @@ export const PERMISSION_MODULES: PermissionModuleDef[] = [
   { module: 'customerSources', moduleName: '客戶來源', sortOrder: 230, defaultGrant: false },
   { module: 'documentTemplates', moduleName: '單據模板', sortOrder: 240, defaultGrant: false },
   { module: 'numberingRules', moduleName: '自動編號', sortOrder: 250, defaultGrant: false },
+  { module: 'systemSettings', moduleName: '系統設置', sortOrder: 255, defaultGrant: false },
+  { module: 'scheduledJobs', moduleName: '定時任務', sortOrder: 256, defaultGrant: false },
   { module: 'users', moduleName: '用戶', sortOrder: 260, defaultGrant: false },
   { module: 'roles', moduleName: '角色', sortOrder: 270, defaultGrant: false },
   { module: 'menus', moduleName: '菜單', sortOrder: 280, defaultGrant: false },
@@ -67,6 +69,12 @@ const ACTION_LABEL_BY_MODULE: Partial<Record<string, Partial<Record<PermissionAc
     update: '跟進',
     delete: '取消',
     batchDelete: '批量取消',
+  },
+  systemSettings: {
+    update: '保存',
+  },
+  scheduledJobs: {
+    update: '編輯/運行',
   },
 };
 

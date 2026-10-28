@@ -366,7 +366,15 @@ const permsLoading = ref(false)
 const permsSaving = ref(false)
 const permsCatalog = ref<PermissionModuleGroup[]>([])
 const checkedPermCodes = ref<string[]>([])
+/** 超级管理员角色：始终全权限，不可改 */
+const permsIsSuperAdminRole = computed(
+  () => String(permsTarget.value?.code || '').trim().toLowerCase() === 'superadmin',
+)
+/** 管理员角色：仅超级管理员可配置其功能权限 */
 const permsIsAdminRole = computed(() => permsTarget.value?.code === 'admin')
+const permsReadOnly = computed(
+  () => permsIsSuperAdminRole.value || (permsIsAdminRole.value && !userStore.isSuperAdmin),
+)
 const permsSelectedCount = computed(() => checkedPermCodes.value.length)
 
 async function openPermissions(row: RoleRecord) {
@@ -379,8 +387,11 @@ async function openPermissions(row: RoleRecord) {
       fetchPermissionCatalogApi(),
       fetchRolePermissionsApi(row.id),
     ])
-    permsCatalog.value = catalogRes.data ?? []
-    checkedPermCodes.value = rolePermsRes.data.codes ?? []
+    const catalog = (catalogRes.data ?? []).filter((g) => (g.items?.length ?? 0) > 0)
+    permsCatalog.value = catalog
+    const allowed = new Set(catalog.flatMap((g) => g.items.map((i) => i.code)))
+    // 仅勾选目录内可见项；自身没有的码不展示，保存时由后端保留目标角色上这些码
+    checkedPermCodes.value = (rolePermsRes.data.codes ?? []).filter((c) => allowed.has(c))
   } catch {
     /* interceptor */
   } finally {
@@ -403,15 +414,15 @@ function selectModulePerms(group: PermissionModuleGroup) {
 
 async function savePermissions() {
   const row = permsTarget.value
-  if (!row || permsIsAdminRole.value) return
+  if (!row || permsReadOnly.value) return
   permsSaving.value = true
   try {
     await assignRolePermissionsApi(row.id, checkedPermCodes.value)
     ElMessage.success(t('role.permissionsUpdated'))
     permsDrawerVisible.value = false
     await loadList()
-    // 刷新本人权限；admin 同时刷新「仅管理员拥有」列表以更新发光描边
-    if (userStore.isAdmin || userStore.role === row.code) {
+    // 刷新本人权限；超级管理员同时刷新「仅超管拥有」列表以更新发光描边
+    if (userStore.isSuperAdmin || userStore.isAdmin || userStore.role === row.code) {
       void userStore.loadPermissions()
     }
   } catch {
@@ -780,14 +791,25 @@ async function savePermissions() {
       class="role-perms-drawer"
     >
       <div class="menus-drawer-body">
-        <p v-if="permsIsAdminRole" class="perms-admin-hint">{{ t('role.permissionsAdminHint') }}</p>
+        <p v-if="permsIsSuperAdminRole" class="perms-admin-hint">
+          {{ t('role.permissionsSuperAdminHint') }}
+        </p>
+        <p v-else-if="permsIsAdminRole && !userStore.isSuperAdmin" class="perms-admin-hint">
+          {{ t('role.permissionsAdminLockedHint') }}
+        </p>
+        <p v-else-if="permsIsAdminRole && userStore.isSuperAdmin" class="perms-admin-hint">
+          {{ t('role.permissionsAdminEditableHint') }}
+        </p>
+        <p v-else-if="!userStore.isSuperAdmin && !permsReadOnly" class="perms-admin-hint">
+          {{ t('role.permissionsAssignScopeHint') }}
+        </p>
         <div class="menus-toolbar">
           <span class="menus-selected">{{ t('role.permissionsSelected', { n: permsSelectedCount }) }}</span>
           <div class="menus-toolbar-actions">
             <button
               type="button"
               class="menus-text-btn"
-              :disabled="permsLoading || permsIsAdminRole"
+              :disabled="permsLoading || permsReadOnly"
               @click="selectAllPerms"
             >
               {{ t('role.permissionsSelectAll') }}
@@ -795,7 +817,7 @@ async function savePermissions() {
             <button
               type="button"
               class="menus-text-btn"
-              :disabled="permsLoading || permsIsAdminRole"
+              :disabled="permsLoading || permsReadOnly"
               @click="clearAllPerms"
             >
               {{ t('role.permissionsClear') }}
@@ -811,13 +833,13 @@ async function savePermissions() {
               <button
                 type="button"
                 class="menus-text-btn"
-                :disabled="permsIsAdminRole"
+                :disabled="permsReadOnly"
                 @click="selectModulePerms(group)"
               >
                 {{ t('role.permissionsModuleSelect') }}
               </button>
             </div>
-            <el-checkbox-group v-model="checkedPermCodes" :disabled="permsIsAdminRole" class="perms-checks">
+            <el-checkbox-group v-model="checkedPermCodes" :disabled="permsReadOnly" class="perms-checks">
               <el-checkbox
                 v-for="item in group.items"
                 :key="item.code"
@@ -839,7 +861,7 @@ async function savePermissions() {
             type="primary"
             class="lb-btn-primary"
             :loading="permsSaving"
-            :disabled="permsIsAdminRole"
+            :disabled="permsReadOnly"
             @click="savePermissions"
           >
             {{ t('common.save') }}

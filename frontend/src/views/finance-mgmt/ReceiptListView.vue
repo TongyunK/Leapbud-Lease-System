@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -8,18 +8,25 @@ import {
   createReceiptApi,
   deleteReceiptApi,
   batchDeleteReceiptsApi,
+  deleteReceiptAttachmentApi,
   fetchReceipt,
+  fetchReceiptKindCounts,
   fetchReceipts,
   importReceiptsApi,
   updateReceiptApi,
+  uploadReceiptAttachmentsApi,
 } from '@/api/receipts'
-import type { ReceiptWritePayload, ReceiptListQuery } from '@/api/receipts'
+import type { ReceiptKindCounts, ReceiptWritePayload, ReceiptListQuery } from '@/api/receipts'
 import { fetchCustomers } from '@/api/customers'
 import { fetchContracts } from '@/api/contracts'
 import { fetchInvoices } from '@/api/invoices'
 import { fetchReceivables } from '@/api/receivables'
-import type { ReceiptRecord } from '@/types/receipt'
-import { RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
+import type { ReceiptAttachmentRecord, ReceiptRecord } from '@/types/receipt'
+import { RECEIPT_KINDS, RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
+import { isPdfAttachment, isImageAttachment } from '@/utils/attachmentUrl'
+import StatusBadge from '@/components/StatusBadge.vue'
+import CountListPill from '@/components/CountListPill.vue'
+import { receiptKindTone } from '@/constants/statusBadges'
 import type { CustomerRecord } from '@/types/customer'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
@@ -36,6 +43,7 @@ import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
+import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
@@ -55,6 +63,7 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const { t, locale } = useI18n()
 const userStore = useUserStore()
+const buildingScope = useBuildingScopeStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('receipts')
 const { actionColWidth } = useActionColWidth()
@@ -96,6 +105,7 @@ const {
   colW,
   textColW,
   codeColW,
+  statusColW,
   datetimeColWidth,
   auditUserColWidth,
   tableLayoutKey,
@@ -104,10 +114,61 @@ const {
 const keyword = ref('')
 const formVisible = ref(false)
 const editing = ref<ReceiptRecord | null>(null)
-const customers = ref<CustomerRecord[]>([])
-const contracts = ref<ContractRecord[]>([])
-const invoices = ref<InvoiceRecord[]>([])
-const receivables = ref<ReceivableRecord[]>([])
+
+/** 表单下拉：打开再拉首屏 + 滚动追加（禁止全量预拉） */
+const SELECT_PAGE_SIZE = 20
+type ReceiptCustomerOpt = Pick<CustomerRecord, 'id' | 'customerCode' | 'name'>
+type ReceiptContractOpt = Pick<ContractRecord, 'id' | 'contractCode' | 'customerId' | 'customerName'>
+type ReceiptInvoiceOpt = Pick<
+  InvoiceRecord,
+  'id' | 'invoiceCode' | 'customerId' | 'contractId' | 'customerName'
+>
+type ReceiptReceivableOpt = Pick<
+  ReceivableRecord,
+  | 'id'
+  | 'receivableCode'
+  | 'customerId'
+  | 'contractId'
+  | 'invoiceId'
+  | 'customerName'
+  | 'receivableAmount'
+>
+
+const customerSelectOptions = ref<ReceiptCustomerOpt[]>([])
+const customerSelectLoading = ref(false)
+const customerSelectLoadingMore = ref(false)
+const customerSelectPage = ref(1)
+const customerSelectHasMore = ref(true)
+const customerSelectKeyword = ref('')
+let customerSelectScrollEl: HTMLElement | null = null
+let customerSelectScrollHandler: ((e: Event) => void) | null = null
+
+const contractSelectOptions = ref<ReceiptContractOpt[]>([])
+const contractSelectLoading = ref(false)
+const contractSelectLoadingMore = ref(false)
+const contractSelectPage = ref(1)
+const contractSelectHasMore = ref(true)
+const contractSelectKeyword = ref('')
+let contractSelectScrollEl: HTMLElement | null = null
+let contractSelectScrollHandler: ((e: Event) => void) | null = null
+
+const invoiceSelectOptions = ref<ReceiptInvoiceOpt[]>([])
+const invoiceSelectLoading = ref(false)
+const invoiceSelectLoadingMore = ref(false)
+const invoiceSelectPage = ref(1)
+const invoiceSelectHasMore = ref(true)
+const invoiceSelectKeyword = ref('')
+let invoiceSelectScrollEl: HTMLElement | null = null
+let invoiceSelectScrollHandler: ((e: Event) => void) | null = null
+
+const receivableSelectOptions = ref<ReceiptReceivableOpt[]>([])
+const receivableSelectLoading = ref(false)
+const receivableSelectLoadingMore = ref(false)
+const receivableSelectPage = ref(1)
+const receivableSelectHasMore = ref(true)
+const receivableSelectKeyword = ref('')
+let receivableSelectScrollEl: HTMLElement | null = null
+let receivableSelectScrollHandler: ((e: Event) => void) | null = null
 
 const drawerVisible = ref(false)
 const current = ref<ReceiptRecord | null>(null)
@@ -128,6 +189,41 @@ const {
   sortOrder,
 } = useTableSortFilter<ReceiptRecord>()
 
+/** 页头快捷筛选：null=全部 */
+const kindChipFilter = ref<'invoice' | 'booking_deposit' | null>(null)
+const kindChipCounts = ref<ReceiptKindCounts>({
+  all: 0,
+  invoice: 0,
+  booking_deposit: 0,
+})
+
+const kindChips = computed(() => [
+  {
+    key: null as 'invoice' | 'booking_deposit' | null,
+    label: t('receipt.kindFilterAll'),
+    count: kindChipCounts.value.all,
+  },
+  {
+    key: 'invoice' as const,
+    label: t('receipt.kind.invoice'),
+    count: kindChipCounts.value.invoice,
+  },
+  {
+    key: 'booking_deposit' as const,
+    label: t('receipt.kind.booking_deposit'),
+    count: kindChipCounts.value.booking_deposit,
+  },
+])
+
+async function loadKindChipCounts() {
+  try {
+    const { data } = await fetchReceiptKindCounts()
+    kindChipCounts.value = data
+  } catch {
+    /* interceptor */
+  }
+}
+
 const {
   loading,
   exporting,
@@ -137,6 +233,7 @@ const {
   pageSize,
   pageSizes,
   rowIndex,
+  resetPage,
   loadList,
   fetchExportRows,
   onClearFilters,
@@ -146,10 +243,13 @@ const {
   buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => {
     const created = range('createdAt')
     const payment = range('paymentDate')
+    const chipKey = kindChipFilter.value
     return {
       keyword: kw,
       customerNames: f.customerName?.length ? [...f.customerName] : undefined,
       paymentMethod: f.paymentMethod?.length ? [...f.paymentMethod] : undefined,
+      // 页头胶囊优先；未选时才用表头「收據類型」细筛
+      kinds: chipKey ? [chipKey] : f.kind?.length ? [...f.kind] : undefined,
       contractCodes: f.contractCode?.length ? [...f.contractCode] : undefined,
       invoiceCodes: f.invoiceCode?.length ? [...f.invoiceCode] : undefined,
       receivableCodes: f.receivableCode?.length ? [...f.receivableCode] : undefined,
@@ -165,6 +265,14 @@ const {
   },
   fetchPage: fetchReceipts,
 })
+
+function setKindChipFilter(key: 'invoice' | 'booking_deposit' | null) {
+  if (kindChipFilter.value === key) return
+  kindChipFilter.value = key
+  if (filters.kind?.length) setFilter('kind', [])
+  resetPage()
+  void loadList()
+}
 
 const codeLayoutKey = computed(() =>
   [
@@ -243,7 +351,7 @@ async function onBatchDelete() {
     )
     finishBatch(ok, fail)
     clearSelection()
-    await loadList()
+    await Promise.all([loadList(), loadKindChipCounts()])
   } catch {
     finishBatch(0, ids.length)
   } finally {
@@ -251,84 +359,49 @@ async function onBatchDelete() {
   }
 }
 
-const customerNameFilterOptions = computed(() => {
+/** 表头筛选：从当前列表页聚合，避免全量拉选项 */
+function uniqLabelOptions(values: Array<string | null | undefined>) {
   const seen = new Set<string>()
   const opts: { value: string; label: string }[] = []
-  for (const c of customers.value) {
-    const name = c.name?.trim()
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    opts.push({ value: name, label: name })
+  for (const raw of values) {
+    const v = raw?.trim()
+    if (!v || seen.has(v)) continue
+    seen.add(v)
+    opts.push({ value: v, label: v })
   }
-  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
-})
+  return opts
+}
+
+const customerNameFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.customerName)).sort((a, b) =>
+    a.label.localeCompare(b.label, 'zh-Hant'),
+  ),
+)
 
 const paymentMethodFilterOptions = computed(() =>
   RECEIPT_PAYMENT_METHODS.map((m) => ({ value: m, label: m })),
 )
 
-const contractCodeFilterOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { value: string; label: string }[] = []
-  for (const c of contracts.value) {
-    const code = c.contractCode?.trim()
-    if (!code || seen.has(code)) continue
-    seen.add(code)
-    opts.push({ value: code, label: code })
-  }
-  return opts
-})
-
-const invoiceCodeFilterOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { value: string; label: string }[] = []
-  for (const inv of invoices.value) {
-    const code = inv.invoiceCode?.trim()
-    if (!code || seen.has(code)) continue
-    seen.add(code)
-    opts.push({ value: code, label: code })
-  }
-  return opts
-})
-
-const receivableCodeFilterOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { value: string; label: string }[] = []
-  for (const r of receivables.value) {
-    const code = r.receivableCode?.trim()
-    if (!code || seen.has(code)) continue
-    seen.add(code)
-    opts.push({ value: code, label: code })
-  }
-  return opts
-})
-
-const customerSelectOptions = computed(() =>
-  customers.value.map((c) => ({
-    value: c.id,
-    label: `${c.customerCode} · ${c.name}`,
-  })),
+const kindFilterOptions = computed(() =>
+  RECEIPT_KINDS.map((k) => ({ value: k, label: t(`receipt.kind.${k}`) })),
 )
 
-const contractSelectOptions = computed(() =>
-  contracts.value.map((c) => ({
-    value: c.id,
-    label: `${c.contractCode} · ${c.customerName}`,
-  })),
+function kindLabel(kind?: string | null) {
+  const k = (kind || 'invoice').trim()
+  const key = `receipt.kind.${k}`
+  return t(key) === key ? k : t(key)
+}
+
+const contractCodeFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.contractCode)),
 )
 
-const invoiceSelectOptions = computed(() =>
-  invoices.value.map((inv) => ({
-    value: inv.id,
-    label: `${inv.invoiceCode} · ${inv.customerName}`,
-  })),
+const invoiceCodeFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.invoiceCode)),
 )
 
-const receivableSelectOptions = computed(() =>
-  receivables.value.map((r) => ({
-    value: r.id,
-    label: `${r.receivableCode} · ${r.customerName}`,
-  })),
+const receivableCodeFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.receivableCode)),
 )
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
@@ -343,55 +416,617 @@ const emptyForm = () => ({
   paymentMethod: RECEIPT_PAYMENT_METHODS[0] as string,
   amount: null as number | null,
   remark: '',
-  voucher1: '',
-  voucher2: '',
   changeLog: '',
 })
 
 const form = reactive(emptyForm())
+const formExistingAttachments = ref<ReceiptAttachmentRecord[]>([])
+const formPendingAttachments = ref<Array<{ key: string; file: File }>>([])
+const formRemovedAttachmentIds = ref<string[]>([])
+const attachmentFileInput = ref<HTMLInputElement | null>(null)
+const saving = ref(false)
+
+function resetFormAttachments() {
+  formExistingAttachments.value = []
+  formPendingAttachments.value = []
+  formRemovedAttachmentIds.value = []
+}
+
+function onPickAttachments(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  for (const file of files) {
+    if (file.size > 20 * 1024 * 1024) {
+      ElMessage.warning(t('attachment.tooLarge'))
+      continue
+    }
+    formPendingAttachments.value.push({
+      key: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      file,
+    })
+  }
+}
+
+function removePendingAttachment(key: string) {
+  formPendingAttachments.value = formPendingAttachments.value.filter((p) => p.key !== key)
+}
+
+function removeExistingAttachment(id: string) {
+  formExistingAttachments.value = formExistingAttachments.value.filter((a) => a.id !== id)
+  if (!formRemovedAttachmentIds.value.includes(id)) {
+    formRemovedAttachmentIds.value.push(id)
+  }
+}
+
+function attachmentExtLabel(fileName: string) {
+  const ext = (fileName.split('.').pop() || '').toUpperCase()
+  if (!ext || ext.length > 5) return 'FILE'
+  return ext
+}
+
+function attachmentIconClass(fileName: string) {
+  if (isPdfAttachment(fileName)) return 'receipt-form-att__icon--pdf'
+  if (isImageAttachment(fileName)) return 'receipt-form-att__icon--img'
+  return 'receipt-form-att__icon--file'
+}
+
+function keepSelectedInOptions<T extends { id: string }>(
+  items: T[],
+  selectedId: string,
+  current: T[],
+): T[] {
+  if (!selectedId || items.some((x) => x.id === selectedId)) return items
+  const keep = current.find((x) => x.id === selectedId)
+  return keep ? [keep, ...items] : items
+}
+
+function appendUniqueById<T extends { id: string }>(prev: T[], next: T[]): void {
+  if (!next.length) return
+  const seen = new Set(prev.map((x) => x.id))
+  for (const item of next) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    prev.push(item)
+  }
+}
+
+function unbindSelectScroll(
+  el: HTMLElement | null,
+  handler: ((e: Event) => void) | null,
+): void {
+  if (el && handler) el.removeEventListener('scroll', handler)
+}
+
+function bindSelectScroll(
+  popperClass: string,
+  onReachEnd: () => void,
+): { el: HTMLElement | null; handler: ((e: Event) => void) | null } {
+  const popper = document.querySelector(`.${popperClass}`)
+  const wrap =
+    (popper?.querySelector('.el-select-dropdown__wrap') as HTMLElement | null) ||
+    (popper?.querySelector('.el-scrollbar__wrap') as HTMLElement | null)
+  if (!wrap) return { el: null, handler: null }
+  let ticking = false
+  const handler = () => {
+    if (ticking) return
+    ticking = true
+    requestAnimationFrame(() => {
+      ticking = false
+      if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 28) onReachEnd()
+    })
+  }
+  wrap.addEventListener('scroll', handler, { passive: true })
+  return { el: wrap, handler }
+}
+
+async function restoreSelectScroll(el: HTMLElement | null, top: number) {
+  if (!el) return
+  await nextTick()
+  el.scrollTop = top
+}
+
+async function attachSelectScroll(popperClass: string, onReachEnd: () => void) {
+  await nextTick()
+  let bound = bindSelectScroll(popperClass, onReachEnd)
+  if (!bound.el) {
+    await new Promise<void>((r) => requestAnimationFrame(() => r()))
+    bound = bindSelectScroll(popperClass, onReachEnd)
+  }
+  return bound
+}
+
+function customerOptionLabel(c: ReceiptCustomerOpt) {
+  return `${c.customerCode} · ${c.name}`
+}
+function contractOptionLabel(c: ReceiptContractOpt) {
+  return `${c.contractCode} · ${c.customerName}`
+}
+function invoiceOptionLabel(inv: ReceiptInvoiceOpt) {
+  return `${inv.invoiceCode} · ${inv.customerName}`
+}
+function receivableOptionLabel(r: ReceiptReceivableOpt) {
+  return `${r.receivableCode} · ${r.customerName}`
+}
+
+async function loadCustomersPage(reset: boolean) {
+  if (reset) {
+    if (customerSelectLoading.value) return
+    customerSelectLoading.value = true
+  } else {
+    if (
+      customerSelectLoading.value ||
+      customerSelectLoadingMore.value ||
+      !customerSelectHasMore.value
+    ) {
+      return
+    }
+    customerSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : customerSelectPage.value
+  const scrollEl = customerSelectScrollEl
+  const prevTop = scrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchCustomers({
+      keyword: customerSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+    })
+    const items: ReceiptCustomerOpt[] = data.items.map((c) => ({
+      id: c.id,
+      customerCode: c.customerCode,
+      name: c.name,
+    }))
+    if (reset) {
+      customerSelectOptions.value = keepSelectedInOptions(
+        items,
+        form.customerId.trim(),
+        customerSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(customerSelectOptions.value, items)
+      await restoreSelectScroll(scrollEl, prevTop)
+    }
+    customerSelectPage.value = page + 1
+    customerSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
+  } catch {
+    if (reset) {
+      customerSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.customerId.trim(),
+        customerSelectOptions.value,
+      )
+      customerSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) customerSelectLoading.value = false
+    else customerSelectLoadingMore.value = false
+  }
+}
+
+async function loadContractsPage(reset: boolean) {
+  if (reset) {
+    if (contractSelectLoading.value) return
+    contractSelectLoading.value = true
+  } else {
+    if (
+      contractSelectLoading.value ||
+      contractSelectLoadingMore.value ||
+      !contractSelectHasMore.value
+    ) {
+      return
+    }
+    contractSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : contractSelectPage.value
+  const scrollEl = contractSelectScrollEl
+  const prevTop = scrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchContracts({
+      keyword: contractSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+    })
+    const items: ReceiptContractOpt[] = data.items.map((c) => ({
+      id: c.id,
+      contractCode: c.contractCode,
+      customerId: c.customerId,
+      customerName: c.customerName,
+    }))
+    if (reset) {
+      contractSelectOptions.value = keepSelectedInOptions(
+        items,
+        form.contractId.trim(),
+        contractSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(contractSelectOptions.value, items)
+      await restoreSelectScroll(scrollEl, prevTop)
+    }
+    contractSelectPage.value = page + 1
+    contractSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
+  } catch {
+    if (reset) {
+      contractSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.contractId.trim(),
+        contractSelectOptions.value,
+      )
+      contractSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) contractSelectLoading.value = false
+    else contractSelectLoadingMore.value = false
+  }
+}
+
+async function loadInvoicesPage(reset: boolean) {
+  if (reset) {
+    if (invoiceSelectLoading.value) return
+    invoiceSelectLoading.value = true
+  } else {
+    if (
+      invoiceSelectLoading.value ||
+      invoiceSelectLoadingMore.value ||
+      !invoiceSelectHasMore.value
+    ) {
+      return
+    }
+    invoiceSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : invoiceSelectPage.value
+  const scrollEl = invoiceSelectScrollEl
+  const prevTop = scrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchInvoices({
+      keyword: invoiceSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+    })
+    const items: ReceiptInvoiceOpt[] = data.items.map((inv) => ({
+      id: inv.id,
+      invoiceCode: inv.invoiceCode,
+      customerId: inv.customerId,
+      contractId: inv.contractId,
+      customerName: inv.customerName,
+    }))
+    if (reset) {
+      invoiceSelectOptions.value = keepSelectedInOptions(
+        items,
+        form.invoiceId.trim(),
+        invoiceSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(invoiceSelectOptions.value, items)
+      await restoreSelectScroll(scrollEl, prevTop)
+    }
+    invoiceSelectPage.value = page + 1
+    invoiceSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
+  } catch {
+    if (reset) {
+      invoiceSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.invoiceId.trim(),
+        invoiceSelectOptions.value,
+      )
+      invoiceSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) invoiceSelectLoading.value = false
+    else invoiceSelectLoadingMore.value = false
+  }
+}
+
+async function loadReceivablesPage(reset: boolean) {
+  if (reset) {
+    if (receivableSelectLoading.value) return
+    receivableSelectLoading.value = true
+  } else {
+    if (
+      receivableSelectLoading.value ||
+      receivableSelectLoadingMore.value ||
+      !receivableSelectHasMore.value
+    ) {
+      return
+    }
+    receivableSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : receivableSelectPage.value
+  const scrollEl = receivableSelectScrollEl
+  const prevTop = scrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchReceivables({
+      keyword: receivableSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+    })
+    const items: ReceiptReceivableOpt[] = data.items.map((r) => ({
+      id: r.id,
+      receivableCode: r.receivableCode,
+      customerId: r.customerId,
+      contractId: r.contractId,
+      invoiceId: r.invoiceId,
+      customerName: r.customerName,
+      receivableAmount: r.receivableAmount,
+    }))
+    if (reset) {
+      receivableSelectOptions.value = keepSelectedInOptions(
+        items,
+        form.receivableId.trim(),
+        receivableSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(receivableSelectOptions.value, items)
+      await restoreSelectScroll(scrollEl, prevTop)
+    }
+    receivableSelectPage.value = page + 1
+    receivableSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
+  } catch {
+    if (reset) {
+      receivableSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.receivableId.trim(),
+        receivableSelectOptions.value,
+      )
+      receivableSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) receivableSelectLoading.value = false
+    else receivableSelectLoadingMore.value = false
+  }
+}
+
+function searchCustomersRemote(query: string) {
+  customerSelectKeyword.value = query.trim()
+  customerSelectHasMore.value = true
+  void loadCustomersPage(true)
+}
+function searchContractsRemote(query: string) {
+  contractSelectKeyword.value = query.trim()
+  contractSelectHasMore.value = true
+  void loadContractsPage(true)
+}
+function searchInvoicesRemote(query: string) {
+  invoiceSelectKeyword.value = query.trim()
+  invoiceSelectHasMore.value = true
+  void loadInvoicesPage(true)
+}
+function searchReceivablesRemote(query: string) {
+  receivableSelectKeyword.value = query.trim()
+  receivableSelectHasMore.value = true
+  void loadReceivablesPage(true)
+}
+
+async function onCustomerSelectVisible(open: boolean) {
+  unbindSelectScroll(customerSelectScrollEl, customerSelectScrollHandler)
+  customerSelectScrollEl = null
+  customerSelectScrollHandler = null
+  if (!open) return
+  customerSelectKeyword.value = ''
+  customerSelectHasMore.value = true
+  await loadCustomersPage(true)
+  const bound = await attachSelectScroll('receipt-customer-select-popper', () => {
+    void loadCustomersPage(false)
+  })
+  customerSelectScrollEl = bound.el
+  customerSelectScrollHandler = bound.handler
+}
+
+async function onContractSelectVisible(open: boolean) {
+  unbindSelectScroll(contractSelectScrollEl, contractSelectScrollHandler)
+  contractSelectScrollEl = null
+  contractSelectScrollHandler = null
+  if (!open) return
+  contractSelectKeyword.value = ''
+  contractSelectHasMore.value = true
+  await loadContractsPage(true)
+  const bound = await attachSelectScroll('receipt-contract-select-popper', () => {
+    void loadContractsPage(false)
+  })
+  contractSelectScrollEl = bound.el
+  contractSelectScrollHandler = bound.handler
+}
+
+async function onInvoiceSelectVisible(open: boolean) {
+  unbindSelectScroll(invoiceSelectScrollEl, invoiceSelectScrollHandler)
+  invoiceSelectScrollEl = null
+  invoiceSelectScrollHandler = null
+  if (!open) return
+  invoiceSelectKeyword.value = ''
+  invoiceSelectHasMore.value = true
+  await loadInvoicesPage(true)
+  const bound = await attachSelectScroll('receipt-invoice-select-popper', () => {
+    void loadInvoicesPage(false)
+  })
+  invoiceSelectScrollEl = bound.el
+  invoiceSelectScrollHandler = bound.handler
+}
+
+async function onReceivableSelectVisible(open: boolean) {
+  unbindSelectScroll(receivableSelectScrollEl, receivableSelectScrollHandler)
+  receivableSelectScrollEl = null
+  receivableSelectScrollHandler = null
+  if (!open) return
+  receivableSelectKeyword.value = ''
+  receivableSelectHasMore.value = true
+  await loadReceivablesPage(true)
+  const bound = await attachSelectScroll('receipt-receivable-select-popper', () => {
+    void loadReceivablesPage(false)
+  })
+  receivableSelectScrollEl = bound.el
+  receivableSelectScrollHandler = bound.handler
+}
 
 function onReceivableSelected() {
-  const row = receivables.value.find((r) => r.id === form.receivableId)
+  const row = receivableSelectOptions.value.find((r) => r.id === form.receivableId)
   if (!row) return
   if (!form.customerId) form.customerId = row.customerId || ''
   if (!form.contractId) form.contractId = row.contractId || ''
   if (!form.invoiceId) form.invoiceId = row.invoiceId || ''
   if (form.amount == null && row.receivableAmount != null) form.amount = row.receivableAmount
+  if (row.customerId && !customerSelectOptions.value.some((c) => c.id === row.customerId)) {
+    customerSelectOptions.value = [
+      {
+        id: row.customerId,
+        customerCode: '',
+        name: row.customerName || row.customerId,
+      },
+      ...customerSelectOptions.value,
+    ]
+  }
+  if (row.contractId && !contractSelectOptions.value.some((c) => c.id === row.contractId)) {
+    contractSelectOptions.value = [
+      {
+        id: row.contractId,
+        contractCode: '',
+        customerId: row.customerId,
+        customerName: row.customerName,
+      },
+      ...contractSelectOptions.value,
+    ]
+  }
+  if (row.invoiceId && !invoiceSelectOptions.value.some((c) => c.id === row.invoiceId)) {
+    invoiceSelectOptions.value = [
+      {
+        id: row.invoiceId,
+        invoiceCode: '',
+        customerId: row.customerId,
+        contractId: row.contractId,
+        customerName: row.customerName,
+      },
+      ...invoiceSelectOptions.value,
+    ]
+  }
 }
 
 function onInvoiceSelected() {
-  const row = invoices.value.find((inv) => inv.id === form.invoiceId)
+  const row = invoiceSelectOptions.value.find((inv) => inv.id === form.invoiceId)
   if (!row) return
   if (!form.customerId) form.customerId = row.customerId || ''
   if (!form.contractId) form.contractId = row.contractId || ''
+  if (row.customerId && !customerSelectOptions.value.some((c) => c.id === row.customerId)) {
+    customerSelectOptions.value = [
+      {
+        id: row.customerId,
+        customerCode: '',
+        name: row.customerName || row.customerId,
+      },
+      ...customerSelectOptions.value,
+    ]
+  }
+  if (row.contractId && !contractSelectOptions.value.some((c) => c.id === row.contractId)) {
+    contractSelectOptions.value = [
+      {
+        id: row.contractId,
+        contractCode: '',
+        customerId: row.customerId,
+        customerName: row.customerName,
+      },
+      ...contractSelectOptions.value,
+    ]
+  }
 }
 
 function onContractSelected() {
-  const row = contracts.value.find((c) => c.id === form.contractId)
+  const row = contractSelectOptions.value.find((c) => c.id === form.contractId)
   if (!row) return
   if (!form.customerId) form.customerId = row.customerId || ''
+  if (row.customerId && !customerSelectOptions.value.some((c) => c.id === row.customerId)) {
+    customerSelectOptions.value = [
+      {
+        id: row.customerId,
+        customerCode: '',
+        name: row.customerName || row.customerId,
+      },
+      ...customerSelectOptions.value,
+    ]
+  }
 }
 
-async function loadLookups() {
-  const [custRes, contractRes, invoiceRes, receivableRes] = await Promise.all([
-    fetchCustomers(),
-    fetchContracts(),
-    fetchInvoices(),
-    fetchReceivables(),
-  ])
-  customers.value = custRes.data.items
-  contracts.value = contractRes.data.items
-  invoices.value = invoiceRes.data.items
-  receivables.value = receivableRes.data.items
+function resetFormSelectOptions() {
+  customerSelectOptions.value = []
+  contractSelectOptions.value = []
+  invoiceSelectOptions.value = []
+  receivableSelectOptions.value = []
+  customerSelectKeyword.value = ''
+  contractSelectKeyword.value = ''
+  invoiceSelectKeyword.value = ''
+  receivableSelectKeyword.value = ''
+  customerSelectHasMore.value = true
+  contractSelectHasMore.value = true
+  invoiceSelectHasMore.value = true
+  receivableSelectHasMore.value = true
+}
+
+function seedFormSelectsFromRow(row: ReceiptRecord) {
+  customerSelectOptions.value = row.customerId
+    ? [
+        {
+          id: row.customerId,
+          customerCode: row.customerCode || '',
+          name: row.customerName || row.customerId,
+        },
+      ]
+    : []
+  contractSelectOptions.value = row.contractId
+    ? [
+        {
+          id: row.contractId,
+          contractCode: row.contractCode || '',
+          customerId: row.customerId,
+          customerName: row.customerName,
+        },
+      ]
+    : []
+  invoiceSelectOptions.value = row.invoiceId
+    ? [
+        {
+          id: row.invoiceId,
+          invoiceCode: row.invoiceCode || '',
+          customerId: row.customerId,
+          contractId: row.contractId || '',
+          customerName: row.customerName,
+        },
+      ]
+    : []
+  receivableSelectOptions.value = row.receivableId
+    ? [
+        {
+          id: row.receivableId,
+          receivableCode: row.receivableCode || '',
+          customerId: row.customerId,
+          contractId: row.contractId || '',
+          invoiceId: row.invoiceId || '',
+          customerName: row.customerName,
+          receivableAmount: row.amount,
+        },
+      ]
+    : []
 }
 
 onMounted(async () => {
-  await Promise.all([loadLookups(), loadList()])
+  await Promise.all([loadList(), loadKindChipCounts()])
 })
+
+onBeforeUnmount(() => {
+  unbindSelectScroll(customerSelectScrollEl, customerSelectScrollHandler)
+  unbindSelectScroll(contractSelectScrollEl, contractSelectScrollHandler)
+  unbindSelectScroll(invoiceSelectScrollEl, invoiceSelectScrollHandler)
+  unbindSelectScroll(receivableSelectScrollEl, receivableSelectScrollHandler)
+})
+
+watch(
+  () => buildingScope.viewKey,
+  () => {
+    void loadKindChipCounts()
+  },
+)
 
 function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
+  resetFormAttachments()
+  resetFormSelectOptions()
   formVisible.value = true
 }
 
@@ -407,10 +1042,12 @@ function openEdit(row: ReceiptRecord) {
     paymentMethod: row.paymentMethod || RECEIPT_PAYMENT_METHODS[0],
     amount: row.amount,
     remark: row.remark || '',
-    voucher1: row.voucher1 || '',
-    voucher2: row.voucher2 || '',
     changeLog: row.changeLog || '',
   })
+  formExistingAttachments.value = [...(row.attachments || [])]
+  formPendingAttachments.value = []
+  formRemovedAttachmentIds.value = []
+  seedFormSelectsFromRow(row)
   formVisible.value = true
 }
 
@@ -425,9 +1062,17 @@ function payloadFromForm(): ReceiptWritePayload {
     paymentMethod: form.paymentMethod || undefined,
     amount: form.amount == null ? undefined : Number(form.amount) || 0,
     remark: form.remark.trim() || undefined,
-    voucher1: form.voucher1.trim() || undefined,
-    voucher2: form.voucher2.trim() || undefined,
     changeLog: form.changeLog.trim() || undefined,
+  }
+}
+
+async function syncFormAttachments(receiptId: string) {
+  for (const id of formRemovedAttachmentIds.value) {
+    await deleteReceiptAttachmentApi(receiptId, id)
+  }
+  const pending = formPendingAttachments.value.map((p) => p.file)
+  if (pending.length) {
+    await uploadReceiptAttachmentsApi(receiptId, pending)
   }
 }
 
@@ -436,19 +1081,29 @@ async function saveForm() {
     ElMessage.warning(t('receipt.customerRequired'))
     return
   }
+  saving.value = true
   try {
     const payload = payloadFromForm()
+    let receiptId = editing.value?.id || ''
     if (editing.value) {
       await updateReceiptApi(editing.value.id, payload)
+      receiptId = editing.value.id
       ElMessage.success(t('receipt.updated'))
     } else {
-      await createReceiptApi(payload)
+      const { data } = await createReceiptApi(payload)
+      receiptId = data.id
       ElMessage.success(t('receipt.created'))
     }
+    if (receiptId) {
+      await syncFormAttachments(receiptId)
+    }
     formVisible.value = false
-    await loadList()
+    resetFormAttachments()
+    await Promise.all([loadList(), loadKindChipCounts()])
   } catch {
     /* interceptor */
+  } finally {
+    saving.value = false
   }
 }
 
@@ -461,7 +1116,7 @@ async function onDelete(row: ReceiptRecord) {
     )
     await deleteReceiptApi(row.id)
     ElMessage.success(t('receipt.deleted'))
-    await loadList()
+    await Promise.all([loadList(), loadKindChipCounts()])
   } catch {
     /* cancel */
   }
@@ -652,7 +1307,7 @@ async function onImportFile(ev: Event) {
       }
     }
 
-    await loadList()
+    await Promise.all([loadList(), loadKindChipCounts()])
     finishImport()
   } catch {
     failImport(t('receipt.importFailed'))
@@ -662,8 +1317,25 @@ async function onImportFile(ev: Event) {
 
 <template>
   <div class="admin-page">
-    <div class="admin-page-head">
+    <div class="admin-page-head admin-page-head--with-chips">
       <h2>{{ t('menu.receipts') }}</h2>
+      <div class="building-chips-rail">
+        <div class="building-chips" role="tablist" :aria-label="t('receipt.kindFilterAria')">
+          <button
+            v-for="chip in kindChips"
+            :key="chip.key ?? 'all'"
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': kindChipFilter === chip.key }"
+            :aria-selected="kindChipFilter === chip.key"
+            @click="setKindChipFilter(chip.key)"
+          >
+            <span class="building-chip__name">{{ chip.label }}</span>
+            <span class="building-chip__count">({{ chip.count }})</span>
+          </button>
+        </div>
+      </div>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -782,6 +1454,33 @@ async function onImportFile(ev: Event) {
               />
             </template>
             <template #default="{ row }">{{ row.receiptCode || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :min-width="
+              statusColW(
+                t('receipt.fields.kind'),
+                kindFilterOptions.map((o) => o.label),
+              )
+            "
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('receipt.fields.kind')"
+                filterable
+                sortable
+                :options="kindFilterOptions"
+                :model-value="filters.kind || []"
+                :sort-order="sortOrderOf('kind')"
+                @update:model-value="(v) => setFilter('kind', v)"
+                @update:sort-order="(v) => setSort('kind', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="receiptKindTone(row.kind)"
+                :label="kindLabel(row.kind)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="textColW(t('receipt.fields.customerName'), { interactive: true, kind: 'name' })"
@@ -980,32 +1679,18 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.remark || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :min-width="textColW(t('receipt.fields.voucher1'), { interactive: true, kind: 'long' })"
-            show-overflow-tooltip
+            :min-width="colW(t('receipt.fields.attachments'), { contentMin: 80 })"
+            align="center"
           >
             <template #header>
-              <TableColumnHeader
-                :label="t('receipt.fields.voucher1')"
-                sortable
-                :sort-order="sortOrderOf('voucher1')"
-                @update:sort-order="(v) => setSort('voucher1', v)"
+              <TableColumnHeader :label="t('receipt.fields.attachments')" />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.attachments?.length ?? 0"
+                @click="openDetail(row)"
               />
             </template>
-            <template #default="{ row }">{{ row.voucher1 || '—' }}</template>
-          </el-table-column>
-          <el-table-column
-            :min-width="textColW(t('receipt.fields.voucher2'), { interactive: true, kind: 'long' })"
-            show-overflow-tooltip
-          >
-            <template #header>
-              <TableColumnHeader
-                :label="t('receipt.fields.voucher2')"
-                sortable
-                :sort-order="sortOrderOf('voucher2')"
-                @update:sort-order="(v) => setSort('voucher2', v)"
-              />
-            </template>
-            <template #default="{ row }">{{ row.voucher2 || '—' }}</template>
           </el-table-column>
           <el-table-column
             :min-width="textColW(t('receipt.fields.changeLog'), { interactive: true, kind: 'long' })"
@@ -1126,7 +1811,10 @@ async function onImportFile(ev: Event) {
       @open-invoice="(id) => openInvoiceSide(id, 'ltr')"
       @open-receivable="(id) => openReceivableSide(id, 'ltr')"
     />
-    <RelatedEntityDrawers ref="relationDrawers" />
+    <RelatedEntityDrawers
+      ref="relationDrawers"
+      @changed="() => Promise.all([loadList(), loadKindChipCounts()])"
+    />
 
     <el-dialog
       v-model="formVisible"
@@ -1142,18 +1830,26 @@ async function onImportFile(ev: Event) {
             <el-select
               v-model="form.customerId"
               filterable
+              remote
+              reserve-keyword
               fit-input-width
               style="width: 100%"
+              popper-class="receipt-customer-select-popper"
               :placeholder="t('receipt.fields.customerName')"
+              :remote-method="searchCustomersRemote"
+              :loading="customerSelectLoading"
+              @visible-change="onCustomerSelectVisible"
             >
               <el-option
                 v-for="opt in customerSelectOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+                :key="opt.id"
+                :label="customerOptionLabel(opt)"
+                :value="opt.id"
+                :title="customerOptionLabel(opt)"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                <span class="select-option-ellipsis" :title="customerOptionLabel(opt)">
+                  {{ customerOptionLabel(opt) }}
+                </span>
               </el-option>
             </el-select>
           </el-form-item>
@@ -1165,19 +1861,27 @@ async function onImportFile(ev: Event) {
               v-model="form.receivableId"
               clearable
               filterable
+              remote
+              reserve-keyword
               fit-input-width
               style="width: 100%"
+              popper-class="receipt-receivable-select-popper"
               :placeholder="t('receipt.fields.receivableCode')"
+              :remote-method="searchReceivablesRemote"
+              :loading="receivableSelectLoading"
+              @visible-change="onReceivableSelectVisible"
               @change="onReceivableSelected"
             >
               <el-option
                 v-for="opt in receivableSelectOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+                :key="opt.id"
+                :label="receivableOptionLabel(opt)"
+                :value="opt.id"
+                :title="receivableOptionLabel(opt)"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                <span class="select-option-ellipsis" :title="receivableOptionLabel(opt)">
+                  {{ receivableOptionLabel(opt) }}
+                </span>
               </el-option>
             </el-select>
           </el-form-item>
@@ -1186,19 +1890,27 @@ async function onImportFile(ev: Event) {
               v-model="form.invoiceId"
               clearable
               filterable
+              remote
+              reserve-keyword
               fit-input-width
               style="width: 100%"
+              popper-class="receipt-invoice-select-popper"
               :placeholder="t('receipt.fields.invoiceCode')"
+              :remote-method="searchInvoicesRemote"
+              :loading="invoiceSelectLoading"
+              @visible-change="onInvoiceSelectVisible"
               @change="onInvoiceSelected"
             >
               <el-option
                 v-for="opt in invoiceSelectOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+                :key="opt.id"
+                :label="invoiceOptionLabel(opt)"
+                :value="opt.id"
+                :title="invoiceOptionLabel(opt)"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                <span class="select-option-ellipsis" :title="invoiceOptionLabel(opt)">
+                  {{ invoiceOptionLabel(opt) }}
+                </span>
               </el-option>
             </el-select>
           </el-form-item>
@@ -1207,19 +1919,27 @@ async function onImportFile(ev: Event) {
               v-model="form.contractId"
               clearable
               filterable
+              remote
+              reserve-keyword
               fit-input-width
               style="width: 100%"
+              popper-class="receipt-contract-select-popper"
               :placeholder="t('receipt.fields.contractCode')"
+              :remote-method="searchContractsRemote"
+              :loading="contractSelectLoading"
+              @visible-change="onContractSelectVisible"
               @change="onContractSelected"
             >
               <el-option
                 v-for="opt in contractSelectOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+                :key="opt.id"
+                :label="contractOptionLabel(opt)"
+                :value="opt.id"
+                :title="contractOptionLabel(opt)"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                <span class="select-option-ellipsis" :title="contractOptionLabel(opt)">
+                  {{ contractOptionLabel(opt) }}
+                </span>
               </el-option>
             </el-select>
           </el-form-item>
@@ -1250,11 +1970,66 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('receipt.fields.voucher1')" class="span-2">
-            <el-input v-model="form.voucher1" />
-          </el-form-item>
-          <el-form-item :label="t('receipt.fields.voucher2')" class="span-2">
-            <el-input v-model="form.voucher2" />
+          <el-form-item :label="t('receipt.fields.attachments')" class="span-2">
+            <div class="receipt-form-att">
+              <div
+                v-for="att in formExistingAttachments"
+                :key="att.id"
+                class="receipt-form-att__chip"
+              >
+                <span
+                  class="receipt-form-att__icon"
+                  :class="attachmentIconClass(att.fileName)"
+                >
+                  {{ attachmentExtLabel(att.fileName) }}
+                </span>
+                <span class="receipt-form-att__name">{{ att.fileName }}</span>
+                <button
+                  type="button"
+                  class="receipt-form-att__remove"
+                  :aria-label="t('common.delete')"
+                  @click="removeExistingAttachment(att.id)"
+                >
+                  ×
+                </button>
+              </div>
+              <div
+                v-for="p in formPendingAttachments"
+                :key="p.key"
+                class="receipt-form-att__chip receipt-form-att__chip--pending"
+              >
+                <span
+                  class="receipt-form-att__icon"
+                  :class="attachmentIconClass(p.file.name)"
+                >
+                  {{ attachmentExtLabel(p.file.name) }}
+                </span>
+                <span class="receipt-form-att__name">{{ p.file.name }}</span>
+                <button
+                  type="button"
+                  class="receipt-form-att__remove"
+                  :aria-label="t('common.delete')"
+                  @click="removePendingAttachment(p.key)"
+                >
+                  ×
+                </button>
+              </div>
+              <button
+                type="button"
+                class="receipt-form-att__add"
+                :disabled="saving"
+                @click="attachmentFileInput?.click()"
+              >
+                + {{ t('receipt.addAttachments') }}
+              </button>
+              <input
+                ref="attachmentFileInput"
+                type="file"
+                class="receipt-form-att__input"
+                multiple
+                @change="onPickAttachments"
+              />
+            </div>
           </el-form-item>
           <el-form-item :label="t('receipt.fields.remark')" class="span-2">
             <el-input v-model="form.remark" type="textarea" :rows="2" />
@@ -1265,8 +2040,8 @@ async function onImportFile(ev: Event) {
         </div>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" class="lb-btn-primary" @click="saveForm">
+        <el-button :disabled="saving" @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" class="lb-btn-primary" :loading="saving" @click="saveForm">
           {{ t('common.save') }}
         </el-button>
       </template>
@@ -1328,6 +2103,108 @@ async function onImportFile(ev: Event) {
 }
 
 .room-io-file {
+  display: none;
+}
+
+.receipt-form-att {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.receipt-form-att__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--lb-border, #d8e0db);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.receipt-form-att__chip--pending {
+  border-style: dashed;
+  background: #fff;
+}
+
+.receipt-form-att__icon {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: #5a6a62;
+}
+
+.receipt-form-att__icon--pdf {
+  background: #c0392b;
+}
+
+.receipt-form-att__icon--img {
+  background: #2a6b4d;
+}
+
+.receipt-form-att__icon--file {
+  background: #4a5d72;
+}
+
+.receipt-form-att__name {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.receipt-form-att__remove {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.receipt-form-att__remove:hover {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+}
+
+.receipt-form-att__add {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #3a7bd5;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.receipt-form-att__add:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.receipt-form-att__input {
   display: none;
 }
 </style>

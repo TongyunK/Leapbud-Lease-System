@@ -1,0 +1,53 @@
+---
+description: 表单内嵌多行表格（合约期 / 借出物品等）：分页、拖拽排序、双击改序号
+alwaysApply: true
+---
+
+# 表单内嵌多行表格（强制）
+
+弹窗 / 表单里「用户可自行增删多行」的表格（如合约期、借出物品），**统一按合约期做法**，禁止做成简陋列表或仅有上下箭头。
+
+参考实现：`frontend/src/views/contract-mgmt/ContractListView.vue`（合约期 `periods`、借出物品 `otherFees`）。
+
+## 必须具备
+
+| 能力 | 约定 |
+|------|------|
+| 分页 | 每页最多 **5** 条；超过显示 `el-pagination`（`total, prev, pager, next`） |
+| 表体高度 | 分页开启时固定为 **5 行**高度：`height: calc(var(--row-h) * var(--page-size))`，`--page-size` 与常量同步，避免底部空白 |
+| 拖拽排序 | 行首 `Rank` 手柄 `draggable`；`dragover` / `drop` 调整数组顺序；拖拽中行有 `is-dragging` / `is-drag-over` |
+| 双击改序号 | 双击序号进入输入；Enter / blur 提交，Esc 取消；可填目标行号并**跨页**跳转 |
+| 增删 | 提供「新增 xxx」按钮；删除用危险色 link + Delete 图标 |
+
+## 交互细节
+
+1. **序号 draft 用字符串**，避免 `type=number` 把 v-model 变成 number。
+2. 编辑序号时用 `commitLock`，防止 blur + Enter 双提交。
+3. 仅一行时可不允许改序号（与合约期一致）。
+4. 拖拽 `dataTransfer.effectAllowed = 'move'`；放下后清空 drag 状态。
+5. 提交时按**当前数组顺序**写 `sortOrder: i`（0-based）。
+
+## 结构要点
+
+```ts
+const PAGE_SIZE = 5
+const page = ref(1)
+const rows = ref<Row[]>([])
+
+const paged = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return rows.value.slice(start, start + PAGE_SIZE).map((row, i) => ({
+    row,
+    index: start + i, // 绝对下标，给双击改序号 / 删除用
+  }))
+})
+```
+
+- 行用本地 `uid`（新建）或业务 `id`（回填）作 `:key`。
+- 样式复用 `.period-table` / `.period-row__handle` / `.period-row__index` 等，或抽成同构 class，保持视觉一致。
+
+## 反例
+
+- ❌ 超过 5 条仍一页拉很长，或不分页却留一大块空白表体  
+- ❌ 只能删增、不能调序  
+- ❌ 调序只有「上移 / 下移」按钮、无拖拽与双击序号  

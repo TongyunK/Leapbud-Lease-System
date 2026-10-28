@@ -16,6 +16,13 @@
   --lb-danger: #c0392b;
   --lb-shadow: 0 18px 50px rgba(15, 40, 30, 0.12);
   --lb-radius: 22px;
+  /* 右侧主区 .main 几何（AppLayout 写入）；弹窗内容区全屏用 */
+  --lb-main-top: 0px;
+  --lb-main-left: 0px;
+  --lb-main-right: 0px;
+  --lb-main-bottom: 0px;
+  --lb-main-width: 100vw;
+  --lb-main-height: 100vh;
   --el-color-primary: #0f4a32;
   --el-color-primary-light-3: #3d7358;
   --el-color-primary-light-5: #6e9784;
@@ -65,7 +72,84 @@ button {
   font: inherit;
 }
 
-/* ??????? */
+/* —— 全局滚动条美化（细轨道、圆角拇指、无箭头；深色侧栏等可局部覆盖） —— */
+:root {
+  --lb-scrollbar-size: 6px;
+  --lb-scrollbar-thumb: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, transparent);
+  --lb-scrollbar-thumb-hover: color-mix(in srgb, var(--lb-brand, #0f4a32) 46%, transparent);
+  --lb-scrollbar-track: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lb-scrollbar-thumb) var(--lb-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: var(--lb-scrollbar-size);
+  height: var(--lb-scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--lb-scrollbar-track);
+  margin-block: 2px;
+  margin-inline: 2px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--lb-scrollbar-thumb);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--lb-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-corner {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Element Plus 虚拟滚动条 */
+.el-scrollbar__bar {
+  border-radius: 999px;
+}
+
+.el-scrollbar__bar.is-vertical {
+  width: var(--lb-scrollbar-size) !important;
+  right: 2px;
+}
+
+.el-scrollbar__bar.is-horizontal {
+  height: var(--lb-scrollbar-size) !important;
+  bottom: 2px;
+}
+
+.el-scrollbar__thumb {
+  background-color: var(--lb-scrollbar-thumb) !important;
+  border-radius: 999px;
+  opacity: 1 !important;
+}
+
+.el-scrollbar__thumb:hover {
+  background-color: var(--lb-scrollbar-thumb-hover) !important;
+}
+
+/* Popover / 下拉等 teleport 层同样生效（已在 * 上覆盖；此处强调 track 留白） */
+.el-popper,
+.el-select-dropdown,
+.el-autocomplete-suggestion,
+.el-cascader__dropdown,
+.el-picker__popper {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lb-scrollbar-thumb) var(--lb-scrollbar-track);
+}
+
 .auth-shell {
   position: relative;
   isolation: isolate;
@@ -829,6 +913,17 @@ button {
   cursor: default;
 }
 
+.building-chips__sep {
+  flex: 0 0 auto;
+  margin: 0 2px;
+  color: #c5d0ca;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+}
+
 .building-chips {
   display: flex;
   flex-wrap: nowrap;
@@ -947,6 +1042,67 @@ button {
 
 .building-chip.is-active .building-chip__count {
   color: #0f4a32;
+}
+
+.building-chip-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  flex: 0 0 auto;
+}
+
+.building-chip-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #0f4a32;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+/* 悬停芯片组、键盘聚焦、或面板打开时才显现 */
+.building-chip-group:hover .building-chip-edit,
+.building-chip-group:focus-within .building-chip-edit,
+.building-chip-edit.is-open {
+  opacity: 0.55;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.building-chip-edit:hover,
+.building-chip-edit.is-open {
+  opacity: 1;
+  color: #0f4a32;
+  background: rgba(15, 74, 50, 0.08);
+}
+
+.building-chip-edit:focus-visible {
+  opacity: 1;
+  outline: 2px solid rgba(15, 74, 50, 0.35);
+  outline-offset: 1px;
+}
+
+/* 触控设备无 hover：保持淡显，避免找不到 */
+@media (hover: none) {
+  .building-chip-edit {
+    opacity: 0.4;
+    pointer-events: auto;
+    transform: scale(1);
+  }
 }
 
 .lb-btn-primary {
@@ -1540,9 +1696,17 @@ button {
 .table-card .el-table td.col-actions > .cell,
 .table-card .el-table th.col-actions > .cell {
   padding-left: 10px;
-  padding-right: 10px;
+  /* 最右按钮（含「…」）贴近列右缘；须与 useActionColWidth 同步 */
+  padding-right: 4px;
   overflow: visible;
   text-overflow: clip;
+}
+
+@media (max-width: 1439.98px) {
+  .table-card .el-table td.col-actions > .cell,
+  .table-card .el-table th.col-actions > .cell {
+    padding-right: 2px;
+  }
 }
 
 .action-pill {
@@ -1590,6 +1754,13 @@ button {
   color: #fff;
 }
 
+/** 开单等：中低饱和雾蓝，贴近品牌绿明度 */
+.action-pill--info {
+  border: 1px solid #4f7fa3;
+  background: #4f7fa3;
+  color: #fff;
+}
+
 .action-pill--view:hover {
   border-color: #0f4a32;
   color: #0f4a32;
@@ -1598,6 +1769,11 @@ button {
 .action-pill--edit:hover {
   background: #0c3d29;
   border-color: #0c3d29;
+}
+
+.action-pill--info:hover {
+  background: #426d8c;
+  border-color: #426d8c;
 }
 
 .action-pill--danger {
@@ -1622,11 +1798,158 @@ button {
   border-color: #c9850c;
 }
 
+/** 收款等：品牌橙 */
+.action-pill--accent {
+  border: 1px solid #c9843a;
+  background: #c9843a;
+  color: #fff;
+}
+
+.action-pill--accent:hover {
+  background: #b37330;
+  border-color: #b37330;
+}
+
+/** 退租等：雾紫，区别于删除红 */
+.action-pill--leave {
+  border: 1px solid #7a6b8c;
+  background: #7a6b8c;
+  color: #fff;
+}
+
+.action-pill--leave:hover {
+  background: #665a76;
+  border-color: #665a76;
+}
+
+/** 取消等次要操作：中性灰 */
+.action-pill--muted {
+  border: 1px solid #8a9690;
+  background: #8a9690;
+  color: #fff;
+}
+
+.action-pill--muted:hover {
+  background: #73807a;
+  border-color: #73807a;
+}
+
+/** 操作列「…」触发器：轻量描边，不抢主操作 */
+.action-pill--more {
+  min-width: 2.2em;
+  padding-left: 8px;
+  padding-right: 8px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.action-pill--more.is-open {
+  border-color: #0f4a32;
+  color: #0f4a32;
+  background: #f3f8f5;
+}
+
 .action-pill:disabled,
 .action-pill.is-disabled {
   opacity: 0.42;
   cursor: not-allowed;
   filter: none;
+}
+
+/**
+ * 合约列表共用「更多」菜单（Teleport 到 body）。
+ * 必须自带 --lb-table-action：挂到 body 后拿不到 .admin-page 变量，否则 pill 会变大。
+ */
+.contract-more-menu {
+  --lb-table-action: 0.78rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid #dce6e0;
+  border-radius: 10px;
+  background: #fff;
+  font-size: var(--lb-table-action);
+  box-shadow:
+    0 8px 22px rgba(15, 40, 30, 0.1),
+    0 1px 3px rgba(15, 40, 30, 0.05);
+}
+
+@media (max-width: 1279.98px) {
+  .contract-more-menu {
+    --lb-table-action: 0.74rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  .contract-more-menu {
+    --lb-table-action: 0.8rem;
+  }
+}
+
+@media (min-width: 1800px) {
+  .contract-more-menu {
+    --lb-table-action: 0.82rem;
+  }
+}
+
+.contract-more-menu__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid #e8efe9;
+  margin-bottom: 2px;
+}
+
+.contract-more-menu__head-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: #8a9690;
+  line-height: 1.2;
+}
+
+.contract-more-menu__head-code {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0f4a32;
+  line-height: 1.35;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+}
+
+.contract-more-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px 8px;
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.contract-more-menu__label {
+  padding: 0 2px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: #8a9690;
+  line-height: 1.2;
+}
+
+.contract-more-menu__pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 与操作列 .action-pill 同尺寸，勿缩小 */
+.contract-more-menu__pills .action-pill {
+  flex: 0 0 auto;
 }
 
 .room-io-popper.el-popper {
@@ -2099,6 +2422,74 @@ button {
   white-space: nowrap;
 }
 
+/* 合约：房间下拉顶部租用方式筛选 + 选项右侧可租状态 */
+.contract-room-select-popper .el-select-dropdown__header {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid #e6ebe8;
+}
+
+.contract-room-pick-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.contract-room-pick-mode {
+  appearance: none;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid #d7ded9;
+  border-radius: 999px;
+  background: #fff;
+  color: #5b6b63;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.contract-room-pick-mode:hover {
+  border-color: #b7c6bd;
+  background: #f7f9f8;
+  color: #2a3d34;
+}
+
+.contract-room-pick-mode.is-active {
+  border-color: #0f4a32;
+  background: #eef6f1;
+  color: #0f4a32;
+  box-shadow: 0 0 0 1px #0f4a32 inset;
+}
+
+.contract-room-select-popper .el-select-dropdown__item {
+  height: auto;
+  min-height: 34px;
+  padding: 7px 12px;
+  line-height: 1.35;
+}
+
+.contract-room-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.contract-room-option .select-option-ellipsis {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.contract-room-option__badge {
+  flex: 0 0 auto;
+  max-width: 46%;
+  font-size: 0.72rem !important;
+  padding: 2px 8px 2px 7px !important;
+}
+
 .lb-pager__btn {
   display: inline-flex;
   align-items: center;
@@ -2459,6 +2850,11 @@ button {
   background: #fff;
 }
 
+/* 注入全屏按钮后，标题右侧留两颗按钮的空间 */
+.el-dialog.lb-dialog--fs-ready .el-dialog__header {
+  padding-right: 78px !important;
+}
+
 .el-dialog__header::before {
   content: '';
   position: absolute;
@@ -2514,6 +2910,101 @@ button {
 
 .el-dialog__headerbtn:hover .el-dialog__close {
   color: var(--lb-brand) !important;
+}
+
+/* 内容区全屏按钮（关闭钮左侧） */
+.el-dialog__headerbtn.lb-dialog-fs-btn {
+  right: 46px !important;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  background: transparent;
+}
+
+.lb-dialog-fs-btn__icon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  color: #8a9a92;
+  font-size: 15px;
+  line-height: 1;
+  width: 1em;
+  height: 1em;
+}
+
+.lb-dialog-fs-btn__icon svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+.el-dialog__headerbtn.lb-dialog-fs-btn:hover .lb-dialog-fs-btn__icon,
+.el-dialog__headerbtn.lb-dialog-fs-btn.is-active .lb-dialog-fs-btn__icon {
+  color: var(--lb-brand) !important;
+}
+
+/**
+ * 内容区全屏：遮罩严格落在右侧 `.main`（侧栏以右整块；未折叠时左侧菜单仍可见）。
+ * 用 top/right/bottom/left 四边定位，避免 width/height 与视口 inset 冲突盖住侧栏。
+ */
+.el-overlay.lb-overlay--content-fs {
+  position: fixed !important;
+  inset: unset !important;
+  top: var(--lb-main-top, 0px) !important;
+  right: var(--lb-main-right, 0px) !important;
+  bottom: var(--lb-main-bottom, 0px) !important;
+  left: var(--lb-main-left, 0px) !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+.el-overlay.lb-overlay--content-fs .el-overlay-dialog,
+.el-overlay-dialog.lb-overlay-dialog--content-fs {
+  position: static !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+}
+
+.el-dialog.lb-dialog--content-fs.is-fullscreen,
+.el-dialog.lb-dialog--content-fs {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+}
+
+.el-dialog.lb-dialog--content-fs .el-dialog__header,
+.el-dialog.lb-dialog--content-fs .el-dialog__footer {
+  flex: 0 0 auto;
+}
+
+.el-dialog.lb-dialog--content-fs .el-dialog__body {
+  flex: 1 1 auto !important;
+  max-height: none !important;
+  height: auto !important;
+  overflow: auto !important;
 }
 
 .el-drawer__close-btn {
@@ -3432,4 +3923,72 @@ button {
   .lb-admin-only-glow {
     animation: none;
   }
+}
+
+/* 分段单选（租用方式 / 是否既有住人等）：轨道内滑块，四边边距一致 */
+.lb-yesno-seg.el-radio-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 7%, #f4f7f5);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
+}
+
+.lb-yesno-seg .el-radio-button {
+  --el-radio-button-checked-bg-color: var(--lb-brand, #0f4a32);
+  --el-radio-button-checked-border-color: var(--lb-brand, #0f4a32);
+  --el-radio-button-checked-text-color: #fff;
+  margin: 0 !important;
+  display: inline-flex;
+  height: 100%;
+}
+
+.lb-yesno-seg .el-radio-button__inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 60px;
+  height: 100% !important;
+  padding: 0 14px !important;
+  line-height: 1 !important;
+  border: none !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: #4a5c54;
+  font-weight: 650;
+  font-size: 0.84rem;
+  box-shadow: none !important;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.lb-yesno-seg .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background: var(--lb-brand, #0f4a32) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
+.lb-yesno-seg .el-radio-button__inner:hover {
+  color: var(--lb-brand, #0f4a32);
+}
+
+.lb-yesno-seg .el-radio-button__original-radio:checked + .el-radio-button__inner:hover {
+  color: #fff;
+}
+
+.lb-yesno-seg .el-radio-button.is-disabled .el-radio-button__inner {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.lb-yesno-seg .el-radio-button.is-disabled .el-radio-button__inner:hover {
+  color: var(--lb-muted, #6a7a70);
 }

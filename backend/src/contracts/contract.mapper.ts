@@ -1,6 +1,7 @@
 import type {
   Building,
   Contract,
+  ContractOtherFee,
   ContractPeriod,
   Customer,
   CustomerRequirement,
@@ -37,6 +38,8 @@ export type ContractWithRelations = Contract & {
   salesManagerUser?: AuditUserRef | null;
   requirement?: Pick<CustomerRequirement, 'id' | 'requirementCode'> | null;
   periods?: ContractPeriod[];
+  /** 合约级借出物品（不含退租关联） */
+  otherFees?: ContractOtherFee[];
   _count?: {
     invoices?: number;
     receivables?: number;
@@ -69,6 +72,13 @@ export const contractInclude = {
       { startDate: 'asc' },
     ] as Prisma.ContractPeriodOrderByWithRelationInput[],
   },
+  otherFees: {
+    where: { terminationId: null },
+    orderBy: [
+      { sortOrder: 'asc' },
+      { createdAt: 'asc' },
+    ] as Prisma.ContractOtherFeeOrderByWithRelationInput[],
+  },
   _count: {
     select: {
       invoices: true,
@@ -92,6 +102,18 @@ export function toContractPeriodDto(row: ContractPeriod) {
     dateValue: row.dateValue,
     startDate: dateOnly(row.startDate),
     endDate: dateOnly(row.endDate),
+    sortOrder: row.sortOrder,
+  };
+}
+
+export function toContractOtherFeeNestedDto(row: ContractOtherFee) {
+  return {
+    id: row.id,
+    description: row.description,
+    quantity: decimalToNumber(row.quantity) ?? 0,
+    unitAmount: decimalToNumber(row.unitAmount) ?? 0,
+    subtotal: decimalToNumber(row.subtotal) ?? 0,
+    remark: row.remark,
     sortOrder: row.sortOrder,
   };
 }
@@ -122,7 +144,11 @@ export function toContractDto(row: ContractWithRelations) {
     roomDeposit: decimalToNumber(row.roomDeposit),
     monthlyRent: decimalToNumber(row.monthlyRent),
     bookingDeposit: decimalToNumber(row.bookingDeposit),
+    paymentDate: dateOnly(row.paymentDate),
     paymentCycle: row.paymentCycle,
+    paymentMethod: row.paymentMethod || '',
+    paymentVoucher: row.paymentVoucher || '',
+    bookingDepositReceiptId: row.bookingDepositReceiptId ?? null,
     electricityRate: decimalToNumber(row.electricityRate),
     miscDeposit: decimalToNumber(row.miscDeposit),
     doorKeyQty: row.doorKeyQty,
@@ -134,6 +160,7 @@ export function toContractDto(row: ContractWithRelations) {
     attachment: row.attachment,
     remark: row.remark,
     periods: (row.periods ?? []).map(toContractPeriodDto),
+    otherFees: (row.otherFees ?? []).map(toContractOtherFeeNestedDto),
     invoiceCount: row._count?.invoices ?? 0,
     receivableCount: row._count?.receivables ?? 0,
     receiptCount: row._count?.receipts ?? 0,

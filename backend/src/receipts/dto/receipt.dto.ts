@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -8,12 +9,21 @@ import {
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
+import { ReceiptKind } from '@prisma/client'
 
 export class CreateReceiptDto {
   @ApiPropertyOptional({ description: '收据编号（省略则自动生成 RCP{YYMMDD}{####}）' })
   @IsOptional()
   @IsString()
   receiptCode?: string
+
+  @ApiPropertyOptional({
+    enum: ReceiptKind,
+    description: '收据分类：booking_deposit=定金收据，invoice=发票收据；有发票时强制 invoice',
+  })
+  @IsOptional()
+  @IsEnum(ReceiptKind)
+  kind?: ReceiptKind
 
   @ApiPropertyOptional({ description: '所属客户 ID（与 customerCode / customerName 二选一）' })
   @IsOptional()
@@ -81,16 +91,6 @@ export class CreateReceiptDto {
   @IsString()
   remark?: string
 
-  @ApiPropertyOptional({ description: '收款凭证1路径' })
-  @IsOptional()
-  @IsString()
-  voucher1?: string
-
-  @ApiPropertyOptional({ description: '收款凭证2路径' })
-  @IsOptional()
-  @IsString()
-  voucher2?: string
-
   @ApiPropertyOptional({ description: '修改记录' })
   @IsOptional()
   @IsString()
@@ -102,6 +102,11 @@ export class UpdateReceiptDto {
   @IsOptional()
   @IsString()
   receiptCode?: string
+
+  @ApiPropertyOptional({ enum: ReceiptKind })
+  @IsOptional()
+  @IsEnum(ReceiptKind)
+  kind?: ReceiptKind
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -168,16 +173,6 @@ export class UpdateReceiptDto {
   @IsOptional()
   @IsString()
   remark?: string
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  voucher1?: string
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  voucher2?: string
 
   @ApiPropertyOptional()
   @IsOptional()

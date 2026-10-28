@@ -127,7 +127,6 @@ function onRowClick(row: ContractPeriodListRecord, column?: { type?: string }, e
           style="width: 100%"
           @row-click="onRowClick"
         >
-          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column type="index" :index="rowIndex" label="#" width="48" align="center" header-align="center" />
           <el-table-column
             :label="t('contractPeriod.fields.dateType')"

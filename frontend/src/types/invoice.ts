@@ -24,6 +24,10 @@ export interface InvoiceRecord {
   roomCode: string
   roomName: string
   invoiceType: string
+  /** manual / deposit / rent */
+  billingKind?: string
+  periodStart?: string
+  periodEnd?: string
   description: string
   amount: number | null
   status: string

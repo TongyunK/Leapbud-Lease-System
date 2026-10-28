@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { uploadAttachmentApi } from '@/api/uploads'
 import {
   attachmentFileName,
@@ -11,6 +12,14 @@ import {
 } from '@/utils/attachmentUrl'
 
 const model = defineModel<string>({ default: '' })
+
+const props = withDefaults(
+  defineProps<{
+    /** 只读：可预览，不可上传/删除 */
+    disabled?: boolean
+  }>(),
+  { disabled: false },
+)
 
 const { t } = useI18n()
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -23,12 +32,17 @@ const publicUrl = computed(() => attachmentPublicUrl(model.value))
 const isPdf = computed(() => isPdfAttachment(model.value))
 const isImage = computed(() => isImageAttachment(model.value))
 const canPreview = computed(() => Boolean(publicUrl.value))
+const fileCountLabel = computed(() =>
+  t('attachment.count', { current: hasFile.value ? 1 : 0, max: 1 }),
+)
 
 function triggerPick() {
+  if (props.disabled || uploading.value) return
   inputRef.value?.click()
 }
 
 async function onPick(ev: Event) {
+  if (props.disabled) return
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
@@ -59,6 +73,7 @@ async function onPick(ev: Event) {
 }
 
 function clearFile() {
+  if (props.disabled) return
   model.value = ''
 }
 
@@ -82,6 +97,24 @@ function onPreview() {
       @change="onPick"
     />
 
+    <div v-if="!hasFile && !disabled" class="attachment-field__trigger-row">
+      <button
+        type="button"
+        class="attachment-field__trigger"
+        :disabled="uploading"
+        :aria-busy="uploading"
+        @click="triggerPick"
+      >
+        <el-icon class="attachment-field__cloud" :size="18">
+          <UploadFilled />
+        </el-icon>
+        <span class="attachment-field__trigger-text">
+          {{ uploading ? t('common.loading') : t('attachment.upload') }}
+        </span>
+        <span class="attachment-field__count">{{ fileCountLabel }}</span>
+      </button>
+    </div>
+
     <div v-if="hasFile" class="attachment-field__chip-wrap">
       <button
         type="button"
@@ -99,6 +132,7 @@ function onPreview() {
         <span class="attachment-field__name">{{ displayName }}</span>
       </button>
       <button
+        v-if="!disabled"
         type="button"
         class="attachment-field__remove"
         :title="t('common.delete')"
@@ -108,10 +142,7 @@ function onPreview() {
         ×
       </button>
     </div>
-
-    <el-button v-else :loading="uploading" @click="triggerPick">
-      {{ t('attachment.choose') }}
-    </el-button>
+    <p v-else class="attachment-field__empty">{{ t('attachment.empty') }}</p>
 
     <el-image-viewer
       v-if="imageViewerVisible && publicUrl"
@@ -124,8 +155,68 @@ function onPreview() {
 </template>
 
 <style scoped>
+.attachment-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
 .attachment-field__input {
   display: none;
+}
+
+.attachment-field__trigger-row {
+  display: flex;
+  align-items: center;
+}
+
+.attachment-field__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #3a7bd5;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.attachment-field__trigger:hover:not(:disabled) .attachment-field__trigger-text {
+  text-decoration: underline;
+}
+
+.attachment-field__trigger:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.attachment-field__cloud {
+  flex: 0 0 auto;
+  color: #3a7bd5;
+}
+
+.attachment-field__trigger-text {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.attachment-field__count {
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.attachment-field__empty {
+  margin: 0;
+  color: #8a9690;
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 .attachment-field__chip-wrap {
@@ -154,7 +245,7 @@ function onPreview() {
 }
 
 .attachment-field__chip--clickable:hover .attachment-field__name {
-  color: var(--el-color-primary);
+  color: var(--lb-brand, #0f4a32);
   text-decoration: underline;
 }
 

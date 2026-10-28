@@ -7,6 +7,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
+import { isSuperAdminRole } from '../common/actor-role';
 
 @ApiTags('permissions')
 @ApiBearerAuth()
@@ -21,15 +22,24 @@ export class PermissionsController {
   async mine(@CurrentUser() user?: JwtPayload) {
     const role = (user?.role || '').trim();
     const codes = role ? await this.permissionsService.getCodesForRole(role) : [];
-    const adminExclusiveCodes =
-      role === 'admin' ? await this.permissionsService.getAdminExclusiveCodes() : [];
+    const adminExclusiveCodes = isSuperAdminRole(role)
+      ? await this.permissionsService.getAdminExclusiveCodes()
+      : [];
     return { codes, adminExclusiveCodes };
   }
 
   @Get('catalog')
   @Roles(UserRole.admin, UserRole.user)
-  @ApiOkResponse({ description: 'Permission catalog grouped by module' })
-  catalog() {
-    return this.permissionsService.catalogGrouped();
+  @ApiOkResponse({
+    description:
+      'Permission catalog grouped by module（超级管理员：全量；其他角色：仅自身已有）',
+  })
+  async catalog(@CurrentUser() user?: JwtPayload) {
+    const role = (user?.role || '').trim();
+    if (isSuperAdminRole(role)) {
+      return this.permissionsService.catalogGrouped();
+    }
+    const codes = role ? await this.permissionsService.getCodesForRole(role) : [];
+    return this.permissionsService.catalogGrouped(codes);
   }
 }

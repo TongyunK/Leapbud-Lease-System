@@ -59,6 +59,15 @@ import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
 
+const emit = defineEmits<{
+  /** 关联列表内删除等变更，供主列表刷新 */
+  changed: []
+}>()
+
+function onRelatedListChanged() {
+  emit('changed')
+}
+
 const relatedCustomer = ref<CustomerRecord | null>(null)
 const customerDrawerVisible = ref(false)
 const customerDrawerDirection = ref<'ltr' | 'rtl'>('ltr')
@@ -657,6 +666,7 @@ defineExpose({
     @open-invoices="openInvoicesSideFromRoom"
     @open-terminations="openTerminationsSideFromRoom"
     @open-deposit-refunds="openDepositRefundsSideFromRoom"
+    @open-contract="(id) => openContractSide(id)"
   />
 
   <!-- 合约详情 + 下属列表 -->
@@ -676,6 +686,7 @@ defineExpose({
     @open-other-fees="openOtherFeesList"
     @open-deposit-deductions="openDepositDeductionsList"
     @open-deposit-refunds="openDepositRefundsList"
+    @open-booking-deposit-receipt="(id) => openReceiptSide(id)"
   />
 
   <InvoiceDetailDrawer
@@ -774,6 +785,7 @@ defineExpose({
     desktop-direction="ltr"
     @open-invoice="onOpenInvoiceFromList"
     @open-contract="openContractSide"
+    @changed="onRelatedListChanged"
   />
   <RelatedReceivablesDrawer
     v-model="relatedReceivablesDrawer"
@@ -788,6 +800,7 @@ defineExpose({
     @open-receivable="onOpenReceivableFromList"
     @open-invoice="openInvoiceSide"
     @open-contract="openContractSide"
+    @changed="onRelatedListChanged"
   />
   <RelatedReceiptsDrawer
     v-model="relatedReceiptsDrawer"
@@ -803,6 +816,7 @@ defineExpose({
     @open-invoice="openInvoiceSide"
     @open-contract="openContractSide"
     @open-receivable="openReceivableSide"
+    @changed="onRelatedListChanged"
   />
   <RelatedTerminationsDrawer
     v-model="relatedTerminationsDrawer"

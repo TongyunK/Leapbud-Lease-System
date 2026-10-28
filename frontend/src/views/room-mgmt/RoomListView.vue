@@ -23,8 +23,8 @@ import type {
   RoomRecord,
   RoomStatus,
 } from '@/types/room'
-import RoomImageGallery from '@/components/RoomImageGallery.vue'
 import RoomOccupancyChips from '@/components/RoomOccupancyChips.vue'
+import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { RoomTypeOption } from '@/types/room-type'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -35,7 +35,8 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import SuperAdminInlineCell from '@/components/SuperAdminInlineCell.vue'
+import { ROOM_INLINE_FIELDS, type RoomInlineField } from '@/config/inlineEditWhitelist'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -261,16 +262,6 @@ function leaseCapabilityLabel(cap?: RoomLeaseCapability | string | null) {
   if (cap === 'whole_only') return t('room.leaseCapability.wholeOnlyShort')
   if (cap === 'part_only') return t('room.leaseCapability.partOnlyShort')
   return t('room.leaseCapability.flexibleShort')
-}
-
-/** 详情：可整可分时附带份额数，如 可整可分 (2) */
-function leaseCapabilityDetailLabel(row: RoomRecord) {
-  const base = leaseCapabilityLabel(row.leaseCapability)
-  if (row.leaseCapability === 'flexible') {
-    const n = row.splitLabels?.length || 0
-    if (n > 0) return `${base} (${n})`
-  }
-  return base
 }
 
 /**
@@ -578,6 +569,24 @@ function money(n: number) {
 
 function number2(n: number) {
   return formatNumber2(n)
+}
+
+async function onRoomInlineSave(
+  row: RoomRecord,
+  field: RoomInlineField,
+  value: string | number | null,
+) {
+  if (!(field in ROOM_INLINE_FIELDS)) return
+  try {
+    const payload = { [field]: value } as Partial<RoomWritePayload>
+    const { data } = await updateRoomApi(row.id, payload)
+    const idx = list.value.findIndex((r) => r.id === row.id)
+    if (idx >= 0) list.value[idx] = { ...list.value[idx], ...data }
+    if (current.value?.id === row.id) current.value = { ...current.value, ...data }
+    ElMessage.success(t('room.updated'))
+  } catch {
+    /* interceptor */
+  }
 }
 
 function openDetail(row: RoomRecord) {
@@ -1231,7 +1240,16 @@ async function saveForm() {
                 @update:sort-order="(v) => setSort('monthlyRent', v)"
               />
             </template>
-            <template #default="{ row }">{{ money(row.monthlyRent) }}</template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.monthlyRent"
+                type="number"
+                :precision="2"
+                :min="0"
+                :display-text="money(row.monthlyRent)"
+                @save="(v) => onRoomInlineSave(row as RoomRecord, 'monthlyRent', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('room.fields.dailyRent'), { interactive: true, contentMin: 108 })"
@@ -1245,7 +1263,16 @@ async function saveForm() {
                 @update:sort-order="(v) => setSort('dailyRent', v)"
               />
             </template>
-            <template #default="{ row }">{{ money(row.dailyRent) }}</template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.dailyRent"
+                type="number"
+                :precision="2"
+                :min="0"
+                :display-text="money(row.dailyRent)"
+                @save="(v) => onRoomInlineSave(row as RoomRecord, 'dailyRent', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('room.fields.hourlyRent'), { interactive: true, contentMin: 108 })"
@@ -1259,7 +1286,16 @@ async function saveForm() {
                 @update:sort-order="(v) => setSort('hourlyRent', v)"
               />
             </template>
-            <template #default="{ row }">{{ money(row.hourlyRent) }}</template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.hourlyRent"
+                type="number"
+                :precision="2"
+                :min="0"
+                :display-text="money(row.hourlyRent)"
+                @save="(v) => onRoomInlineSave(row as RoomRecord, 'hourlyRent', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('room.fields.sizeSqft'), { interactive: true, contentMin: 118 })"
@@ -1570,152 +1606,18 @@ async function saveForm() {
       </div>
     </div>
 
-    <el-drawer
+    <RoomDetailDrawer
       v-model="drawerVisible"
+      :room="current"
+      desktop-direction="rtl"
       :size="drawerSize"
-      :title="t('room.detailTitle')"
-      :direction="isMobile ? 'btt' : 'rtl'"
-    >
-      <template v-if="current">
-        <section class="detail-section">
-          <h3>{{ t('room.sections.basic') }}</h3>
-          <dl class="detail-grid two">
-            <div><dt>{{ t('room.fields.roomCode') }}</dt><dd>{{ current.roomCode }}</dd></div>
-            <div><dt>{{ t('room.fields.name') }}</dt><dd>{{ current.name }}</dd></div>
-            <div><dt>{{ t('room.fields.roomType') }}</dt><dd><RoomTypeBadge :value="current.roomType" :tone="toneForLabel(current.roomType)" /></dd></div>
-            <div>
-              <dt>{{ t('room.fields.building') }}</dt>
-              <dd>
-                <button type="button" class="fk-link" @click="openBuildingDetail(current.buildingId)">
-                  {{ current.buildingName }}
-                </button>
-              </dd>
-            </div>
-            <div>
-              <dt>{{ t('room.fields.status') }}</dt>
-              <dd>
-                <StatusBadge
-                  :tone="roomFillStatusTone(fillStatusOf(current))"
-                  :label="t(`room.fillStatus.${fillStatusOf(current)}`)"
-                />
-              </dd>
-            </div>
-            <div><dt>{{ t('room.fields.serialNo') }}</dt><dd>{{ current.serialNo }}</dd></div>
-            <div class="detail-span-2">
-              <dt>{{ t('room.fields.leaseCapability') }}</dt>
-              <dd class="room-lease-cap-detail">
-                <StatusBadge
-                  :tone="roomLeaseCapabilityTone(current.leaseCapability)"
-                  :label="leaseCapabilityDetailLabel(current)"
-                />
-                <span
-                  v-if="
-                    current.leaseCapability === 'flexible' && (current.splitLabels?.length || 0) > 0
-                  "
-                  class="room-lease-cap-detail__chips"
-                  :title="(current.splitLabels || []).join(' / ')"
-                >
-                  <span
-                    v-for="lab in current.splitLabels"
-                    :key="lab"
-                    class="split-label-chip"
-                  >{{ lab }}</span>
-                </span>
-              </dd>
-            </div>
-            <div class="detail-span-2">
-              <dt>{{ t('room.fields.occupancy') }}</dt>
-              <dd>
-                <RoomOccupancyChips
-                  variant="expanded"
-                  :occupancy="current.occupancy"
-                  :lease-capability="current.leaseCapability"
-                  :split-labels="current.splitLabels"
-                  @open-contract="(id) => relationDrawers?.openContractSide(id)"
-                />
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
-          <h3>{{ t('room.sections.pricing') }}</h3>
-          <dl class="detail-grid two">
-            <div><dt>{{ t('room.fields.monthlyRent') }}</dt><dd>{{ money(current.monthlyRent) }}</dd></div>
-            <div><dt>{{ t('room.fields.dailyRent') }}</dt><dd>{{ money(current.dailyRent) }}</dd></div>
-            <div><dt>{{ t('room.fields.hourlyRent') }}</dt><dd>{{ money(current.hourlyRent) }}</dd></div>
-            <div><dt>{{ t('room.fields.sizeSqft') }}</dt><dd>{{ number2(current.sizeSqft) }} sq.ft</dd></div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
-          <h3>{{ t('room.sections.config') }}</h3>
-          <dl class="detail-grid two">
-            <div><dt>{{ t('room.fields.windowConfig') }}</dt><dd>{{ current.windowConfig || '—' }}</dd></div>
-            <div><dt>{{ t('room.fields.acConfig') }}</dt><dd>{{ current.acConfig || '—' }}</dd></div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
-          <h3>{{ t('room.sections.media') }}</h3>
-          <RoomImageGallery :room-id="current.id" :images="current.images || []" />
-          <dl class="detail-grid" style="margin-top: 14px">
-            <div><dt>{{ t('room.fields.description') }}</dt><dd>{{ current.description || '—' }}</dd></div>
-            <div><dt>{{ t('room.fields.remark') }}</dt><dd>{{ current.remark || '—' }}</dd></div>
-          </dl>
-        </section>
-
-        <section class="detail-section">
-          <h3>{{ t('room.sections.relatedRecords') }}</h3>
-          <dl class="detail-grid two">
-            <div><dt>{{ t('room.fields.latestContract') }}</dt><dd>{{ current.latestContract || '—' }}</dd></div>
-            <div>
-              <dt>{{ t('room.fields.contractCount') }}</dt>
-              <dd>
-                <CountListPill
-                  :count="current.contractCount ?? 0"
-                  @click="openContractsSide(current)"
-                />
-              </dd>
-            </div>
-            <div>
-              <dt>{{ t('room.fields.invoiceCount') }}</dt>
-              <dd>
-                <CountListPill
-                  :count="current.invoiceCount ?? 0"
-                  @click="openInvoicesSide(current)"
-                />
-              </dd>
-            </div>
-            <div>
-              <dt>{{ t('room.fields.terminationCount') }}</dt>
-              <dd>
-                <CountListPill
-                  :count="current.terminationCount ?? 0"
-                  @click="openTerminationsSide(current)"
-                />
-              </dd>
-            </div>
-            <div>
-              <dt>{{ t('room.fields.depositRefundCount') }}</dt>
-              <dd>
-                <CountListPill
-                  :count="current.depositRefundCount ?? 0"
-                  @click="openDepositRefundsSide(current)"
-                />
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <AuditDetailSection
-          :created-by="current.createdBy"
-          :created-at="current.createdAt"
-          :updated-by="current.updatedBy"
-          :updated-at="current.updatedAt"
-        />
-      </template>
-    </el-drawer>
+      @open-building="openBuildingDetail"
+      @open-contracts="openContractsSide"
+      @open-invoices="openInvoicesSide"
+      @open-terminations="openTerminationsSide"
+      @open-deposit-refunds="openDepositRefundsSide"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+    />
 
     <RelatedContractsDrawer
       v-model="relatedContractsDrawer"
@@ -1733,6 +1635,7 @@ async function saveForm() {
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromRelated"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @changed="loadList"
     />
     <RelatedTerminationsDrawer
       v-model="relatedTerminationsDrawer"
@@ -1750,7 +1653,7 @@ async function saveForm() {
       desktop-direction="ltr"
       @open-deposit-refund="onOpenDepositRefundFromRelated"
     />
-    <RelatedEntityDrawers ref="relationDrawers" />
+    <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
 
     <el-dialog
       v-model="formVisible"
@@ -2065,7 +1968,7 @@ async function saveForm() {
   margin-bottom: 0;
 }
 
-.room-lease-seg {
+.room-lease-seg.lb-yesno-seg {
   width: 100%;
   display: flex;
 }
@@ -2076,24 +1979,9 @@ async function saveForm() {
 
 .room-lease-seg :deep(.el-radio-button__inner) {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 0 !important;
-  font-weight: 600;
+  min-width: 0;
+  padding: 0 10px;
   font-size: 0.84rem;
-}
-
-.room-lease-seg :deep(.el-radio-button:first-child .el-radio-button__inner) {
-  border-radius: 8px 0 0 8px !important;
-}
-
-.room-lease-seg :deep(.el-radio-button:last-child .el-radio-button__inner) {
-  border-radius: 0 8px 8px 0 !important;
-}
-
-.room-lease-seg :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background: var(--lb-brand, #1f7a4d);
-  border-color: var(--lb-brand, #1f7a4d);
-  box-shadow: none;
 }
 
 .split-label-chips {

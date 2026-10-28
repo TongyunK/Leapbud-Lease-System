@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isElevatedAdminRole } from '../common/actor-role';
 import { buildingContext } from './building-context';
 
 /** 列表过滤挂载点：记录本身、房间，或经由房间/客户/合约/发票 */
@@ -23,7 +24,8 @@ export class BuildingAccessService {
    */
   async allowedIds(): Promise<string[] | null> {
     const store = buildingContext.getStore();
-    if (!store?.actor?.sub || store.actor.role === 'admin') return null;
+    // admin / superAdmin：不限制大厦范围
+    if (!store?.actor?.sub || isElevatedAdminRole(store.actor.role)) return null;
     if (store.allowedIds !== undefined) return store.allowedIds;
     const rows = await this.prisma.userBuilding.findMany({
       where: { userId: store.actor.sub },

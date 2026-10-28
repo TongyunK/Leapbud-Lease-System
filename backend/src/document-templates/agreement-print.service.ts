@@ -51,22 +51,34 @@ function formatUnitPrice(
 
 const PAYMENT_CYCLE_MONTHS: Record<string, number> = {
   月繳: 1,
+  '月繳-1': 1,
   季繳: 3,
+  '季繳-3': 3,
   半年繳: 6,
+  '半年繳-6': 6,
   年繳: 12,
+  '年繳-12': 12,
   '1年半': 18,
+  '1年半-18': 18,
   '2年': 24,
+  '2年-24': 24,
 };
 
 function paymentCycleMonths(cycle: string): number | '' {
-  const months = PAYMENT_CYCLE_MONTHS[s(cycle)];
-  return months ?? '';
+  const c = s(cycle);
+  if (!c) return '';
+  if (PAYMENT_CYCLE_MONTHS[c] != null) return PAYMENT_CYCLE_MONTHS[c];
+  const m = c.match(/-(\d+)\s*$/);
+  if (m) return Number(m[1]);
+  const head = c.split('-')[0]?.trim();
+  if (head && PAYMENT_CYCLE_MONTHS[head] != null) return PAYMENT_CYCLE_MONTHS[head];
+  return '';
 }
 
 /** 缴费周期 →「每N個月付一次款」 */
 function paymentCycleToPayPhrase(cycle: string): string {
   const c = s(cycle);
-  const months = PAYMENT_CYCLE_MONTHS[c];
+  const months = paymentCycleMonths(c);
   if (months) return `每${months}個月付一次款`;
   return c ? `按${c}付一次款` : '';
 }

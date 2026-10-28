@@ -94,8 +94,12 @@ export class RolesController {
   @RequirePermissions('roles:update')
   @Put(':id/permissions')
   @ApiOkResponse({ description: 'Assign role permission codes' })
-  assignPermissions(@Param('id') id: string, @Body() dto: AssignRolePermissionsDto) {
-    return this.permissionsService.assignCodesByRoleId(id, dto.codes ?? []);
+  assignPermissions(
+    @Param('id') id: string,
+    @Body() dto: AssignRolePermissionsDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.permissionsService.assignCodesByRoleId(id, dto.codes ?? [], user?.role);
   }
 
   @RequirePermissions('roles:batchDelete')

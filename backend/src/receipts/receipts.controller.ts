@@ -7,17 +7,28 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { FilesInterceptor } from '@nestjs/platform-express'
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger'
 import { UserRole } from '@prisma/client'
+import { memoryStorage } from 'multer'
 import { ReceiptsService } from './receipts.service'
 import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/receipt.dto'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
-import { PermissionsGuard } from '../permissions/permissions.guard';
-import { RequirePermissions } from '../permissions/require-permissions.decorator';
+import { PermissionsGuard } from '../permissions/permissions.guard'
+import { RequirePermissions } from '../permissions/require-permissions.decorator'
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
 import { BatchDeleteDto } from '../common/batch-delete'
@@ -39,6 +50,7 @@ export class ReceiptsController {
   @ApiQuery({ name: 'contractCodes', required: false, description: 'Comma-separated contract codes' })
   @ApiQuery({ name: 'invoiceCodes', required: false, description: 'Comma-separated invoice codes' })
   @ApiQuery({ name: 'receivableCodes', required: false, description: 'Comma-separated receivable codes' })
+  @ApiQuery({ name: 'kinds', required: false, description: 'Comma-separated: booking_deposit,invoice' })
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'invoiceId', required: false })
   @ApiQuery({ name: 'receivableId', required: false })
@@ -56,6 +68,7 @@ export class ReceiptsController {
     @Query('customerId') customerId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('paymentMethod') paymentMethod?: string,
+    @Query('kinds') kinds?: string,
     @Query('contractCodes') contractCodes?: string,
     @Query('invoiceCodes') invoiceCodes?: string,
     @Query('receivableCodes') receivableCodes?: string,
@@ -76,6 +89,7 @@ export class ReceiptsController {
       customerId,
       customerNames: splitCsv(customerNames),
       paymentMethods: splitCsv(paymentMethod),
+      kinds: splitCsv(kinds),
       contractCodes: splitCsv(contractCodes),
       invoiceCodes: splitCsv(invoiceCodes),
       receivableCodes: splitCsv(receivableCodes),
@@ -107,6 +121,12 @@ export class ReceiptsController {
     return this.receiptsService.removeMany(dto.ids || [])
   }
 
+  @Get('stats/kind')
+  @ApiOkResponse({ description: 'Receipt counts by kind (invoice / booking_deposit)' })
+  countByKind() {
+    return this.receiptsService.countByKind()
+  }
+
   @Get(':id')
   @ApiOkResponse({ description: 'Receipt detail' })
   findOne(@Param('id') id: string) {
@@ -129,6 +149,54 @@ export class ReceiptsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.receiptsService.update(id, dto, actorUserId(user))
+  }
+
+  @Post(':id/attachments')
+  @RequirePermissions('receipts:update')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FilesInterceptor('files', 30, {
+      storage: memoryStorage(),
+      limits: { fileSize: 20 * 1024 * 1024 },
+    }),
+  )
+  @ApiOkResponse({ description: 'Upload one or more receipt attachments' })
+  uploadAttachments(
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.receiptsService.uploadAttachments(id, files || [], actorUserId(user))
+  }
+
+  @Get(':id/attachments/:attachmentId/file')
+  @ApiOkResponse({ description: 'Stream receipt attachment file' })
+  getAttachmentFile(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.receiptsService.getAttachmentFile(id, attachmentId)
+  }
+
+  @Delete(':id/attachments/:attachmentId')
+  @RequirePermissions('receipts:update')
+  @ApiOkResponse({ description: 'Delete one receipt attachment' })
+  removeAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.receiptsService.removeAttachment(id, attachmentId)
   }
 
   @RequirePermissions('receipts:delete')

@@ -36,6 +36,7 @@ import {
   rowToBuildingIoPayload,
 } from '@/utils/buildingExport'
 import { useUserStore } from '@/stores/user'
+import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
@@ -52,7 +53,13 @@ import * as XLSX from 'xlsx'
 
 const { t } = useI18n()
 const userStore = useUserStore()
+const buildingScope = useBuildingScopeStore()
 const perms = useResourcePermissions('buildings')
+
+/** 大厦增删改后刷新顶栏「全部大厦」筛选选项 */
+function refreshHeaderBuildingOptions() {
+  void buildingScope.load()
+}
 const { actionColWidth } = useActionColWidth()
 const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
@@ -199,6 +206,7 @@ async function onBatchDelete() {
     finishBatch(ok, fail)
     clearSelection()
     await loadList()
+    refreshHeaderBuildingOptions()
   } catch {
     finishBatch(0, ids.length)
   } finally {
@@ -432,6 +440,7 @@ async function runImportFile(ev: Event) {
 
     await loadList()
     void loadManagerOptions()
+    refreshHeaderBuildingOptions()
     resetPage()
     finishImport()
   } catch {
@@ -496,6 +505,7 @@ async function toggleActive(row: BuildingRecord) {
     await updateBuildingApi(row.id, { active: !row.active })
     await loadList()
     void loadManagerOptions()
+    refreshHeaderBuildingOptions()
   } catch {
     /* interceptor */
   }
@@ -521,6 +531,7 @@ async function saveForm() {
     }
     await loadList()
     void loadManagerOptions()
+    refreshHeaderBuildingOptions()
     formVisible.value = false
   } catch {
     /* interceptor */

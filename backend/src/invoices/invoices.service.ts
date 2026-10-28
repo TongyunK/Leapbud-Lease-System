@@ -434,21 +434,33 @@ export class InvoicesService {
   }
 
   async remove(id: string) {
+    const existing = await this.prisma.invoice.findUnique({
+      where: { id },
+      select: { id: true, roomId: true },
+    })
+    if (!existing) throw new NotFoundException('Invoice not found')
+    await this.access.assertRoomId(existing.roomId)
+
     try {
-      await this.prisma.invoice.delete({ where: { id } })
+      // Receivable.invoiceId 为 Restrict：须先删下属应收；服务细节 Cascade；收据 invoiceId SetNull
+      await this.prisma.$transaction(async (tx) => {
+        await tx.receivable.deleteMany({ where: { invoiceId: id } })
+        await tx.invoice.delete({ where: { id } })
+      })
       return { success: true }
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-        throw new NotFoundException('Invoice not found')
+      if (e instanceof Prisma.PrismaClientKnownRequestError) {
+        if (e.code === 'P2025') throw new NotFoundException('Invoice not found')
+        if (e.code === 'P2003') {
+          throw new ConflictException('无法删除：发票仍有关联数据，请先处理关联记录')
+        }
       }
       throw e
     }
   }
 
   async removeMany(ids: string[]) {
-    return runBatchRemove(ids, async (id) => {
-      await this.prisma.invoice.delete({ where: { id } })
-    })
+    return runBatchRemove(ids, (id) => this.remove(id))
   }
 
   async importBatch(dto: ImportInvoicesDto, actorId?: string | null) {

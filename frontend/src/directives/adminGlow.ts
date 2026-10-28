@@ -18,7 +18,7 @@ function apply(el: GlowEl, code: string) {
       el.dataset.adminGlowTitleSaved = el.getAttribute('title') ?? ''
       el.dataset.adminGlowHadTitle = el.hasAttribute('title') ? '1' : '0'
     }
-    el.setAttribute('title', '僅管理員角色擁有此功能')
+    el.setAttribute('title', '僅超級管理員擁有此功能')
   } else if (el.dataset.adminGlowTitleSaved !== undefined) {
     if (el.dataset.adminGlowHadTitle === '1') {
       el.setAttribute('title', el.dataset.adminGlowTitleSaved)
@@ -35,13 +35,14 @@ function bindCode(el: GlowEl, binding: DirectiveBinding<string | undefined>) {
   apply(el, el.__adminGlowCode)
 }
 
-/** admin 视角：仅管理员角色拥有的功能按钮发光描边 */
+/** 超级管理员视角：仅 superAdmin 拥有的功能按钮发光描边 */
 export const vAdminGlow: Directive<GlowEl, string | undefined> = {
   mounted(el, binding) {
     const store = useUserStore()
     bindCode(el, binding)
     el.__adminGlowStop = watch(
-      () => [store.isAdmin, store.adminExclusiveCodes.join('\0'), el.__adminGlowCode ?? ''] as const,
+      () =>
+        [store.isSuperAdmin, store.adminExclusiveCodes.join('\0'), el.__adminGlowCode ?? ''] as const,
       () => apply(el, el.__adminGlowCode ?? ''),
     )
   },

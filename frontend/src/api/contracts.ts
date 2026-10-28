@@ -12,6 +12,15 @@ export type ContractPeriodWritePayload = {
   sortOrder?: number
 }
 
+export type ContractOtherFeeWritePayload = {
+  description: string
+  quantity: number
+  unitAmount: number
+  subtotal?: number
+  remark?: string
+  sortOrder?: number
+}
+
 export type ContractWritePayload = {
   contractCode?: string
   roomId: string
@@ -28,7 +37,10 @@ export type ContractWritePayload = {
   roomDeposit?: number | null
   monthlyRent?: number | null
   bookingDeposit?: number | null
+  paymentDate?: string | null
   paymentCycle?: string
+  paymentMethod?: string
+  paymentVoucher?: string
   electricityRate?: number | null
   miscDeposit?: number | null
   doorKeyQty?: number | null
@@ -38,6 +50,9 @@ export type ContractWritePayload = {
   attachment?: string
   remark?: string
   periods?: ContractPeriodWritePayload[]
+  otherFees?: ContractOtherFeeWritePayload[]
+  /** 直接开单：须有签约文件，保存后状态为租赁中 */
+  issueNow?: boolean
 }
 
 export type ContractListQuery = {
@@ -52,7 +67,10 @@ export type ContractListQuery = {
   customerNames?: string[]
   salesManagers?: string[]
   leaseTypes?: string[]
+  /** whole | part | part:A */
+  occupancyKeys?: string[]
   paymentCycles?: string[]
+  paymentMethods?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   startDateFrom?: string
@@ -61,6 +79,8 @@ export type ContractListQuery = {
   endDateTo?: string
   createdAtFrom?: string
   createdAtTo?: string
+  /** 頁頭「即將到期」：後端按系統設置套用 */
+  expiringSoon?: boolean
   page?: number
   pageSize?: number
 }
@@ -80,7 +100,9 @@ export function fetchContracts(params?: ContractListQuery) {
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')
   if (params?.leaseTypes?.length) query.leaseTypes = params.leaseTypes.join(',')
+  if (params?.occupancyKeys?.length) query.occupancyKeys = params.occupancyKeys.join(',')
   if (params?.paymentCycles?.length) query.paymentCycles = params.paymentCycles.join(',')
+  if (params?.paymentMethods?.length) query.paymentMethods = params.paymentMethods.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.startDateFrom) query.startDateFrom = params.startDateFrom
@@ -89,6 +111,7 @@ export function fetchContracts(params?: ContractListQuery) {
   if (params?.endDateTo) query.endDateTo = params.endDateTo
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
   if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.expiringSoon) query.expiringSoon = 1
   if (params?.page != null) query.page = params.page
   if (params?.pageSize != null) query.pageSize = params.pageSize
   return request.get<ContractListPage>('/contracts', {
@@ -105,6 +128,51 @@ export function fetchContractBuildingCounts() {
   return request.get<ContractBuildingCount[]>('/contracts/building-counts')
 }
 
+export type ContractOccupancyCounts = {
+  all: number
+  whole: number
+  part: number
+}
+
+export function fetchContractOccupancyCounts() {
+  return request.get<ContractOccupancyCounts>('/contracts/stats/occupancy')
+}
+
+export type ContractExpiringSoonCount = {
+  count: number
+  config: {
+    amount: number
+    unit: 'day' | 'month'
+    statusMode: 'all' | 'include' | 'exclude'
+    statuses: string[]
+  }
+}
+
+export function fetchContractExpiringSoonCount() {
+  return request.get<ContractExpiringSoonCount>('/contracts/stats/expiring-soon')
+}
+
+export type IssueBlockedAlertItem = {
+  id: string
+  contractCode: string
+  secondPeriodStart: string
+  /** 距第 2 期开始天数；负数表示已过开始日 */
+  daysUntilSecond: number
+  roomCode: string
+  customerName: string
+}
+
+export type IssueBlockedAlertResult = {
+  leadDays: number
+  total: number
+  items: IssueBlockedAlertItem[]
+}
+
+/** 紧急待开单（全量，不受列表分页限制；按紧急程度排序） */
+export function fetchIssueBlockedAlerts() {
+  return request.get<IssueBlockedAlertResult>('/contracts/alerts/issue-blocked')
+}
+
 export function fetchContract(id: string) {
   return request.get<ContractRecord>(`/contracts/${id}`)
 }
@@ -115,6 +183,11 @@ export function createContractApi(payload: ContractWritePayload) {
 
 export function updateContractApi(id: string, payload: Partial<ContractWritePayload>) {
   return request.patch<ContractRecord>(`/contracts/${id}`, payload)
+}
+
+/** 开单：上传租客签约文件，签约中 → 租赁中 */
+export function openContractOrderApi(id: string, attachment: string) {
+  return request.post<ContractRecord>(`/contracts/${id}/open-order`, { attachment })
 }
 
 export function deleteContractApi(id: string) {
@@ -143,7 +216,9 @@ export type ContractImportItem = {
   monthlyRent?: number | null
   roomDeposit?: number | null
   bookingDeposit?: number | null
+  paymentDate?: string | null
   paymentCycle?: string
+  paymentMethod?: string
   electricityRate?: number | null
   miscDeposit?: number | null
   doorKeyQty?: number | null

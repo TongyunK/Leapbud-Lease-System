@@ -51,6 +51,17 @@ export function roomLeaseCapabilityTone(cap: string | null | undefined): StatusT
   return ROOM_LEASE_CAPABILITY_TONES[key] || 'neutral'
 }
 
+/** 收据分类色：定金收据 / 发票收据 */
+const RECEIPT_KIND_TONES = {
+  booking_deposit: 'signing',
+  invoice: 'leased',
+} as const
+
+export function receiptKindTone(kind: string | null | undefined): StatusTone {
+  const key = (kind || 'invoice') as keyof typeof RECEIPT_KIND_TONES
+  return RECEIPT_KIND_TONES[key] || 'neutral'
+}
+
 export function userStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '') as keyof typeof USER_STATUS_TONES
   return USER_STATUS_TONES[key] || 'neutral'
@@ -113,6 +124,15 @@ const CONTRACT_STATUS_TONES: Record<string, StatusTone> = {
 export function contractStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '').trim()
   return CONTRACT_STATUS_TONES[key] || 'neutral'
+}
+
+/** 合约租赁方式色：整租绿 / 分租蓝 */
+export function contractOccupancyTone(occupancyMode: string | null | undefined): StatusTone {
+  return String(occupancyMode || '')
+    .trim()
+    .toLowerCase() === 'part'
+    ? 'leasing'
+    : 'leased'
 }
 
 /** 按金退还状态色：草稿灰 / 未退按金橙 / 已退按金绿 / 已取消红 */

@@ -3,11 +3,13 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import type { ContractRecord } from '@/types/contract'
+import { coerceContractPaymentCycle, formatContractOccupancyLabel } from '@/types/contract'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import AttachmentLink from '@/components/AttachmentLink.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { contractStatusTone } from '@/constants/statusBadges'
+import { contractOccupancyTone, contractStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
 import { previewAgreementPdfApi, prefetchAgreementPdfApi } from '@/api/document-templates'
 
@@ -38,11 +40,19 @@ const emit = defineEmits<{
   openOtherFees: [contract: ContractRecord]
   openDepositDeductions: [contract: ContractRecord]
   openDepositRefunds: [contract: ContractRecord]
+  openBookingDepositReceipt: [receiptId: string]
 }>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const printing = ref(false)
+
+function occupancyLabel(row: ContractRecord) {
+  return formatContractOccupancyLabel(row, {
+    whole: t('contract.occupancyWhole'),
+    part: t('contract.occupancyPart'),
+  })
+}
 
 watch(
   () => [visible.value, props.contract?.id] as const,
@@ -155,7 +165,7 @@ function emitIfCount(
           </div>
           <div>
             <dt>{{ t('contract.fields.roomName') }}</dt>
-            <dd>{{ dash(contract.roomNameText || contract.roomName) }}</dd>
+            <dd>{{ dash(contract.roomName || contract.roomNameText) }}</dd>
           </div>
           <div>
             <dt>{{ t('contract.fields.buildingName') }}</dt>
@@ -217,15 +227,12 @@ function emitIfCount(
           </div>
           <div>
             <dt>{{ t('contract.fields.leaseType') }}</dt>
-            <dd>{{ dash(contract.leaseType) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('contract.fields.paymentCycle') }}</dt>
-            <dd>{{ dash(contract.paymentCycle) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('contract.fields.subleaseMark') }}</dt>
-            <dd>{{ dash(contract.subleaseMark) }}</dd>
+            <dd>
+              <StatusBadge
+                :tone="contractOccupancyTone(contract.occupancyMode)"
+                :label="occupancyLabel(contract)"
+              />
+            </dd>
           </div>
         </dl>
       </section>
@@ -235,7 +242,7 @@ function emitIfCount(
         <div class="period-list">
           <div v-for="(p, i) in contract.periods" :key="p.id || i" class="period-list__item">
             <strong>{{ t(`contract.periodTypes.${p.dateType}`, p.dateType) }}</strong>
-            <span>{{ p.dateValue }}{{ t(`contract.periodUnits.${p.dateUnit}`, p.dateUnit) }}</span>
+            <span>{{ p.dateValue }} {{ t(`contract.periodUnits.${p.dateUnit}`, p.dateUnit) }}</span>
             <span>{{ p.startDate }} → {{ p.endDate }}</span>
           </div>
         </div>
@@ -253,32 +260,75 @@ function emitIfCount(
             <dd>{{ money(contract.roomDeposit) }}</dd>
           </div>
           <div>
-            <dt>{{ t('contract.fields.bookingDeposit') }}</dt>
-            <dd>{{ money(contract.bookingDeposit) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('contract.fields.miscDeposit') }}</dt>
-            <dd>{{ money(contract.miscDeposit) }}</dd>
+            <dt>{{ t('contract.fields.electricityRate') }}</dt>
+            <dd>{{ contract.electricityRate == null ? '—' : contract.electricityRate }}</dd>
           </div>
           <div>
             <dt>{{ t('contract.fields.doorKeyQty') }}</dt>
             <dd>{{ contract.doorKeyQty ?? 0 }}</dd>
           </div>
           <div>
-            <dt>{{ t('contract.fields.doorKeyDeposit') }}</dt>
-            <dd>{{ money(contract.doorKeyDeposit) }}</dd>
-          </div>
-          <div>
             <dt>{{ t('contract.fields.mailboxKeyQty') }}</dt>
             <dd>{{ contract.mailboxKeyQty ?? 0 }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.miscDeposit') }}</dt>
+            <dd>{{ money(contract.miscDeposit) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.doorKeyDeposit') }}</dt>
+            <dd>{{ money(contract.doorKeyDeposit) }}</dd>
           </div>
           <div>
             <dt>{{ t('contract.fields.mailboxKeyDeposit') }}</dt>
             <dd>{{ money(contract.mailboxKeyDeposit) }}</dd>
           </div>
+        </dl>
+      </section>
+
+      <section class="detail-section">
+        <h3>{{ t('contract.sections.payment') }}</h3>
+        <dl class="detail-grid two">
           <div>
-            <dt>{{ t('contract.fields.electricityRate') }}</dt>
-            <dd>{{ contract.electricityRate == null ? '—' : contract.electricityRate }}</dd>
+            <dt>{{ t('contract.fields.paymentCycle') }}</dt>
+            <dd>{{
+              contract.paymentCycle
+                ? coerceContractPaymentCycle(contract.paymentCycle)
+                : dash('')
+            }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.paymentMethod') }}</dt>
+            <dd>{{ dash(contract.paymentMethod) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.bookingDeposit') }}</dt>
+            <dd>{{ money(contract.bookingDeposit) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.paymentDate') }}</dt>
+            <dd>{{ dash(contract.paymentDate) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contract.fields.bookingDepositReceipt') }}</dt>
+            <dd>
+              <button
+                v-if="contract.bookingDepositReceiptId"
+                type="button"
+                class="fk-link"
+                @click="emit('openBookingDepositReceipt', contract.bookingDepositReceiptId)"
+              >
+                {{ t('contract.fields.bookingDepositReceipt') }}
+              </button>
+              <template v-else>—</template>
+            </dd>
+          </div>
+          <div class="full">
+            <dt>{{ t('contract.fields.paymentVoucher') }}</dt>
+            <dd>
+              <AttachmentLink v-if="contract.paymentVoucher" :value="contract.paymentVoucher" />
+              <template v-else>—</template>
+            </dd>
           </div>
         </dl>
       </section>
@@ -288,7 +338,10 @@ function emitIfCount(
         <dl class="detail-grid two">
           <div class="full">
             <dt>{{ t('contract.fields.attachment') }}</dt>
-            <dd class="path-text">{{ dash(contract.attachment) }}</dd>
+            <dd>
+              <AttachmentLink v-if="contract.attachment" :value="contract.attachment" />
+              <template v-else>—</template>
+            </dd>
           </div>
           <div class="full">
             <dt>{{ t('contract.fields.remark') }}</dt>

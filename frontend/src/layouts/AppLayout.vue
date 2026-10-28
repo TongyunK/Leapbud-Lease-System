@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -23,6 +23,7 @@ import { useStatusStore } from '@/stores/status'
 import { changePasswordApi } from '@/api/auth'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
 import { useFrequentRoutes, type FrequentRouteName } from '@/composables/useFrequentRoutes'
+import { registerMainBoundsPublisher } from '@/utils/layoutMainBounds'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -42,6 +43,38 @@ const visibleShortcuts = computed(() =>
 const collapsed = ref(false)
 const mobileOpen = ref(false)
 const userMenuOpen = ref(false)
+/**
+ * 右侧主区 `.main`（红框区域：侧栏以右整块，含顶栏快捷/大厦筛选与内容白卡片）。
+ * 弹窗「内容区全屏」对齐此处，侧栏未折叠时侧栏仍完整可见。
+ */
+const mainEl = ref<HTMLElement | null>(null)
+const layoutEl = ref<HTMLElement | null>(null)
+let mainBoundsRo: ResizeObserver | null = null
+
+function publishMainBounds() {
+  const el = mainEl.value
+  const root = document.documentElement
+  if (!el) {
+    root.style.setProperty('--lb-main-top', '0px')
+    root.style.setProperty('--lb-main-left', '0px')
+    root.style.setProperty('--lb-main-right', '0px')
+    root.style.setProperty('--lb-main-bottom', '0px')
+    root.style.setProperty('--lb-main-width', '100vw')
+    root.style.setProperty('--lb-main-height', '100vh')
+    return
+  }
+  const r = el.getBoundingClientRect()
+  const top = Math.round(r.top)
+  const left = Math.round(r.left)
+  const width = Math.max(0, Math.round(r.width))
+  const height = Math.max(0, Math.round(r.height))
+  root.style.setProperty('--lb-main-top', `${top}px`)
+  root.style.setProperty('--lb-main-left', `${left}px`)
+  root.style.setProperty('--lb-main-right', `${Math.max(0, Math.round(window.innerWidth - r.right))}px`)
+  root.style.setProperty('--lb-main-bottom', `${Math.max(0, Math.round(window.innerHeight - r.bottom))}px`)
+  root.style.setProperty('--lb-main-width', `${width}px`)
+  root.style.setProperty('--lb-main-height', `${height}px`)
+}
 const pwdVisible = ref(false)
 const pwdForm = reactive({
   current: '',
@@ -102,6 +135,33 @@ onMounted(() => {
     void navStore.loadNav()
     void buildingScope.load()
   }
+  registerMainBoundsPublisher(publishMainBounds)
+  void nextTick(() => {
+    publishMainBounds()
+    if (typeof ResizeObserver !== 'undefined') {
+      mainBoundsRo = new ResizeObserver(() => publishMainBounds())
+      if (mainEl.value) mainBoundsRo.observe(mainEl.value)
+      if (layoutEl.value) mainBoundsRo.observe(layoutEl.value)
+    }
+  })
+  window.addEventListener('resize', publishMainBounds)
+  window.addEventListener('scroll', publishMainBounds, true)
+})
+
+onBeforeUnmount(() => {
+  registerMainBoundsPublisher(null)
+  mainBoundsRo?.disconnect()
+  mainBoundsRo = null
+  window.removeEventListener('resize', publishMainBounds)
+  window.removeEventListener('scroll', publishMainBounds, true)
+})
+
+watch([collapsed, mobileOpen, isMobile, isCompact, sidebarCollapsed], () => {
+  void nextTick(() => {
+    publishMainBounds()
+    // 侧栏宽度有 transition，动画结束后再测一次
+    window.setTimeout(publishMainBounds, 220)
+  })
 })
 
 function onBuildingChange(id: string) {
@@ -191,7 +251,11 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 </script>
 
 <template>
-  <div class="app-layout" :class="{ collapsed: sidebarCollapsed, 'mobile-open': mobileOpen }">
+  <div
+    ref="layoutEl"
+    class="app-layout"
+    :class="{ collapsed: sidebarCollapsed, 'mobile-open': mobileOpen }"
+  >
     <div
       v-if="isMobile && mobileOpen"
       class="sidebar-mask"
@@ -234,7 +298,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
       </div>
     </aside>
 
-    <div class="main">
+    <div ref="mainEl" class="main">
       <header class="utility">
         <button
           type="button"

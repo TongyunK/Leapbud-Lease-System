@@ -439,21 +439,30 @@ export class ReceivablesService {
   }
 
   async remove(id: string) {
+    const existing = await this.prisma.receivable.findUnique({
+      where: { id },
+      select: { id: true, customerId: true },
+    })
+    if (!existing) throw new NotFoundException('Receivable not found')
+    await this.access.assertCustomerId(existing.customerId)
+
     try {
+      // 下属收据 receivableId 为 SetNull，可直接删应收
       await this.prisma.receivable.delete({ where: { id } })
       return { success: true }
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-        throw new NotFoundException('Receivable not found')
+      if (e instanceof Prisma.PrismaClientKnownRequestError) {
+        if (e.code === 'P2025') throw new NotFoundException('Receivable not found')
+        if (e.code === 'P2003') {
+          throw new ConflictException('无法删除：应收帐仍有关联数据，请先处理关联记录')
+        }
       }
       throw e
     }
   }
 
   async removeMany(ids: string[]) {
-    return runBatchRemove(ids, async (id) => {
-      await this.prisma.receivable.delete({ where: { id } })
-    })
+    return runBatchRemove(ids, (id) => this.remove(id))
   }
 
   async importBatch(dto: ImportReceivablesDto, actorId?: string | null) {

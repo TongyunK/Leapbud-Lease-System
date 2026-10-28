@@ -37,6 +37,7 @@ import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
+import { endDateFromDuration, inferPeriodDurationFromDates } from '@/utils/contractPeriodDuration'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -328,7 +329,47 @@ const form = reactive(emptyForm())
 
 function periodDurationLabel(p: Pick<ContractPeriodListRecord, 'dateValue' | 'dateUnit'>): string {
   const n = Number(p.dateValue) || 0
-  return `${n}${p.dateUnit === '日' ? t('contract.periodUnits.日') : t('contract.periodUnits.月')}`
+  return `${n} ${p.dateUnit === '日' ? t('contract.periodUnits.日') : t('contract.periodUnits.月')}`
+}
+
+let periodFormSyncing = false
+
+function syncFormDurationFromDates() {
+  if (periodFormSyncing) return
+  const hit = inferPeriodDurationFromDates(form.startDate, form.endDate)
+  if (!hit) return
+  if (form.dateUnit === hit.dateUnit && Number(form.dateValue) === hit.dateValue) return
+  periodFormSyncing = true
+  try {
+    form.dateUnit = hit.dateUnit
+    form.dateValue = hit.dateValue
+  } finally {
+    periodFormSyncing = false
+  }
+}
+
+function syncFormDatesFromDuration() {
+  if (periodFormSyncing) return
+  const start = String(form.startDate || '').trim()
+  if (!start) return
+  const end = endDateFromDuration(start, form.dateUnit, form.dateValue)
+  if (!end || form.endDate === end) return
+  periodFormSyncing = true
+  try {
+    form.endDate = end
+  } finally {
+    periodFormSyncing = false
+  }
+}
+
+function onPeriodFormDatesChange() {
+  const s = String(form.startDate || '').trim()
+  const e = String(form.endDate || '').trim()
+  if (s && e) {
+    syncFormDurationFromDates()
+    return
+  }
+  if (s) syncFormDatesFromDuration()
 }
 
 async function loadContracts() {
@@ -1012,7 +1053,11 @@ async function onImportFile(ev: Event) {
             </el-select>
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.dateUnit')">
-            <el-select v-model="form.dateUnit" style="width: 100%">
+            <el-select
+              v-model="form.dateUnit"
+              style="width: 100%"
+              @change="syncFormDatesFromDuration"
+            >
               <el-option
                 v-for="u in CONTRACT_PERIOD_UNITS"
                 :key="u"
@@ -1027,6 +1072,7 @@ async function onImportFile(ev: Event) {
               :min="0"
               :controls="false"
               style="width: 100%"
+              @change="syncFormDatesFromDuration"
             />
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.duration')">
@@ -1039,6 +1085,7 @@ async function onImportFile(ev: Event) {
               value-format="YYYY-MM-DD"
               :placeholder="t('contractPeriod.fields.startDate')"
               style="width: 100%"
+              @change="onPeriodFormDatesChange"
             />
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.endDate')" required>
@@ -1048,6 +1095,7 @@ async function onImportFile(ev: Event) {
               value-format="YYYY-MM-DD"
               :placeholder="t('contractPeriod.fields.endDate')"
               style="width: 100%"
+              @change="onPeriodFormDatesChange"
             />
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.sortOrder')">

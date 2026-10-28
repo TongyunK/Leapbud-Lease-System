@@ -51,6 +51,14 @@ enum ContractConfigType {
   keyDeposit // 钥匙类按金单价（房门匙 / 智能卡信箱匙）
 }
 
+/// 收据分类
+enum ReceiptKind {
+  /// 定金收据（开单时按合约定金生成，通常每合约一张）
+  booking_deposit
+  /// 发票收据（月租等发票对应的收款凭证）
+  invoice
+}
+
 /// 系统用户
 model User {
   /// 主键
@@ -189,6 +197,10 @@ model User {
   createdReceipts              Receipt[]              @relation("ReceiptCreatedBy")
   /// 作为更新人：收据
   updatedReceipts              Receipt[]              @relation("ReceiptUpdatedBy")
+  /// 作为创建人：收据附件
+  createdReceiptAttachments    ReceiptAttachment[]    @relation("ReceiptAttachmentCreatedBy")
+  /// 作为更新人：收据附件
+  updatedReceiptAttachments    ReceiptAttachment[]    @relation("ReceiptAttachmentUpdatedBy")
   /// 作为创建人：单据打印模板
   createdDocumentTemplates     DocumentTemplate[]     @relation("DocumentTemplateCreatedBy")
   /// 作为更新人：单据打印模板
@@ -197,6 +209,14 @@ model User {
   createdNumberingRules        NumberingRule[]        @relation("NumberingRuleCreatedBy")
   /// 作为更新人：自动编号规则
   updatedNumberingRules        NumberingRule[]        @relation("NumberingRuleUpdatedBy")
+  /// 作为创建人：系统参数
+  createdSystemSettings        SystemSetting[]        @relation("SystemSettingCreatedBy")
+  /// 作为更新人：系统参数
+  updatedSystemSettings        SystemSetting[]        @relation("SystemSettingUpdatedBy")
+  /// 作为创建人：定时任务
+  createdScheduledJobs         ScheduledJob[]         @relation("ScheduledJobCreatedBy")
+  /// 作为更新人：定时任务
+  updatedScheduledJobs         ScheduledJob[]         @relation("ScheduledJobUpdatedBy")
 
   @@index([status])
   @@index([role])
@@ -715,10 +735,16 @@ model Contract {
   roomDeposit         Decimal?  @map("room_deposit") @db.Decimal(14, 2)
   /// 租金/月
   monthlyRent         Decimal?  @map("monthly_rent") @db.Decimal(14, 2)
-  /// 订金
+  /// 已收订金
   bookingDeposit      Decimal?  @map("booking_deposit") @db.Decimal(14, 2)
-  /// 缴费周期：月繳 / 季繳 / 半年繳 / 年繳 等
+  /// 已收订金的收款日期
+  paymentDate         DateTime? @map("payment_date") @db.Date
+  /// 缴费周期：月繳-1 / 季繳-3 / 半年繳-6 / 年繳-12 / 1年半-18 / 2年-24
   paymentCycle        String    @default("") @map("payment_cycle")
+  /// 收款方式：轉數快 / 銀行過數 / 支票 / 現金
+  paymentMethod       String    @default("") @map("payment_method")
+  /// 定金收款凭证（图片或文件路径）
+  paymentVoucher      String    @default("") @map("payment_voucher")
   /// 电费/度
   electricityRate     Decimal?  @map("electricity_rate") @db.Decimal(14, 4)
   /// 杂项按金
@@ -753,6 +779,10 @@ model Contract {
   receivables         Receivable[]       @relation("ReceivableBelongsToContract")
   /// 下属收据
   receipts            Receipt[]          @relation("ReceiptBelongsToContract")
+  /// 定金收据 ID（开单时生成；一对一便捷指针）
+  bookingDepositReceiptId String? @unique @map("booking_deposit_receipt_id")
+  /// 定金收据
+  bookingDepositReceipt   Receipt? @relation("ContractBookingDepositReceipt", fields: [bookingDepositReceiptId], references: [id], onDelete: SetNull)
   /// 创建人用户 ID
   createdById         String?   @map("created_by")
   /// 创建人用户
@@ -1043,6 +1073,12 @@ model Invoice {
   room                  Room                   @relation("InvoiceBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
   /// 发票类型（會議室短租 / Deposit / 1, Charging Period / 10, Other charges）
   invoiceType           String                 @default("") @map("invoice_type")
+  /// 自动开票种类：manual=手工；deposit=房间按金发票；rent=缴费周期租金发票
+  billingKind           String                 @default("manual") @map("billing_kind")
+  /// 租金账单周期起（仅 billingKind=rent；UTC 日期）
+  periodStart           DateTime?              @map("period_start") @db.Date
+  /// 租金账单周期止（仅 billingKind=rent；UTC 日期，含当日）
+  periodEnd             DateTime?              @map("period_end") @db.Date
   /// 发票描述
   description           String                 @default("")
   /// 开票金额
@@ -1096,10 +1132,13 @@ model Invoice {
   @@index([salesManagerId])
   @@index([status])
   @@index([invoiceType])
+  @@index([billingKind])
+  @@index([periodStart])
   @@index([invoiceDate])
   @@index([paymentDueDate])
   @@index([createdById])
   @@index([updatedById])
+  @@index([contractId, billingKind, periodStart])
   @@map("invoices")
 }
 
@@ -1216,6 +1255,8 @@ model Receipt {
   legacyId          String?     @unique @map("legacy_id")
   /// 收据编号（业务唯一，如 RCP2609160001）
   receiptCode       String      @unique @map("receipt_code")
+  /// 收据分类：booking_deposit=定金收据，invoice=发票收据
+  kind              ReceiptKind @default(invoice)
   /// 所属客户 ID
   customerId        String      @map("customer_id")
   /// 所属客户
@@ -1224,6 +1265,8 @@ model Receipt {
   contractId        String?     @map("contract_id")
   /// 所属合约
   contract          Contract?   @relation("ReceiptBelongsToContract", fields: [contractId], references: [id], onDelete: SetNull)
+  /// 作为某合约的定金收据（合约侧 bookingDepositReceiptId 反向）
+  bookingDepositOfContract Contract? @relation("ContractBookingDepositReceipt")
   /// 所属发票 ID（可选）
   invoiceId         String?     @map("invoice_id")
   /// 所属发票
@@ -1240,12 +1283,10 @@ model Receipt {
   amount            Decimal     @default(0) @db.Decimal(14, 2)
   /// 备注
   remark            String      @default("")
-  /// 收款凭证1路径
-  voucher1          String      @default("") @map("voucher_1")
-  /// 收款凭证2路径
-  voucher2          String      @default("") @map("voucher_2")
   /// 修改记录（文本审计摘要）
   changeLog         String      @default("") @map("change_log")
+  /// 收款凭证附件（不限数量与格式）
+  attachments       ReceiptAttachment[] @relation("ReceiptAttachmentBelongsToReceipt")
   /// 创建人用户 ID
   createdById       String?     @map("created_by")
   /// 创建人用户
@@ -1261,6 +1302,7 @@ model Receipt {
 
   @@index([customerId])
   @@index([contractId])
+  @@index([kind])
   @@index([invoiceId])
   @@index([receivableId])
   @@index([paymentDate])
@@ -1268,6 +1310,39 @@ model Receipt {
   @@index([createdById])
   @@index([updatedById])
   @@map("receipts")
+}
+
+/// 收据收款凭证附件（一收据多文件，不限数量与格式）
+model ReceiptAttachment {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 所属收据 ID
+  receiptId   String   @map("receipt_id")
+  /// 所属收据
+  receipt     Receipt  @relation("ReceiptAttachmentBelongsToReceipt", fields: [receiptId], references: [id], onDelete: Cascade)
+  /// 原始文件名
+  fileName    String   @map("file_name")
+  /// 存储相对路径（相对 uploads 根；或以 http(s) 开头的外部地址）
+  storageKey  String   @map("storage_key")
+  /// 展示排序（越小越靠前）
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("ReceiptAttachmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("ReceiptAttachmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([receiptId, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("receipt_attachments")
 }
 
 /// 使用者（客户下的联系人 / 实际租赁名义人；非系统登录账号）
@@ -1649,5 +1724,121 @@ model NumberingRule {
   @@index([createdById])
   @@index([updatedById])
   @@map("numbering_rules")
+}
+
+/// 系统参数（键值；供业务模块读取可配置项）
+model SystemSetting {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 参数键（业务唯一，如 rent_invoice_lead_days）
+  key         String   @unique
+  /// 参数值（统一存文本；数值类自行解析）
+  value       String   @default("")
+  /// 显示名称（中文说明）
+  label       String   @default("")
+  /// 备注 / 帮助说明
+  remark      String   @default("")
+  /// 排序权重，越小越靠前
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("SystemSettingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("system_settings")
+}
+
+/// 定时任务（系统预置；可开关/改调度，不可删除）
+model ScheduledJob {
+  /// 主键
+  id               String    @id @default(cuid())
+  /// 任务编码（业务唯一，如 rent_invoice_due）
+  code             String    @unique
+  /// 任务名称（可编辑）
+  name             String
+  /// 执行处理器键（代码注册表；决定跑哪段业务）
+  handlerKey       String    @map("handler_key")
+  /// 是否启用（关闭后不自动跑；仍可手动运行）
+  enabled          Boolean   @default(true)
+  /// 调度类型：recurring=周期；once=时间点（一次性）
+  scheduleKind     String    @default("recurring") @map("schedule_kind")
+  /// 重复周期：daily / weekly / monthly_days / monthly_weekday / yearly
+  recurrence       String    @default("daily")
+  /// 执行时刻 HH:mm（Asia/Hong_Kong）
+  runTime          String    @default("01:00") @map("run_time")
+  /// 周期扩展配置 JSON（如周几、每月哪几天）
+  recurrenceConfig String    @default("{}") @map("recurrence_config")
+  /// 一次性执行的目标日期时间（scheduleKind=once 时）
+  onceAt           DateTime? @map("once_at")
+  /// 上次运行时间
+  lastRunAt        DateTime? @map("last_run_at")
+  /// 上次运行状态：success / failed / skipped
+  lastRunStatus    String    @default("") @map("last_run_status")
+  /// 上次运行摘要
+  lastRunMessage   String    @default("") @map("last_run_message")
+  /// 下次计划运行时间（展示用；调度器会刷新）
+  nextRunAt        DateTime? @map("next_run_at")
+  /// 排序权重，越小越靠前
+  sortOrder        Int       @default(0) @map("sort_order")
+  /// 备注
+  remark           String    @default("")
+  /// 创建人用户 ID
+  createdById      String?   @map("created_by")
+  /// 创建人用户
+  createdByUser    User?     @relation("ScheduledJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById      String?   @map("updated_by")
+  /// 更新人用户
+  updatedByUser    User?     @relation("ScheduledJobUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt        DateTime  @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  /// 执行日志
+  logs             ScheduledJobLog[]
+
+  @@index([enabled, scheduleKind, sortOrder])
+  @@index([handlerKey])
+  @@index([nextRunAt])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("scheduled_jobs")
+}
+
+/// 定时任务执行日志
+model ScheduledJobLog {
+  /// 主键
+  id         String   @id @default(cuid())
+  /// 所属定时任务 ID
+  jobId      String   @map("job_id")
+  /// 所属定时任务
+  job        ScheduledJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  /// 触发方式：auto=调度 / manual=手动
+  trigger    String   @default("auto")
+  /// 开始时间
+  startedAt  DateTime @map("started_at")
+  /// 结束时间
+  finishedAt DateTime? @map("finished_at")
+  /// 状态：success / failed / skipped
+  status     String
+  /// 结果摘要
+  message    String   @default("")
+  /// 创建时间
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([jobId, startedAt])
+  @@index([status])
+  @@map("scheduled_job_logs")
 }
 

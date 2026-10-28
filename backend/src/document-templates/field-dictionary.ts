@@ -41,7 +41,7 @@ export const AGREEMENT_FIELD_DICTIONARY: DocumentFieldDef[] = [
   },
   { key: 'roomDeposit', label: '房间按金（无千分位）', loop: false },
   { key: 'roomDepositAmount', label: '房间按金（千分位，如 9,538.00）', loop: false },
-  { key: 'bookingDeposit', label: '订金', loop: false },
+  { key: 'bookingDeposit', label: '已收订金', loop: false },
   { key: 'miscDeposit', label: '杂项按金（无千分位）', loop: false },
   { key: 'miscDepositAmount', label: '杂项按金（千分位，如 2,000.00）', loop: false },
   {

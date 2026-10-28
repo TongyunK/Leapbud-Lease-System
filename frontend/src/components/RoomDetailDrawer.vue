@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { RoomRecord } from '@/types/room'
+import type { RoomFillStatus, RoomLeaseCapability, RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import StatusBadge from '@/components/StatusBadge.vue'
+import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
+import RoomOccupancyChips from '@/components/RoomOccupancyChips.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RoomImageGallery from '@/components/RoomImageGallery.vue'
-import { roomStatusTone } from '@/constants/statusBadges'
+import { roomFillStatusTone, roomLeaseCapabilityTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -30,6 +32,7 @@ const emit = defineEmits<{
   openInvoices: [room: RoomRecord]
   openTerminations: [room: RoomRecord]
   openDepositRefunds: [room: RoomRecord]
+  openContract: [contractId: string]
 }>()
 
 const { t } = useI18n()
@@ -40,6 +43,26 @@ const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '560p
 
 function dash(v?: string | null) {
   return v?.trim() ? v : '—'
+}
+
+function fillStatusOf(row: RoomRecord | null | undefined): RoomFillStatus {
+  return row?.occupancy?.summary || 'idle'
+}
+
+function leaseCapabilityLabel(cap?: RoomLeaseCapability | string | null) {
+  if (cap === 'whole_only') return t('room.leaseCapability.wholeOnlyShort')
+  if (cap === 'part_only') return t('room.leaseCapability.partOnlyShort')
+  return t('room.leaseCapability.flexibleShort')
+}
+
+/** 详情：可整可分时附带份额数，如 可整可分 (2) */
+function leaseCapabilityDetailLabel(row: RoomRecord) {
+  const base = leaseCapabilityLabel(row.leaseCapability)
+  if (row.leaseCapability === 'flexible') {
+    const n = row.splitLabels?.length || 0
+    if (n > 0) return `${base} (${n})`
+  }
+  return base
 }
 
 function emitIfCount(
@@ -74,7 +97,7 @@ function emitIfCount(
           </div>
           <div>
             <dt>{{ t('room.fields.roomType') }}</dt>
-            <dd>{{ dash(room.roomType) }}</dd>
+            <dd><RoomTypeBadge :value="room.roomType" /></dd>
           </div>
           <div>
             <dt>{{ t('room.fields.building') }}</dt>
@@ -94,8 +117,8 @@ function emitIfCount(
             <dt>{{ t('room.fields.status') }}</dt>
             <dd>
               <StatusBadge
-                :tone="roomStatusTone(room.status)"
-                :label="t(`room.status.${room.status}`)"
+                :tone="roomFillStatusTone(fillStatusOf(room))"
+                :label="t(`room.fillStatus.${fillStatusOf(room)}`)"
               />
             </dd>
           </div>
@@ -103,9 +126,37 @@ function emitIfCount(
             <dt>{{ t('room.fields.serialNo') }}</dt>
             <dd>{{ dash(room.serialNo) }}</dd>
           </div>
-          <div>
-            <dt>{{ t('room.fields.subleaseMark') }}</dt>
-            <dd>{{ dash(room.subleaseMark) }}</dd>
+          <div class="detail-span-2">
+            <dt>{{ t('room.fields.leaseCapability') }}</dt>
+            <dd class="room-lease-cap-detail">
+              <StatusBadge
+                :tone="roomLeaseCapabilityTone(room.leaseCapability)"
+                :label="leaseCapabilityDetailLabel(room)"
+              />
+              <span
+                v-if="room.leaseCapability === 'flexible' && (room.splitLabels?.length || 0) > 0"
+                class="room-lease-cap-detail__chips"
+                :title="(room.splitLabels || []).join(' / ')"
+              >
+                <span
+                  v-for="lab in room.splitLabels"
+                  :key="lab"
+                  class="split-label-chip"
+                >{{ lab }}</span>
+              </span>
+            </dd>
+          </div>
+          <div class="detail-span-2">
+            <dt>{{ t('room.fields.occupancy') }}</dt>
+            <dd>
+              <RoomOccupancyChips
+                variant="expanded"
+                :occupancy="room.occupancy"
+                :lease-capability="room.leaseCapability"
+                :split-labels="room.splitLabels"
+                @open-contract="(id) => emit('openContract', id)"
+              />
+            </dd>
           </div>
         </dl>
       </section>
@@ -171,25 +222,37 @@ function emitIfCount(
           <div>
             <dt>{{ t('room.fields.contractCount') }}</dt>
             <dd>
-              <CountListPill :count="room.contractCount ?? 0" @click="emitIfCount(room.contractCount, 'openContracts')" />
+              <CountListPill
+                :count="room.contractCount ?? 0"
+                @click="emitIfCount(room.contractCount, 'openContracts')"
+              />
             </dd>
           </div>
           <div>
             <dt>{{ t('room.fields.invoiceCount') }}</dt>
             <dd>
-              <CountListPill :count="room.invoiceCount ?? 0" @click="emitIfCount(room.invoiceCount, 'openInvoices')" />
+              <CountListPill
+                :count="room.invoiceCount ?? 0"
+                @click="emitIfCount(room.invoiceCount, 'openInvoices')"
+              />
             </dd>
           </div>
           <div>
             <dt>{{ t('room.fields.terminationCount') }}</dt>
             <dd>
-              <CountListPill :count="room.terminationCount ?? 0" @click="emitIfCount(room.terminationCount, 'openTerminations')" />
+              <CountListPill
+                :count="room.terminationCount ?? 0"
+                @click="emitIfCount(room.terminationCount, 'openTerminations')"
+              />
             </dd>
           </div>
           <div>
             <dt>{{ t('room.fields.depositRefundCount') }}</dt>
             <dd>
-              <CountListPill :count="room.depositRefundCount ?? 0" @click="emitIfCount(room.depositRefundCount, 'openDepositRefunds')" />
+              <CountListPill
+                :count="room.depositRefundCount ?? 0"
+                @click="emitIfCount(room.depositRefundCount, 'openDepositRefunds')"
+              />
             </dd>
           </div>
         </dl>
@@ -206,31 +269,33 @@ function emitIfCount(
 </template>
 
 <style scoped>
-.image-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+.room-lease-cap-detail {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
-.image-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--lb-muted, #6a7a70);
+.room-lease-cap-detail__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
-.image-item img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid var(--lb-border, #dce3df);
-}
-
-@media (max-width: 640px) {
-  .image-row {
-    grid-template-columns: 1fr;
-  }
+.split-label-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #176db0;
+  background: #eef6fb;
+  box-shadow: inset 0 0 0 1px #b7d7ea;
 }
 </style>

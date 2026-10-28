@@ -12,6 +12,7 @@ import {
 import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { UserRole } from '@prisma/client'
 import { InvoicesService } from './invoices.service'
+import { InvoiceAutoService } from './invoice-auto.service'
 import {
   CreateInvoiceDto,
   ImportInvoicesDto,
@@ -33,7 +34,10 @@ import { splitCsv } from '../common/pagination'
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class InvoicesController {
-  constructor(private readonly invoicesService: InvoicesService) {}
+  constructor(
+    private readonly invoicesService: InvoicesService,
+    private readonly invoiceAuto: InvoiceAutoService,
+  ) {}
 
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
@@ -103,6 +107,14 @@ export class InvoicesController {
   @ApiOkResponse({ description: 'Batch delete invoices' })
   batchDelete(@Body() dto: BatchDeleteDto) {
     return this.invoicesService.removeMany(dto.ids || [])
+  }
+
+  /** 手动触发：为即将到期（提前天数取系统参数）的缴费周期开设租金发票 */
+  @Post('jobs/due-rent')
+  @Roles(UserRole.admin)
+  @ApiOkResponse({ description: 'Run due rent invoice job (lead days from system settings)' })
+  runDueRentJob() {
+    return this.invoiceAuto.runDueRentInvoices()
   }
 
   @Get(':id')

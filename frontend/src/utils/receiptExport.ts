@@ -11,8 +11,6 @@ export const RECEIPT_IO_FIELD_KEYS = [
   'paymentMethod',
   'amount',
   'remark',
-  'voucher1',
-  'voucher2',
   'changeLog',
   'createdBy',
   'createdAt',
@@ -38,8 +36,6 @@ const HEADER_ALIASES: Record<ReceiptIoFieldKey, string[]> = {
   paymentMethod: ['收款方式'],
   amount: ['收款金額', '收款金额', '金額', '金额'],
   remark: ['備註', '备注'],
-  voucher1: ['收款憑證1', '收款凭证1', '憑證1', '凭证1'],
-  voucher2: ['收款憑證2', '收款凭证2', '憑證2', '凭证2'],
   changeLog: ['修改記錄', '修改记录'],
   createdBy: ['創建人', '创建人', 'Created By'],
   createdAt: ['創建時間', '创建时间', 'Created At'],
@@ -61,8 +57,6 @@ export function receiptToIoRow(
     [h('paymentMethod')]: row.paymentMethod || '',
     [h('amount')]: row.amount ?? '',
     [h('remark')]: row.remark || '',
-    [h('voucher1')]: row.voucher1 || '',
-    [h('voucher2')]: row.voucher2 || '',
     [h('changeLog')]: row.changeLog || '',
     [h('createdBy')]: row.createdBy || '',
     [h('createdAt')]: row.createdAt || '',
@@ -84,8 +78,6 @@ export function receiptIoTemplateExampleRow(
     [h('paymentMethod')]: '銀行轉帳',
     [h('amount')]: 10000,
     [h('remark')]: '',
-    [h('voucher1')]: '',
-    [h('voucher2')]: '',
     [h('changeLog')]: '',
     [h('createdBy')]: '',
     [h('createdAt')]: '',
@@ -144,8 +136,6 @@ export type ReceiptImportPayload = {
   paymentMethod?: string
   amount?: number
   remark?: string
-  voucher1?: string
-  voucher2?: string
   changeLog?: string
 }
 
@@ -175,8 +165,6 @@ export function rowToReceiptIoPayload(
     paymentMethod: pickReceiptIoValue(row, 'paymentMethod', t) || undefined,
     amount: amountRaw !== '' ? Number(amountRaw) || 0 : undefined,
     remark: pickReceiptIoValue(row, 'remark', t) || undefined,
-    voucher1: pickReceiptIoValue(row, 'voucher1', t) || undefined,
-    voucher2: pickReceiptIoValue(row, 'voucher2', t) || undefined,
     changeLog: pickReceiptIoValue(row, 'changeLog', t) || undefined,
   }
 }

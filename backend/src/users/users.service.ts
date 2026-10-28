@@ -11,8 +11,8 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { toUserDto, userAuditInclude } from './user.mapper';
 import { runBatchRemove } from '../common/batch-delete';
+import { isElevatedAdminRole } from '../common/actor-role';
 
-const ADMIN_ROLE_CODE = 'admin';
 const DEFAULT_ROLE_CODE = 'user';
 
 @Injectable()
@@ -72,7 +72,8 @@ export class UsersService {
       },
       include: userAuditInclude,
     });
-    if (role !== ADMIN_ROLE_CODE) {
+    // admin / superAdmin：不绑定大厦（默认可访问全部）
+    if (!isElevatedAdminRole(role)) {
       await this.replaceBuildings(row.id, dto.buildingIds);
     }
     return this.findOne(row.id);
@@ -97,7 +98,7 @@ export class UsersService {
       include: userAuditInclude,
     });
     const nextRole = (data.role as string | undefined) ?? existing.role;
-    if (nextRole === ADMIN_ROLE_CODE) {
+    if (isElevatedAdminRole(nextRole)) {
       await this.replaceBuildings(id, []);
     } else if (dto.buildingIds !== undefined || dto.role !== undefined) {
       await this.replaceBuildings(id, dto.buildingIds ?? undefined);

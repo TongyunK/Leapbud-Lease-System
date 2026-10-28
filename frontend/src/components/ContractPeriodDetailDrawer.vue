@@ -44,7 +44,7 @@ function periodUnitLabel(dateUnit: string) {
 }
 
 function durationLabel(row: ContractPeriodListRecord) {
-  return `${row.dateValue}${periodUnitLabel(row.dateUnit)}`
+  return `${row.dateValue} ${periodUnitLabel(row.dateUnit)}`
 }
 </script>
 

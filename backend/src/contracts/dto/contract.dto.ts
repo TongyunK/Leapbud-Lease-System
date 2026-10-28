@@ -2,7 +2,9 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,6 +14,54 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+/** 开单：上传租客签约文件，状态 簽約中 → 租賃中 */
+export class OpenContractOrderDto {
+  @ApiProperty({ description: '租客签约文件（上传后的 storageKey）' })
+  @IsString()
+  @IsNotEmpty()
+  attachment!: string;
+}
+
+/** 借出物品 / 其他费用（嵌套写入，仅合约级、不含退租关联项） */
+export class ContractOtherFeeInputDto {
+  @ApiPropertyOptional({ description: '费用项 ID（全量替换时忽略）' })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiProperty({ example: '更衣櫃鎖匙', description: '物品 / 费用描述' })
+  @IsString()
+  @MinLength(1)
+  description!: string;
+
+  @ApiProperty({ example: 1, description: '数量（必填）' })
+  @Type(() => Number)
+  @IsNumber()
+  quantity!: number;
+
+  @ApiProperty({ example: 50, description: '单价（按金，必填）' })
+  @Type(() => Number)
+  @IsNumber()
+  unitAmount!: number;
+
+  @ApiPropertyOptional({ description: '小计（默认 = 数量 × 单价）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  subtotal?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  remark?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
+}
 
 /** 合约期（嵌套写入） */
 export class ContractPeriodInputDto {
@@ -107,7 +157,7 @@ export class CreateContractDto {
   @IsString()
   partLabel?: string;
 
-  @ApiPropertyOptional({ example: '草稿' })
+  @ApiPropertyOptional({ example: '簽約中' })
   @IsOptional()
   @IsString()
   status?: string;
@@ -130,10 +180,25 @@ export class CreateContractDto {
   @IsNumber()
   bookingDeposit?: number | null;
 
-  @ApiPropertyOptional({ example: '月繳' })
+  @ApiPropertyOptional({ example: '2026-05-22', description: '已收订金的收款日期' })
+  @IsOptional()
+  @IsString()
+  paymentDate?: string | null;
+
+  @ApiPropertyOptional({ example: '月繳-1' })
   @IsOptional()
   @IsString()
   paymentCycle?: string;
+
+  @ApiPropertyOptional({ example: '轉數快', description: '收款方式：轉數快 / 銀行過數 / 支票 / 現金' })
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @ApiPropertyOptional({ description: '定金收款凭证（图片或文件路径）' })
+  @IsOptional()
+  @IsString()
+  paymentVoucher?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -198,6 +263,21 @@ export class CreateContractDto {
   @ValidateNested({ each: true })
   @Type(() => ContractPeriodInputDto)
   periods?: ContractPeriodInputDto[];
+
+  @ApiPropertyOptional({ type: [ContractOtherFeeInputDto], description: '借出物品（全量替换合约级费用）' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ContractOtherFeeInputDto)
+  otherFees?: ContractOtherFeeInputDto[];
+
+  @ApiPropertyOptional({
+    description: '直接开单：须已上传签约文件，创建后状态为「租賃中」；否则固定「簽約中」',
+  })
+  @IsOptional()
+  @IsBoolean()
+  issueNow?: boolean;
 }
 
 export class UpdateContractDto {
@@ -284,10 +364,25 @@ export class UpdateContractDto {
   @IsNumber()
   bookingDeposit?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: '2026-05-22', description: '已收订金的收款日期' })
+  @IsOptional()
+  @IsString()
+  paymentDate?: string | null;
+
+  @ApiPropertyOptional({ example: '月繳-1' })
   @IsOptional()
   @IsString()
   paymentCycle?: string;
+
+  @ApiPropertyOptional({ example: '轉數快', description: '收款方式：轉數快 / 銀行過數 / 支票 / 現金' })
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @ApiPropertyOptional({ description: '定金收款凭证（图片或文件路径）' })
+  @IsOptional()
+  @IsString()
+  paymentVoucher?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -353,6 +448,22 @@ export class UpdateContractDto {
   @ValidateNested({ each: true })
   @Type(() => ContractPeriodInputDto)
   periods?: ContractPeriodInputDto[];
+
+  /** 传入则整表替换合约级借出物品（不含已关联退租的费用行） */
+  @ApiPropertyOptional({ type: [ContractOtherFeeInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ContractOtherFeeInputDto)
+  otherFees?: ContractOtherFeeInputDto[];
+
+  @ApiPropertyOptional({
+    description: '直接开单：须已上传签约文件，保存后状态改为「租賃中」',
+  })
+  @IsOptional()
+  @IsBoolean()
+  issueNow?: boolean;
 }
 
 /** 批量导入单行（Excel：房间编号 / 客户编号 / 经理账号或姓名） */
@@ -430,10 +541,25 @@ export class ImportContractItemDto {
   @IsNumber()
   bookingDeposit?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: '2026-05-22', description: '已收订金的收款日期' })
+  @IsOptional()
+  @IsString()
+  paymentDate?: string | null;
+
+  @ApiPropertyOptional({ example: '月繳-1' })
   @IsOptional()
   @IsString()
   paymentCycle?: string;
+
+  @ApiPropertyOptional({ example: '轉數快' })
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @ApiPropertyOptional({ description: '定金收款凭证（图片或文件路径）' })
+  @IsOptional()
+  @IsString()
+  paymentVoucher?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

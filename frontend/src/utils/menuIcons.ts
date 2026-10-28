@@ -19,6 +19,7 @@ import {
   Wallet,
   Coin,
   Money,
+  Timer,
 } from '@element-plus/icons-vue'
 import DoorIcon from '@/components/icons/DoorIcon.vue'
 
@@ -45,6 +46,7 @@ const ICON_MAP: Record<string, Component> = {
   Wallet,
   Coin,
   Money,
+  Timer,
 }
 
 export function resolveMenuIcon(icon?: string | null): Component {

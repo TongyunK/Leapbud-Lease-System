@@ -198,6 +198,24 @@ export class ContractPeriodsService {
     return toContractPeriodListDto(row);
   }
 
+  /** 合约下若有合约期，则不能全部为免租期（含仅一条免租期） */
+  private async assertContractNotOnlyRentFree(
+    tx: Prisma.TransactionClient,
+    contractId: string,
+  ) {
+    const rows = await tx.contractPeriod.findMany({
+      where: { contractId },
+      select: { dateType: true },
+    });
+    if (!rows.length) return;
+    const rentFree = await this.contractConfigs.rentFreePeriodLabels();
+    if (rows.every((r) => rentFree.has(r.dateType))) {
+      throw new BadRequestException(
+        '合約期不能僅有免租期，請至少添加一段使用期或必須使用期',
+      );
+    }
+  }
+
   async create(dto: CreateContractPeriodDto) {
     const contract = await this.resolveContract(dto.contractId, dto.contractCode);
     const fields = await this.normalizeFields(dto);
@@ -223,6 +241,7 @@ export class ContractPeriodsService {
         },
         include: contractPeriodInclude,
       });
+      await this.assertContractNotOnlyRentFree(tx, contract.id);
       await this.resyncContractDates(tx, contract.id);
       return created;
     });
@@ -265,6 +284,10 @@ export class ContractPeriodsService {
         },
         include: contractPeriodInclude,
       });
+      await this.assertContractNotOnlyRentFree(tx, contractId);
+      if (oldContractId !== contractId) {
+        await this.assertContractNotOnlyRentFree(tx, oldContractId);
+      }
       await this.resyncContractDates(tx, contractId);
       if (oldContractId !== contractId) {
         await this.resyncContractDates(tx, oldContractId);
@@ -279,6 +302,7 @@ export class ContractPeriodsService {
     if (!existing) throw new NotFoundException(`Contract period ${id} not found`);
     await this.prisma.$transaction(async (tx) => {
       await tx.contractPeriod.delete({ where: { id } });
+      await this.assertContractNotOnlyRentFree(tx, existing.contractId);
       await this.resyncContractDates(tx, existing.contractId);
     });
     return { success: true };

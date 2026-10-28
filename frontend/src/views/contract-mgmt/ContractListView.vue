@@ -1,25 +1,44 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, Download, Plus, Rank, Search, Upload } from '@element-plus/icons-vue'
+import { Delete, Download, EditPen, Plus, QuestionFilled, Rank, Search, Upload, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import {
   createContractApi,
-  deleteContractApi,
   batchDeleteContractsApi,
+  deleteContractApi,
   fetchContract,
+  fetchContractExpiringSoonCount,
+  fetchContractOccupancyCounts,
   fetchContracts,
+  fetchIssueBlockedAlerts,
   importContractsApi,
+  openContractOrderApi,
   updateContractApi,
 } from '@/api/contracts'
-import type { ContractListQuery } from '@/api/contracts'
+import { updateContractExpiringSoonApi } from '@/api/system-settings'
+import type {
+  ContractExpiringSoonConfig,
+  ExpiringSoonStatusMode,
+  ExpiringSoonUnit,
+} from '@/types/system-setting'
+import type { IssueBlockedAlertItem } from '@/api/contracts'
+import type {
+  ContractListQuery,
+  ContractOccupancyCounts,
+  ContractWritePayload,
+} from '@/api/contracts'
 import { fetchCustomers } from '@/api/customers'
 import { fetchCustomerRequirements } from '@/api/customer-requirements'
 import { fetchRoom, fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
-import type { ContractPeriodRecord, ContractRecord } from '@/types/contract'
+import type {
+  ContractOtherFeeNestedRecord,
+  ContractPeriodRecord,
+  ContractRecord,
+} from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
@@ -29,8 +48,15 @@ import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import {
   CONTRACT_PAYMENT_CYCLES,
+  CONTRACT_PAYMENT_METHODS,
   CONTRACT_PERIOD_UNITS,
   CONTRACT_STATUSES,
+  coerceContractFormStatus,
+  coerceContractPaymentCycle,
+  contractOccupancyFilterKey,
+  contractStatusOptionsForEdit,
+  formatContractOccupancyLabel,
+  isSigningContractStatus,
 } from '@/types/contract'
 import type { ContractConfigOption } from '@/types/contract-config'
 import { KEY_DEPOSIT_CODES } from '@/types/contract-config'
@@ -45,6 +71,7 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import AttachmentField from '@/components/AttachmentField.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ContractDetailDrawer from '@/components/ContractDetailDrawer.vue'
 import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
@@ -55,18 +82,32 @@ import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vu
 import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import ContractReceivePaymentDialog from '@/components/ContractReceivePaymentDialog.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { contractStatusTone } from '@/constants/statusBadges'
-import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
+import {
+  contractOccupancyTone,
+  contractStatusTone,
+  roomFillStatusTone,
+  roomLeaseCapabilityTone,
+  type StatusTone,
+} from '@/constants/statusBadges'
+import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { useUserStore } from '@/stores/user'
 import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import {
+  addDaysYmd,
+  endDateFromDuration,
+  findFirstPeriodOverlap,
+  inferPeriodDurationFromDates,
+} from '@/utils/contractPeriodDuration'
+import { needsIssueBeforeSecondBilling } from '@/utils/billingPeriod'
 import {
   contractIoPayloadToImportItem,
   contractIoTemplateExampleRow,
@@ -78,36 +119,130 @@ import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
 import { previewAgreementPdfApi, prefetchAgreementPdfApi, previewAgreementDraftPdfApi } from '@/api/document-templates'
+import SuperAdminInlineCell from '@/components/SuperAdminInlineCell.vue'
+import {
+  CONTRACT_INLINE_FIELDS,
+  type ContractInlineField,
+} from '@/config/inlineEditWhitelist'
 
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const perms = useResourcePermissions('contracts')
-const { actionColWidth } = useActionColWidth()
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
   useTableColWidth()
 
-const contractActionColWidth = computed(() => {
-  void locale.value
-  if (perms.canEditOrDelete.value) {
-    return Math.max(
-      actionColWidth.value.three,
-      measureActionColWidth([
-        t('contract.printAgreement'),
-        t('common.edit'),
-        t('common.delete'),
-      ]),
+const receivePayVisible = ref(false)
+const receivePayContract = ref<ContractRecord | null>(null)
+
+function onReceivePayment(row: ContractRecord) {
+  receivePayContract.value = row
+  receivePayVisible.value = true
+}
+
+function onTerminateLeasePlaceholder() {
+  ElMessage.info(t('contract.featureComingSoon'))
+}
+
+function onRenewContractPlaceholder() {
+  ElMessage.info(t('contract.featureComingSoon'))
+}
+
+/** 整页共用「更多」菜单状态（须早于 messageBoxOpts / 各操作，供 MessageBox 抬层判断） */
+const contractMoreRow = ref<ContractRecord | null>(null)
+const contractMoreVisible = ref(false)
+const contractMoreStyle = ref<Record<string, string>>({})
+/** 更多面板 z-index；其上的 MessageBox 须更高，否则会被面板挡住 */
+const CONTRACT_MORE_MENU_Z = 3200
+const MSG_BOX_ABOVE_MORE_Z = 4600
+
+function messageBoxOpts(base: Record<string, unknown> = {}) {
+  if (!contractMoreVisible.value) return base
+  return { ...base, zIndex: MSG_BOX_ABOVE_MORE_Z }
+}
+
+/** @returns 是否已完成删除（确认并成功）；取消 MessageBox 时为 false，面板应保持打开 */
+async function onDeleteContract(row: ContractRecord): Promise<boolean> {
+  if (!perms.delete.value) return false
+  try {
+    await ElMessageBox.confirm(
+      t('contract.deleteConfirm', { code: row.contractCode }),
+      t('common.deleteTitle'),
+      messageBoxOpts({ type: 'warning' }),
     )
+    await deleteContractApi(row.id)
+    ElMessage.success(t('contract.deleted'))
+    if (current.value?.id === row.id) {
+      drawerVisible.value = false
+      current.value = null
+    }
+    await loadHeadChipCounts()
+    await loadList()
+    return true
+  } catch {
+    /* cancel / interceptor */
+    return false
   }
-  return Math.max(
-    actionColWidth.value.one,
-    measureActionColWidth([t('contract.printAgreement')]),
-  )
-})
+}
 
 const printingAgreementId = ref<string | null>(null)
 const previewingDraft = ref(false)
+
+/** 仅「簽約中」可开单（上传签约文件 → 租赁中） */
+function canOpenOrderSign(row: ContractRecord) {
+  return isSigningContractStatus(row.status)
+}
+
+const openOrderVisible = ref(false)
+const openOrderSaving = ref(false)
+const openOrderTarget = ref<ContractRecord | null>(null)
+const openOrderAttachment = ref('')
+
+/** @returns 是否已打开开单对话框；状态不允许时弹 MessageBox 并返回 false（不关更多面板） */
+async function onOpenOrderClick(row: ContractRecord): Promise<boolean> {
+  if (!canOpenOrderSign(row)) {
+    try {
+      await ElMessageBox.alert(
+        t('contract.openOrderStatusNotAllowed'),
+        t('contract.openOrder'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+    } catch {
+      /* dismiss */
+    }
+    return false
+  }
+  if (!perms.update.value) return false
+  openOrderTarget.value = row
+  openOrderAttachment.value = row.attachment || ''
+  openOrderVisible.value = true
+  return true
+}
+
+async function submitOpenOrder() {
+  const row = openOrderTarget.value
+  if (!row) return
+  const attachment = openOrderAttachment.value.trim()
+  if (!attachment) {
+    ElMessage.warning(t('contract.openOrderAttachmentRequired'))
+    return
+  }
+  openOrderSaving.value = true
+  try {
+    const { data } = await openContractOrderApi(row.id, attachment)
+    const idx = list.value.findIndex((r) => r.id === row.id)
+    if (idx >= 0) list.value[idx] = { ...list.value[idx], ...data }
+    if (current.value?.id === row.id) current.value = { ...current.value, ...data }
+    openOrderVisible.value = false
+    ElMessage.success(t('contract.openOrderDone'))
+    void loadIssueBlockedAlerts()
+  } catch {
+    /* interceptor */
+  } finally {
+    openOrderSaving.value = false
+  }
+}
 
 async function onPrintAgreement(row: ContractRecord) {
   if (!row?.id || printingAgreementId.value) return
@@ -167,8 +302,17 @@ async function onPreviewAgreementDraft() {
 }
 
 const formVisible = ref(false)
+const formSaving = ref(false)
 const editing = ref<ContractRecord | null>(null)
 const roomSelectOptions = ref<RoomRecord[]>([])
+/** 房間下拉頂部：租用方式粗篩（再選房間） */
+type RoomPickMode = 'all' | 'whole' | 'part'
+const roomPickMode = ref<RoomPickMode>('all')
+const roomPickModeChips = computed(() => [
+  { key: 'all' as const, label: t('contract.roomPickModeAll') },
+  { key: 'whole' as const, label: t('contract.roomPickModeWhole') },
+  { key: 'part' as const, label: t('contract.roomPickModePart') },
+])
 /** 僅首屏 / 搜尋重置時驅動 el-select loading，追加加載不用，避免下拉閃動 */
 const roomSelectLoading = ref(false)
 const roomSelectLoadingMore = ref(false)
@@ -202,6 +346,14 @@ const mailboxKeyUnitPrice = computed(() => {
   const hit = keyDepositOptions.value.find((o) => o.code === KEY_DEPOSIT_CODES.mailbox)
   return hit?.unitPrice ?? 0
 })
+const doorKeyQtyLabel = computed(
+  () =>
+    `${t('contract.fields.doorKeyQty')}（${formatMoney(doorKeyUnitPrice.value)}/${t('contract.fields.keyUnit')}）`,
+)
+const mailboxKeyQtyLabel = computed(
+  () =>
+    `${t('contract.fields.mailboxKeyQty')}（${formatMoney(mailboxKeyUnitPrice.value)}/${t('contract.fields.keyUnit')}）`,
+)
 
 const drawerVisible = ref(false)
 const current = ref<ContractRecord | null>(null)
@@ -239,6 +391,165 @@ const {
   sortOrder,
 } = useTableSortFilter<ContractRecord>()
 
+/** 页头快捷筛选：null=全部，whole/part 对应占用方式 */
+const occupancyModeFilter = ref<'whole' | 'part' | null>(null)
+const occupancyModeCounts = ref<ContractOccupancyCounts>({ all: 0, whole: 0, part: 0 })
+/** 与整租/分租并行；条件由 SuperAdmin 在芯片旁编辑 */
+const expiringSoonFilter = ref(false)
+const expiringSoonCount = ref(0)
+const expiringSoonTip = ref('')
+const expiringSoonConfig = ref<ContractExpiringSoonConfig>({
+  amount: 30,
+  unit: 'day',
+  statusMode: 'include',
+  statuses: ['租賃中', '退租中'],
+})
+const expiringEditVisible = ref(false)
+const expiringEditSaving = ref(false)
+const expiringEditForm = reactive({
+  amount: 30,
+  unit: 'day' as ExpiringSoonUnit,
+  statusMode: 'include' as ExpiringSoonStatusMode,
+  statuses: ['租賃中', '退租中'] as string[],
+})
+
+const expiringEditStatusOptions = computed(() =>
+  CONTRACT_STATUSES.map((s) => ({
+    value: s,
+    label: t(`contract.status.${s}`),
+  })),
+)
+
+const expiringEditAmountMax = computed(() => (expiringEditForm.unit === 'month' ? 36 : 365))
+
+const occupancyModeChips = computed(() => [
+  {
+    key: null as 'whole' | 'part' | null,
+    label: t('contract.occupancyFilterAll'),
+    count: occupancyModeCounts.value.all,
+  },
+  {
+    key: 'whole' as const,
+    label: t('contract.occupancyWhole'),
+    count: occupancyModeCounts.value.whole,
+  },
+  {
+    key: 'part' as const,
+    label: t('contract.occupancyPart'),
+    count: occupancyModeCounts.value.part,
+  },
+])
+
+async function loadOccupancyModeCounts() {
+  try {
+    const { data } = await fetchContractOccupancyCounts()
+    occupancyModeCounts.value = data
+  } catch {
+    /* interceptor */
+  }
+}
+
+function applyExpiringSoonTip(cfg: ContractExpiringSoonConfig) {
+  const unitLabel =
+    cfg.unit === 'month' ? t('contract.expiringSoonUnitMonth') : t('contract.expiringSoonUnitDay')
+  const statusList = (cfg.statuses || [])
+    .map((s) => {
+      const key = `contract.status.${s}`
+      return t(key) === key ? s : t(key)
+    })
+    .join('、')
+  let statusPart = t('contract.expiringSoonStatusAll')
+  if (cfg.statusMode === 'include' && statusList) {
+    statusPart = t('contract.expiringSoonStatusInclude', { list: statusList })
+  } else if (cfg.statusMode === 'exclude' && statusList) {
+    statusPart = t('contract.expiringSoonStatusExclude', { list: statusList })
+  }
+  expiringSoonTip.value = t('contract.expiringSoonTip', {
+    amount: cfg.amount,
+    unit: unitLabel,
+    status: statusPart,
+  })
+}
+
+async function loadExpiringSoonCount() {
+  try {
+    const { data } = await fetchContractExpiringSoonCount()
+    expiringSoonCount.value = data.count
+    expiringSoonConfig.value = { ...data.config, statuses: [...(data.config.statuses || [])] }
+    applyExpiringSoonTip(expiringSoonConfig.value)
+  } catch {
+    /* interceptor */
+  }
+}
+
+function seedExpiringEditForm() {
+  const cfg = expiringSoonConfig.value
+  expiringEditForm.amount = cfg.amount
+  expiringEditForm.unit = cfg.unit
+  expiringEditForm.statusMode = cfg.statusMode
+  expiringEditForm.statuses = [...cfg.statuses]
+}
+
+function onExpiringEditUnitChange() {
+  const max = expiringEditForm.unit === 'month' ? 36 : 365
+  if (expiringEditForm.amount > max) expiringEditForm.amount = max
+}
+
+function onExpiringEditStatusModeChange() {
+  if (
+    (expiringEditForm.statusMode === 'include' || expiringEditForm.statusMode === 'exclude') &&
+    expiringEditForm.statuses.length === 0
+  ) {
+    expiringEditForm.statuses = ['租賃中', '退租中']
+  }
+}
+
+async function saveExpiringEdit() {
+  if (!userStore.isSuperAdmin) return
+  const amount = Math.trunc(Number(expiringEditForm.amount))
+  const max = expiringEditForm.unit === 'month' ? 36 : 365
+  if (!Number.isFinite(amount) || amount < 1 || amount > max) {
+    ElMessage.warning(t('systemSettings.expiringAmountInvalid'))
+    return
+  }
+  if (
+    (expiringEditForm.statusMode === 'include' || expiringEditForm.statusMode === 'exclude') &&
+    expiringEditForm.statuses.length === 0
+  ) {
+    ElMessage.warning(t('systemSettings.expiringStatusesRequired'))
+    return
+  }
+  expiringEditSaving.value = true
+  try {
+    const { data } = await updateContractExpiringSoonApi({
+      amount,
+      unit: expiringEditForm.unit,
+      statusMode: expiringEditForm.statusMode,
+      statuses: expiringEditForm.statusMode === 'all' ? [] : [...expiringEditForm.statuses],
+    })
+    expiringSoonConfig.value = {
+      ...data.contractExpiringSoon,
+      statuses: [...data.contractExpiringSoon.statuses],
+    }
+    applyExpiringSoonTip(expiringSoonConfig.value)
+    await loadExpiringSoonCount()
+    if (expiringSoonFilter.value) {
+      resetPage()
+      await loadList()
+    }
+    expiringEditVisible.value = false
+    ElMessage.success(t('contract.expiringSoonSaved'))
+  } catch {
+    /* interceptor */
+  } finally {
+    expiringEditSaving.value = false
+  }
+}
+
+async function loadHeadChipCounts() {
+  await Promise.all([loadOccupancyModeCounts(), loadExpiringSoonCount()])
+}
+
 const {
   loading,
   exporting,
@@ -248,6 +559,7 @@ const {
   pageSize,
   pageSizes,
   rowIndex,
+  resetPage,
   loadList,
   fetchExportRows,
   onClearFilters,
@@ -258,15 +570,24 @@ const {
     const start = range('startDate')
     const end = range('endDate')
     const created = range('createdAt')
+    const chipKey = occupancyModeFilter.value
+    const soon = expiringSoonFilter.value
     return {
       keyword: kw,
       buildingIds: f.buildingId?.length ? [...f.buildingId] : undefined,
-      statuses: f.status?.length ? [...f.status] : undefined,
+      // 即将到期时状态由系统设置接管，避免与表头状态互斥
+      statuses: soon ? undefined : f.status?.length ? [...f.status] : undefined,
       roomCodes: f.roomCode?.length ? [...f.roomCode] : undefined,
       customerNames: f.customerName?.length ? [...f.customerName] : undefined,
       salesManagers: f.salesManager?.length ? [...f.salesManager] : undefined,
-      leaseTypes: f.leaseType?.length ? [...f.leaseType] : undefined,
+      // 页头胶囊优先；未选时才用表头「租賃方式」细筛
+      occupancyKeys: chipKey
+        ? [chipKey]
+        : f.leaseType?.length
+          ? [...f.leaseType]
+          : undefined,
       paymentCycles: f.paymentCycle?.length ? [...f.paymentCycle] : undefined,
+      paymentMethods: f.paymentMethod?.length ? [...f.paymentMethod] : undefined,
       sortBy,
       sortDir,
       startDateFrom: start.from,
@@ -275,12 +596,158 @@ const {
       endDateTo: end.to,
       createdAtFrom: created.from,
       createdAtTo: created.to,
+      expiringSoon: soon || undefined,
       page: p,
       pageSize: ps,
     }
   },
   fetchPage: fetchContracts,
 })
+
+function setOccupancyModeFilter(key: 'whole' | 'part' | null) {
+  if (occupancyModeFilter.value === key) return
+  occupancyModeFilter.value = key
+  // 与页头粗筛互斥：清掉表头份位细筛，避免叠加
+  if (filters.leaseType?.length) setFilter('leaseType', [])
+  resetPage()
+  void loadList()
+}
+
+function toggleExpiringSoonFilter() {
+  expiringSoonFilter.value = !expiringSoonFilter.value
+  resetPage()
+  void loadList()
+}
+
+/** 自动开票提前天数（系统设置；提示用） */
+const rentInvoiceLeadDays = ref(7)
+
+function contractNeedsIssueBeforeSecond(row: {
+  status: string
+  startDate: string
+  endDate: string
+  paymentCycle: string
+  periods?: ContractPeriodRecord[]
+}) {
+  return needsIssueBeforeSecondBilling({
+    status: row.status,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    paymentCycle: row.paymentCycle,
+    periods: row.periods,
+    leadDays: rentInvoiceLeadDays.value,
+    isSigning: isSigningContractStatus,
+  })
+}
+
+function issueBlockedRowTip(row: ContractRecord) {
+  const hit = contractNeedsIssueBeforeSecond(row)
+  if (!hit.needed) return ''
+  return t('contract.issueBlockedRowTip', {
+    date: hit.secondPeriodStart || '—',
+    days: rentInvoiceLeadDays.value,
+  })
+}
+
+function findIssueBlockedRow(id: string) {
+  return list.value.find((r) => r.id === id) ?? null
+}
+
+function openIssueBlockedDetail(id: string) {
+  const row = findIssueBlockedRow(id)
+  if (row) {
+    void openDetail(row, 'rtl')
+    return
+  }
+  // 不在当前页：仍可拉详情
+  void openDetail({ id } as ContractRecord, 'rtl')
+}
+
+function openIssueBlockedOrder(id: string) {
+  const row = findIssueBlockedRow(id)
+  if (row) {
+    onOpenOrderClick(row)
+    return
+  }
+  // 不在当前页：先拉详情再开单
+  void (async () => {
+    try {
+      const { data } = await fetchContract(id)
+      onOpenOrderClick(data)
+    } catch {
+      /* interceptor */
+    }
+  })()
+}
+
+/** 全量紧急待开单（不受分页限制；后端按紧急程度排序） */
+const issueBlockedAlerts = ref<IssueBlockedAlertItem[]>([])
+const issueBlockedLeadDays = ref(7)
+
+async function loadIssueBlockedAlerts() {
+  try {
+    const { data } = await fetchIssueBlockedAlerts()
+    issueBlockedAlerts.value = data.items || []
+    const n = Math.trunc(Number(data.leadDays))
+    if (Number.isFinite(n) && n >= 1) {
+      issueBlockedLeadDays.value = Math.min(90, n)
+      rentInvoiceLeadDays.value = issueBlockedLeadDays.value
+    }
+  } catch {
+    issueBlockedAlerts.value = []
+  }
+}
+
+function issueBlockedUrgencyText(item: IssueBlockedAlertItem) {
+  if (item.daysUntilSecond < 0) {
+    return t('contract.issueBlockedOverdue', { n: Math.abs(item.daysUntilSecond) })
+  }
+  if (item.daysUntilSecond === 0) return t('contract.issueBlockedToday')
+  return t('contract.issueBlockedInDays', { n: item.daysUntilSecond })
+}
+
+/** 编辑表单内：当前签约中合约是否已逼近第 2 期 */
+const formIssueBlockedHint = computed(() => {
+  if (formReadonly.value) return null
+  const status = editing.value?.status || '簽約中'
+  if (!isSigningContractStatus(status)) return null
+  const hit = needsIssueBeforeSecondBilling({
+    status,
+    startDate: form.startDate,
+    endDate: form.endDate,
+    paymentCycle: form.paymentCycle,
+    periods: periods.value.map((p) => ({
+      dateType: p.dateType,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      sortOrder: p.sortOrder,
+    })),
+    leadDays: rentInvoiceLeadDays.value,
+    isSigning: isSigningContractStatus,
+  })
+  return hit.needed ? hit : null
+})
+
+/** 非签约中打开表单为只读查看 */
+const formReadonly = computed(
+  () => Boolean(editing.value && !isSigningContractStatus(editing.value.status)),
+)
+
+const contractActionColWidth = computed(() => {
+  void locale.value
+  // 按实际主列按钮测宽，勿再 Math.max(three)：否则会多出右侧空白
+  const labels = perms.update.value
+    ? [
+        t('common.edit'),
+        t('contract.receivePayment'),
+        t('contract.printAgreement'),
+        '…',
+      ]
+    : [t('contract.receivePayment'), t('contract.printAgreement'), '…']
+  return measureActionColWidth(labels)
+})
+
+const contractTableKey = computed(() => tableLayoutKey.value)
 
 const tableHeaderConditionCount = computed(() => {
   let n = 0
@@ -291,10 +758,12 @@ const tableHeaderConditionCount = computed(() => {
     if (range?.[0] && range?.[1]) n += 1
   }
   if (sortKey.value && sortOrder.value) n += 1
+  if (expiringSoonFilter.value) n += 1
   return n
 })
 
 function onClearTableHeaderFilters() {
+  expiringSoonFilter.value = false
   onClearFilters()
 }
 
@@ -350,6 +819,7 @@ async function onBatchDelete() {
     const { ok, fail } = await runServerBatchDelete(ids, (chunk) => batchDeleteContractsApi(chunk), setBatchProgress)
     finishBatch(ok, fail)
     clearSelection()
+    await loadHeadChipCounts()
     await loadList()
   } catch {
     finishBatch(0, ids.length)
@@ -364,6 +834,17 @@ const statusFilterOptions = computed(() =>
     label: t(`contract.status.${s}`),
   })),
 )
+
+/** 行内改状态：普通用户非签约中不提供「已取消」；superAdmin 可选全部状态 */
+function statusEditOptionsForRow(row: ContractRecord) {
+  const statuses = userStore.isSuperAdmin
+    ? [...CONTRACT_STATUSES]
+    : contractStatusOptionsForEdit(row.status)
+  return statuses.map((s) => ({
+    value: s,
+    label: t(`contract.status.${s}`),
+  }))
+}
 
 const roomCodeFilterOptions = computed(() => {
   const seen = new Set<string>()
@@ -401,16 +882,46 @@ const salesManagerFilterOptions = computed(() => {
   return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
 
-const leaseTypeFilterOptions = computed(() =>
-  leaseTypeOptions.value
-    .map((o) => o.label.trim())
-    .filter(Boolean)
-    .filter((v, i, arr) => arr.indexOf(v) === i)
-    .map((label) => ({ value: label, label })),
-)
+const occupancyLabelPair = () => ({
+  whole: t('contract.occupancyWhole'),
+  part: t('contract.occupancyPart'),
+})
+
+function occupancyLabelOf(row: ContractRecord) {
+  return formatContractOccupancyLabel(row, occupancyLabelPair())
+}
+
+/** 表头筛选：按当前页占用方式聚合（整租 / 分租·A） */
+const leaseTypeFilterOptions = computed(() => {
+  void locale.value
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const r of list.value) {
+    const value = contractOccupancyFilterKey(r)
+    if (seen.has(value)) continue
+    seen.add(value)
+    opts.push({ value, label: occupancyLabelOf(r) })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
+
+const occupancyStatusSamples = computed(() => {
+  void locale.value
+  const labels = new Set(list.value.map((r) => occupancyLabelOf(r)))
+  labels.add(t('contract.occupancyWhole'))
+  labels.add(`${t('contract.occupancyPart')}·A`)
+  return [...labels]
+})
 
 const paymentCycleFilterOptions = computed(() =>
   CONTRACT_PAYMENT_CYCLES.map((s) => ({
+    value: s,
+    label: s,
+  })),
+)
+
+const paymentMethodFilterOptions = computed(() =>
+  CONTRACT_PAYMENT_METHODS.map((s) => ({
     value: s,
     label: s,
   })),
@@ -445,6 +956,101 @@ function defaultPeriodRow(): PeriodFormRow {
 
 const periods = ref<PeriodFormRow[]>([defaultPeriodRow()])
 
+type LoanItemFormRow = {
+  uid: string
+  description: string
+  quantity: number | null
+  unitAmount: number | null
+  remark: string
+}
+
+function newLoanItemUid() {
+  return `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function defaultLoanItemRow(): LoanItemFormRow {
+  return {
+    uid: newLoanItemUid(),
+    description: '',
+    quantity: null,
+    unitAmount: null,
+    remark: '',
+  }
+}
+
+function loanItemSubtotal(row: LoanItemFormRow) {
+  if (row.quantity == null || row.unitAmount == null) return 0
+  return Math.round(Number(row.quantity) * Number(row.unitAmount) * 100) / 100
+}
+
+function isLoanItemRowEmpty(row: LoanItemFormRow) {
+  return (
+    !row.description.trim() &&
+    row.quantity == null &&
+    row.unitAmount == null &&
+    !row.remark.trim()
+  )
+}
+
+function isLoanItemRowComplete(row: LoanItemFormRow) {
+  return (
+    Boolean(row.description.trim()) &&
+    row.quantity != null &&
+    !Number.isNaN(Number(row.quantity)) &&
+    row.unitAmount != null &&
+    !Number.isNaN(Number(row.unitAmount))
+  )
+}
+
+const otherFees = ref<LoanItemFormRow[]>([])
+const LOAN_ITEM_PAGE_SIZE = 5
+const loanItemPage = ref(1)
+
+const loanItemTotalPages = computed(() =>
+  Math.max(1, Math.ceil(otherFees.value.length / LOAN_ITEM_PAGE_SIZE) || 1),
+)
+
+const pagedLoanItems = computed(() => {
+  const start = (loanItemPage.value - 1) * LOAN_ITEM_PAGE_SIZE
+  return otherFees.value.slice(start, start + LOAN_ITEM_PAGE_SIZE).map((row, i) => ({
+    row,
+    index: start + i,
+  }))
+})
+
+function clampLoanItemPage() {
+  loanItemPage.value = Math.min(Math.max(1, loanItemPage.value), loanItemTotalPages.value)
+}
+
+function addLoanItem() {
+  otherFees.value.push(defaultLoanItemRow())
+  loanItemPage.value = Math.ceil(otherFees.value.length / LOAN_ITEM_PAGE_SIZE)
+}
+
+function removeLoanItem(idx: number) {
+  otherFees.value.splice(idx, 1)
+  clampLoanItemPage()
+}
+
+function mapLoanItemsFromRecord(fees?: ContractOtherFeeNestedRecord[] | null): LoanItemFormRow[] {
+  if (!fees?.length) return []
+  return fees.map((f) => ({
+    uid: f.id || newLoanItemUid(),
+    description: f.description || '',
+    quantity: f.quantity == null ? null : Number(f.quantity),
+    unitAmount: f.unitAmount == null ? null : Number(f.unitAmount),
+    remark: f.remark || '',
+  }))
+}
+
+function todayDateStr() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 const emptyForm = () => ({
   contractCode: '',
   roomId: '',
@@ -461,9 +1067,13 @@ const emptyForm = () => ({
   roomDeposit: null as number | null,
   monthlyRent: null as number | null,
   bookingDeposit: null as number | null,
+  paymentDate: todayDateStr(),
   paymentCycle: CONTRACT_PAYMENT_CYCLES[0],
-  electricityRate: null as number | null,
-  miscDeposit: null as number | null,
+  /** 收款方式可选，新增不默认选中 */
+  paymentMethod: null as string | null,
+  paymentVoucher: '',
+  electricityRate: 0 as number | null,
+  miscDeposit: 0 as number | null,
   doorKeyQty: 0,
   mailboxKeyQty: 0,
   roomNameText: '',
@@ -473,6 +1083,22 @@ const emptyForm = () => ({
 })
 
 const form = reactive(emptyForm())
+/** 用户改过房间按金后不再随月租自动覆盖 */
+const roomDepositTouched = ref(false)
+
+function depositFromMonthlyRent(rent: number | null | undefined): number | null {
+  if (rent == null || Number.isNaN(Number(rent))) return null
+  return Math.round(Number(rent) * 2 * 100) / 100
+}
+
+function syncRoomDepositFromRent() {
+  if (roomDepositTouched.value) return
+  form.roomDeposit = depositFromMonthlyRent(form.monthlyRent)
+}
+
+function onRoomDepositUserChange() {
+  roomDepositTouched.value = true
+}
 
 const selectedRoom = computed(() =>
   roomSelectOptions.value.find((r) => r.id === form.roomId.trim()) || null,
@@ -483,24 +1109,32 @@ const roomPartOptions = computed(() => {
   if (!room) return [] as { label: string; value: string; disabled: boolean }[]
   if (room.leaseCapability !== 'flexible') return []
   const labels = room.splitLabels?.length ? room.splitLabels : ['A', 'B']
+  // 编辑中：本合约占用的份位不算「已被他人租用」，换 A→B 后 A 仍可选
+  const selfId = editing.value?.id
   const occupied = new Set(
-    (room.occupancy?.slots || []).filter((s) => s.occupied).map((s) => s.label),
+    (room.occupancy?.slots || [])
+      .filter((s) => s.occupied && (!selfId || s.contractId !== selfId))
+      .map((s) => s.label),
   )
-  // 編輯時當前份位仍可選
-  const current = form.partLabel.trim().toUpperCase()
   return labels.map((label) => ({
     label,
     value: label,
-    disabled: occupied.has(label) && label !== current,
+    disabled: occupied.has(label),
   }))
 })
 
 const canWholeLease = computed(() => {
   const room = selectedRoom.value
   if (!room) return true
-  // 只能整租 / 只能分租（独立后缀房）均按整间占用
-  if (room.occupancy?.wholeOccupied && !editing.value) return false
-  if (room.occupancy?.slots?.some((s) => s.occupied) && !editing.value) return false
+  const selfId = editing.value?.id
+  const wholeByOther =
+    !!room.occupancy?.wholeOccupied &&
+    (!selfId || room.occupancy?.wholeContractId !== selfId)
+  if (wholeByOther) return false
+  const slotsBusyByOther = (room.occupancy?.slots || []).some(
+    (s) => s.occupied && (!selfId || s.contractId !== selfId),
+  )
+  if (slotsBusyByOther) return false
   return true
 })
 
@@ -518,12 +1152,85 @@ const computedMailboxKeyDeposit = computed(() =>
   Math.round((Number(form.mailboxKeyQty) || 0) * mailboxKeyUnitPrice.value * 100) / 100,
 )
 
+/** 借出物品按金合计（数量 × 按金） */
+const computedLoanItemsDeposit = computed(() =>
+  Math.round(
+    otherFees.value.reduce((sum, f) => sum + loanItemSubtotal(f), 0) * 100,
+  ) / 100,
+)
+
+/** 按金总数 = 房间按金 + 杂项按金 + 借出物品总按金 + 钥匙按金 */
+const computedTotalDeposit = computed(() => {
+  const room = Number(form.roomDeposit) || 0
+  const misc = Number(form.miscDeposit) || 0
+  const total =
+    room +
+    misc +
+    computedLoanItemsDeposit.value +
+    computedDoorKeyDeposit.value +
+    computedMailboxKeyDeposit.value
+  return Math.round(total * 100) / 100
+})
+
 function roomOptionLabel(r: Pick<RoomRecord, 'roomCode' | 'name' | 'buildingName'>) {
   const parts = [r.roomCode]
   if (r.name?.trim()) parts.push(r.name)
   // 全局已篩選某一大廈時，下拉無需再重複顯示所屬大廈
   if (!buildingScope.selectedId && r.buildingName?.trim()) parts.push(r.buildingName)
   return parts.join(' · ')
+}
+
+/** 下拉选项右侧状态：整租可租 / 分租有空（含空份位） */
+function roomPickBadge(r: RoomRecord): { tone: StatusTone; label: string } {
+  const summary = r.occupancy?.summary || 'idle'
+  const cap = r.leaseCapability || 'flexible'
+  if (summary === 'partial') {
+    const free = (r.occupancy?.slots || [])
+      .filter((s) => !s.occupied)
+      .map((s) => s.label)
+    if (free.length) {
+      return {
+        tone: roomFillStatusTone('partial'),
+        label: t('contract.roomPickBadgePartialSlots', { slots: free.join('·') }),
+      }
+    }
+    return { tone: roomFillStatusTone('partial'), label: t('contract.roomPickBadgePartial') }
+  }
+  if (cap === 'whole_only') {
+    return { tone: roomLeaseCapabilityTone('whole_only'), label: t('contract.roomPickBadgeWhole') }
+  }
+  if (cap === 'part_only') {
+    return { tone: roomLeaseCapabilityTone('part_only'), label: t('contract.roomPickBadgePartOnly') }
+  }
+  return { tone: roomFillStatusTone('idle'), label: t('contract.roomPickBadgeFlexibleIdle') }
+}
+
+function buildRoomSelectQuery(page: number) {
+  const mode = roomPickMode.value
+  const base = {
+    keyword: roomSelectKeyword.value || undefined,
+    page,
+    pageSize: SELECT_PAGE_SIZE,
+  }
+  // 只列可租：闲置 / 分租尚有空位；顶栏再按整租·分租收窄
+  if (mode === 'whole') {
+    return { ...base, occupancySummaries: ['idle'] as string[] }
+  }
+  if (mode === 'part') {
+    return {
+      ...base,
+      leaseCapabilities: ['flexible', 'part_only'],
+      occupancySummaries: ['idle', 'partial'] as string[],
+    }
+  }
+  return { ...base, occupancySummaries: ['idle', 'partial'] as string[] }
+}
+
+function setRoomPickMode(mode: RoomPickMode) {
+  if (roomPickMode.value === mode) return
+  roomPickMode.value = mode
+  roomSelectHasMore.value = true
+  void loadRoomsPage(true)
 }
 
 function customerOptionLabel(c: Pick<CustomerRecord, 'customerCode' | 'name'>) {
@@ -619,11 +1326,7 @@ async function loadRoomsPage(reset: boolean) {
   const scrollEl = roomSelectScrollEl
   const prevTop = scrollEl?.scrollTop ?? 0
   try {
-    const { data } = await fetchRooms({
-      keyword: roomSelectKeyword.value || undefined,
-      page,
-      pageSize: SELECT_PAGE_SIZE,
-    })
+    const { data } = await fetchRooms(buildRoomSelectQuery(page))
     if (reset) {
       roomSelectOptions.value = keepSelectedInOptions(
         data.items,
@@ -807,29 +1510,72 @@ watch(
   },
 )
 
+function isRentFreePeriodType(dateType: string) {
+  const label = String(dateType || '').trim()
+  if (!label) return false
+  const opt = periodTypeOptions.value.find((o) => o.label === label)
+  if (opt?.code === 'rent_free') return true
+  return label === '免租期'
+}
+
+/** 租賃方式由占用方式推导（整租→整租；分租→分租首用戶），表单不再重复选 */
+function resolveLeaseTypeLabel(mode: 'whole' | 'part'): string {
+  const opts = leaseTypeOptions.value
+  if (mode === 'whole') {
+    return (
+      opts.find((o) => o.code === 'whole')?.label ||
+      opts.find((o) => o.label === '整租')?.label ||
+      '整租'
+    )
+  }
+  return (
+    opts.find((o) => o.code === 'sub_primary')?.label ||
+    opts.find((o) => /分租/.test(o.label))?.label ||
+    '分租首用戶'
+  )
+}
+
+function syncLeaseTypeFromOccupancy() {
+  form.leaseType = resolveLeaseTypeLabel(form.occupancyMode)
+}
+
+function firstFreePartLabel(room: RoomRecord) {
+  return (
+    (room.splitLabels || ['A', 'B']).find(
+      (label) => !(room.occupancy?.slots || []).some((s) => s.label === label && s.occupied),
+    ) || ''
+  )
+}
+
 function onRoomSelectChange(roomId: string) {
   const room = roomSelectOptions.value.find((r) => r.id === roomId)
   if (!room) return
+  // 房間名稱文本：旧系统 PDF 快照；新系统以房间外键为准，表单不再手填
   form.roomNameText = room.name || ''
   if (form.monthlyRent == null) form.monthlyRent = room.monthlyRent ?? null
+  syncRoomDepositFromRent()
   if (room.leaseCapability === 'whole_only' || room.leaseCapability === 'part_only') {
     form.occupancyMode = 'whole'
     form.partLabel = ''
     form.subleaseMark = ''
+    syncLeaseTypeFromOccupancy()
     return
   }
   if (room.occupancy?.wholeOccupied || room.occupancy?.slots?.some((s) => s.occupied)) {
     form.occupancyMode = 'part'
-    const free = (room.splitLabels || ['A', 'B']).find(
-      (label) => !(room.occupancy?.slots || []).some((s) => s.label === label && s.occupied),
-    )
-    form.partLabel = free || ''
+    form.partLabel = firstFreePartLabel(room)
+    form.subleaseMark = form.partLabel
+  } else if (roomPickMode.value === 'part') {
+    // 下拉已选「分租」：空置可整可分也默认走分租并预填空份位
+    form.occupancyMode = 'part'
+    form.partLabel = firstFreePartLabel(room)
     form.subleaseMark = form.partLabel
   } else {
     form.occupancyMode = 'whole'
     form.partLabel = ''
     form.subleaseMark = ''
   }
+  syncLeaseTypeFromOccupancy()
 }
 
 watch(
@@ -837,6 +1583,14 @@ watch(
   ([mode, part]) => {
     if (mode === 'part') form.subleaseMark = String(part || '').trim().toUpperCase()
     else form.subleaseMark = ''
+    syncLeaseTypeFromOccupancy()
+  },
+)
+
+watch(
+  () => form.monthlyRent,
+  () => {
+    syncRoomDepositFromRent()
   },
 )
 
@@ -987,6 +1741,7 @@ async function onImportFile(ev: Event) {
       }
     }
 
+    await loadHeadChipCounts()
     await loadList()
     finishImport()
   } catch {
@@ -1011,11 +1766,32 @@ async function loadOptions() {
 onMounted(() => {
   void loadList()
   void loadOptions()
+  void loadHeadChipCounts()
+  void loadIssueBlockedAlerts()
+  document.addEventListener('pointerdown', onContractMoreDocPointer, true)
+  window.addEventListener('scroll', onContractMoreScrollOrResize, true)
+  window.addEventListener('resize', onContractMoreScrollOrResize)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onContractMoreDocPointer, true)
+  window.removeEventListener('scroll', onContractMoreScrollOrResize, true)
+  window.removeEventListener('resize', onContractMoreScrollOrResize)
+})
+
+watch(
+  () => buildingScope.viewKey,
+  () => {
+    closeContractMoreMenu()
+    void loadHeadChipCounts()
+    void loadIssueBlockedAlerts()
+  },
+)
 
 function openCreate() {
   if (!perms.create.value) return
   editing.value = null
+  roomDepositTouched.value = false
   Object.assign(form, emptyForm())
   form.leaseType = leaseTypeOptions.value[0]?.label || ''
   // 銷售經理默認當前登錄用戶
@@ -1023,9 +1799,12 @@ function openCreate() {
   if (uid) form.salesManagerId = uid
   periods.value = [defaultPeriodRow()]
   periodPage.value = 1
+  otherFees.value = []
+  loanItemPage.value = 1
   customerRequirements.value = []
   roomSelectOptions.value = []
   customerSelectOptions.value = []
+  roomPickMode.value = 'all'
   roomSelectPage.value = 1
   roomSelectHasMore.value = true
   roomSelectKeyword.value = ''
@@ -1037,11 +1816,205 @@ function openCreate() {
 
 function periodDurationLabel(p: PeriodFormRow): string {
   const n = Number(p.dateValue) || 0
-  return `${n}${p.dateUnit === '日' ? t('contract.periodUnits.日') : t('contract.periodUnits.月')}`
+  return `${n} ${p.dateUnit === '日' ? t('contract.periodUnits.日') : t('contract.periodUnits.月')}`
 }
 
+/** 英文 Unit 更宽、数值列更窄；中文保持紧凑 */
+const periodTableEn = computed(() => String(locale.value).toLowerCase().startsWith('en'))
+
+/** 防止日期 ↔ 时长双向同步互相覆盖 */
+let periodDateDurationSyncing = false
+
+/** 起止日期齐全时，自动推算单位与数值 */
+function syncPeriodDurationFromDates(p: PeriodFormRow) {
+  if (periodDateDurationSyncing) return
+  const hit = inferPeriodDurationFromDates(p.startDate, p.endDate)
+  if (!hit) return
+  if (p.dateUnit === hit.dateUnit && Number(p.dateValue) === hit.dateValue) return
+  periodDateDurationSyncing = true
+  try {
+    p.dateUnit = hit.dateUnit
+    p.dateValue = hit.dateValue
+  } finally {
+    periodDateDurationSyncing = false
+  }
+}
+
+/** 缺开始日时：首段用合约开始日，其后用上一段结束日 + 1 */
+function ensurePeriodStartDate(p: PeriodFormRow, index: number): string {
+  const existing = String(p.startDate || '').trim()
+  if (existing) return existing
+  if (index <= 0) {
+    const contractStart = form.startDate?.trim() || ''
+    if (!contractStart) return ''
+    p.startDate = contractStart
+    return contractStart
+  }
+  const prevEnd = periods.value[index - 1]?.endDate?.trim() || ''
+  if (!prevEnd) return ''
+  const next = addDaysYmd(prevEnd, 1)
+  if (!next) return ''
+  p.startDate = next
+  return next
+}
+
+/**
+ * 由单位/数值推算结束日；必要时补开始日。
+ */
+function syncPeriodDatesFromDuration(p: PeriodFormRow, index: number) {
+  if (periodDateDurationSyncing) return
+  const start = ensurePeriodStartDate(p, index)
+  if (!start) return
+  const end = endDateFromDuration(start, p.dateUnit, p.dateValue)
+  if (!end) return
+  if (p.endDate === end) return
+
+  periodDateDurationSyncing = true
+  try {
+    p.endDate = end
+  } finally {
+    periodDateDurationSyncing = false
+  }
+}
+
+/**
+ * 合约期 → 合约总日期（双向）：首段开始日、末段结束日回写上方。
+ * 锁延到 nextTick 再放，避免 watch 同拍再向下推一遍。
+ */
+function syncContractDatesFromPeriods() {
+  const firstStart = String(periods.value[0]?.startDate || '').trim()
+  const lastEnd = String(periods.value[periods.value.length - 1]?.endDate || '').trim()
+  const needStart = Boolean(firstStart && form.startDate !== firstStart)
+  const needEnd = Boolean(lastEnd && form.endDate !== lastEnd)
+  if (!needStart && !needEnd) return
+
+  periodDateDurationSyncing = true
+  try {
+    if (needStart) form.startDate = firstStart
+    if (needEnd) form.endDate = lastEnd
+  } finally {
+    nextTick(() => {
+      periodDateDurationSyncing = false
+    })
+  }
+}
+
+/**
+ * 从 fromIndex 起向后串联：下一段开始日 = 上一段结束日 + 1，
+ * 并按该段单位/数值重算结束日；最后与合约总日期双向对齐。
+ */
+function cascadeFollowingPeriods(fromIndex: number) {
+  if (fromIndex >= 0 && fromIndex < periods.value.length - 1) {
+    periodDateDurationSyncing = true
+    try {
+      for (let i = fromIndex + 1; i < periods.value.length; i++) {
+        const prevEnd = String(periods.value[i - 1]?.endDate || '').trim()
+        if (!prevEnd) break
+        const nextStart = addDaysYmd(prevEnd, 1)
+        if (!nextStart) break
+        const row = periods.value[i]
+        if (row.startDate !== nextStart) row.startDate = nextStart
+        const newEnd = endDateFromDuration(nextStart, row.dateUnit, row.dateValue)
+        if (newEnd && row.endDate !== newEnd) row.endDate = newEnd
+      }
+    } finally {
+      periodDateDurationSyncing = false
+    }
+  }
+  syncContractDatesFromPeriods()
+}
+
+/** 改起止日期：两端齐全则反推时长；仅有开始 + 单位/数值则推结束日；再向后串联并回写总日期 */
+function onPeriodDatesChange(p: PeriodFormRow, index: number) {
+  const s = String(p.startDate || '').trim()
+  const e = String(p.endDate || '').trim()
+  if (s && e) {
+    syncPeriodDurationFromDates(p)
+  } else if (s) {
+    syncPeriodDatesFromDuration(p, index)
+  }
+  cascadeFollowingPeriods(index)
+}
+
+/** 改单位/数值 → 推算结束日，向后串联，并回写合约总日期 */
+function onPeriodDurationChange(p: PeriodFormRow, index: number) {
+  syncPeriodDatesFromDuration(p, index)
+  cascadeFollowingPeriods(index)
+}
+
+/**
+ * 校验合约期是否符合用户填写的合约起止：
+ * - 首段开始日 = 合约开始日
+ * - 末段结束日 = 合约结束日
+ * - 各段不重叠、段内起止合法
+ */
+function validatePeriodsAgainstContractDates(): string | null {
+  const contractStart = form.startDate?.trim() || ''
+  const contractEnd = form.endDate?.trim() || ''
+  if (!contractStart || !contractEnd) {
+    return t('contract.contractDatesRequired')
+  }
+  if (contractEnd < contractStart) {
+    return t('contract.contractDateRangeInvalid')
+  }
+
+  const ordered = periods.value
+  if (!ordered.length) return t('contract.periodRequired')
+
+  for (const p of ordered) {
+    const s = p.startDate?.trim() || ''
+    const e = p.endDate?.trim() || ''
+    if (!s || !e) return t('contract.periodRequired')
+    if (e < s) return t('contract.periodRangeInvalid')
+  }
+
+  const overlap = findFirstPeriodOverlap(ordered)
+  if (overlap) {
+    return t('contract.periodOverlap', { a: overlap.i + 1, b: overlap.j + 1 })
+  }
+
+  const firstStart = ordered[0].startDate.trim()
+  const lastEnd = ordered[ordered.length - 1].endDate.trim()
+  if (firstStart !== contractStart) {
+    return t('contract.periodMustMatchContractStart')
+  }
+  if (lastEnd !== contractEnd) {
+    return t('contract.periodMustMatchContractEnd')
+  }
+  return null
+}
+
+/** 合约开始日 → 自动填入第一段开始日；有结束则反推时长，否则用单位/数值推结束日 */
+watch(
+  () => form.startDate,
+  (v) => {
+    if (periodDateDurationSyncing) return
+    const start = String(v || '').trim()
+    if (!periods.value.length) periods.value = [defaultPeriodRow()]
+    const first = periods.value[0]
+    if (!first) return
+    if (first.startDate !== start) first.startDate = start
+    onPeriodDatesChange(first, 0)
+  },
+)
+
+/** 合约到期日 → 自动填入最后一段结束日，并反推时长 */
+watch(
+  () => form.endDate,
+  (v) => {
+    if (periodDateDurationSyncing) return
+    const end = String(v || '').trim()
+    if (!periods.value.length) periods.value = [defaultPeriodRow()]
+    const last = periods.value[periods.value.length - 1]
+    const lastIndex = periods.value.length - 1
+    if (!last) return
+    if (last.endDate !== end) last.endDate = end
+    onPeriodDatesChange(last, lastIndex)
+  },
+)
+
 /** 合约期表格每页条数：超过后换页显示 */
-const PERIOD_PAGE_SIZE = 10
+const PERIOD_PAGE_SIZE = 5
 const periodPage = ref(1)
 
 const periodTotalPages = computed(() =>
@@ -1061,7 +2034,19 @@ function clampPeriodPage() {
 }
 
 function addPeriod() {
-  periods.value.push(defaultPeriodRow())
+  const row = defaultPeriodRow()
+  const prev = periods.value[periods.value.length - 1]
+  const prevEnd = prev?.endDate?.trim() || ''
+  if (prevEnd) {
+    row.startDate = addDaysYmd(prevEnd, 1)
+    // 末段应对齐合约结束日：新增时若合约结束日晚于开始日，预填结束日便于衔接
+    const contractEnd = form.endDate?.trim() || ''
+    if (contractEnd && contractEnd >= row.startDate) {
+      row.endDate = contractEnd
+      syncPeriodDurationFromDates(row)
+    }
+  }
+  periods.value.push(row)
   periodPage.value = Math.ceil(periods.value.length / PERIOD_PAGE_SIZE)
 }
 
@@ -1072,6 +2057,17 @@ function removePeriod(idx: number) {
     return
   }
   clampPeriodPage()
+  // 删除后把后续段重新接到前一段
+  if (idx <= 0) {
+    const first = periods.value[0]
+    const contractStart = form.startDate?.trim() || ''
+    if (first && contractStart && first.startDate !== contractStart) {
+      first.startDate = contractStart
+    }
+    if (first) onPeriodDatesChange(first, 0)
+  } else {
+    cascadeFollowingPeriods(idx - 1)
+  }
 }
 
 /** 双击序号改位置：跨页移动行（draft 必须保持字符串，避免 type=number 把 v-model 变成 number） */
@@ -1130,6 +2126,7 @@ function commitEditPeriodIndex() {
   if (toIdx !== fromIdx) {
     const [item] = list.splice(fromIdx, 1)
     list.splice(toIdx, 0, item)
+    realignPeriodChainFrom(0)
   }
   goToPeriodIndex(toIdx)
   periodIndexCommitLock = false
@@ -1176,6 +2173,36 @@ function onPeriodDrop(targetUid: string, e: DragEvent) {
   if (fromIdx < 0 || toIdx < 0) return
   const [item] = list.splice(fromIdx, 1)
   list.splice(toIdx, 0, item)
+  realignPeriodChainFrom(0)
+}
+
+/** 调序/删除后：从某段起按「上一段结束+1 + 本段时长」重串日期链 */
+function realignPeriodChainFrom(startIndex: number) {
+  const row = periods.value[startIndex]
+  if (!row) return
+  if (startIndex === 0) {
+    const contractStart = form.startDate?.trim() || ''
+    if (contractStart && row.startDate !== contractStart) row.startDate = contractStart
+  } else {
+    const prevEnd = periods.value[startIndex - 1]?.endDate?.trim() || ''
+    if (prevEnd) {
+      const nextStart = addDaysYmd(prevEnd, 1)
+      if (nextStart && row.startDate !== nextStart) row.startDate = nextStart
+    }
+  }
+  const start = String(row.startDate || '').trim()
+  if (start) {
+    const end = endDateFromDuration(start, row.dateUnit, row.dateValue)
+    if (end && row.endDate !== end) {
+      periodDateDurationSyncing = true
+      try {
+        row.endDate = end
+      } finally {
+        periodDateDurationSyncing = false
+      }
+    }
+  }
+  cascadeFollowingPeriods(startIndex)
 }
 
 function onPeriodDragEnd() {
@@ -1183,9 +2210,118 @@ function onPeriodDragEnd() {
   dragOverPeriodUid.value = null
 }
 
+/** 借出物品：拖拽排序 + 双击序号改位置（与合约期一致） */
+const editingLoanItemIndexUid = ref<string | null>(null)
+const editingLoanItemIndexFrom = ref(-1)
+const editingLoanItemIndexDraft = ref('')
+const loanItemIndexInputRef = ref<HTMLInputElement | null>(null)
+let loanItemIndexCommitLock = false
+const dragLoanItemUid = ref<string | null>(null)
+const dragOverLoanItemUid = ref<string | null>(null)
+
+function goToLoanItemIndex(absoluteIdx: number) {
+  loanItemPage.value = Math.floor(absoluteIdx / LOAN_ITEM_PAGE_SIZE) + 1
+}
+
+async function startEditLoanItemIndex(uid: string, currentIndex: number) {
+  if (otherFees.value.length <= 1) return
+  loanItemIndexCommitLock = false
+  editingLoanItemIndexUid.value = uid
+  editingLoanItemIndexFrom.value = currentIndex
+  editingLoanItemIndexDraft.value = String(currentIndex + 1)
+  await nextTick()
+  const el = loanItemIndexInputRef.value
+  if (!el) return
+  el.focus()
+  el.select()
+}
+
+function cancelEditLoanItemIndex() {
+  editingLoanItemIndexUid.value = null
+  editingLoanItemIndexFrom.value = -1
+  editingLoanItemIndexDraft.value = ''
+}
+
+function commitEditLoanItemIndex() {
+  if (loanItemIndexCommitLock) return
+  loanItemIndexCommitLock = true
+  const uid = editingLoanItemIndexUid.value
+  const fromIdx = editingLoanItemIndexFrom.value
+  const draft = String(editingLoanItemIndexDraft.value ?? '').trim()
+  cancelEditLoanItemIndex()
+  if (!uid || fromIdx < 0) {
+    loanItemIndexCommitLock = false
+    return
+  }
+  const total = otherFees.value.length
+  const raw = Number.parseInt(draft, 10)
+  if (!Number.isFinite(raw)) {
+    loanItemIndexCommitLock = false
+    return
+  }
+  const toIdx = Math.min(total, Math.max(1, raw)) - 1
+  const list = otherFees.value
+  if (list[fromIdx]?.uid !== uid) {
+    loanItemIndexCommitLock = false
+    return
+  }
+  if (toIdx !== fromIdx) {
+    const [item] = list.splice(fromIdx, 1)
+    list.splice(toIdx, 0, item)
+  }
+  goToLoanItemIndex(toIdx)
+  loanItemIndexCommitLock = false
+}
+
+function onLoanItemIndexKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    e.stopPropagation()
+    commitEditLoanItemIndex()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    cancelEditLoanItemIndex()
+  }
+}
+
+function onLoanItemDragStart(uid: string, e: DragEvent) {
+  dragLoanItemUid.value = uid
+  e.dataTransfer?.setData('text/plain', uid)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+function onLoanItemDragOver(uid: string, e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  if (dragLoanItemUid.value && dragLoanItemUid.value !== uid) {
+    dragOverLoanItemUid.value = uid
+  }
+}
+
+function onLoanItemDrop(targetUid: string, e: DragEvent) {
+  e.preventDefault()
+  const fromUid = dragLoanItemUid.value || e.dataTransfer?.getData('text/plain')
+  dragLoanItemUid.value = null
+  dragOverLoanItemUid.value = null
+  if (!fromUid || fromUid === targetUid) return
+  const list = otherFees.value
+  const fromIdx = list.findIndex((p) => p.uid === fromUid)
+  const toIdx = list.findIndex((p) => p.uid === targetUid)
+  if (fromIdx < 0 || toIdx < 0) return
+  const [item] = list.splice(fromIdx, 1)
+  list.splice(toIdx, 0, item)
+}
+
+function onLoanItemDragEnd() {
+  dragLoanItemUid.value = null
+  dragOverLoanItemUid.value = null
+}
+
 async function openEdit(row: ContractRecord) {
   if (!perms.update.value) return
   editing.value = row
+  roomDepositTouched.value = true
   Object.assign(form, {
     contractCode: row.contractCode,
     roomId: row.roomId,
@@ -1198,13 +2334,16 @@ async function openEdit(row: ContractRecord) {
     leaseType: row.leaseType || leaseTypeOptions.value[0]?.label || '',
     occupancyMode: (row.occupancyMode === 'part' ? 'part' : 'whole') as 'whole' | 'part',
     partLabel: row.partLabel || row.subleaseMark || '',
-    status: row.status || CONTRACT_STATUSES[0],
+    status: coerceContractFormStatus(row.status),
     roomDeposit: row.roomDeposit,
     monthlyRent: row.monthlyRent,
     bookingDeposit: row.bookingDeposit,
-    paymentCycle: row.paymentCycle || CONTRACT_PAYMENT_CYCLES[0],
-    electricityRate: row.electricityRate,
-    miscDeposit: row.miscDeposit,
+    paymentDate: row.paymentDate || '',
+    paymentCycle: coerceContractPaymentCycle(row.paymentCycle),
+    paymentMethod: row.paymentMethod?.trim() || null,
+    paymentVoucher: row.paymentVoucher || '',
+    electricityRate: row.electricityRate ?? 0,
+    miscDeposit: row.miscDeposit ?? 0,
     doorKeyQty: row.doorKeyQty ?? 0,
     mailboxKeyQty: row.mailboxKeyQty ?? 0,
     roomNameText: row.roomNameText || row.roomName || '',
@@ -1223,10 +2362,22 @@ async function openEdit(row: ContractRecord) {
       }))
     : [defaultPeriodRow()]
   periodPage.value = 1
+  otherFees.value = mapLoanItemsFromRecord(row.otherFees)
+  loanItemPage.value = 1
+  // 列表若未带齐借出物品，再拉详情补全
+  if (!row.otherFees?.length && (row.otherFeeCount ?? 0) > 0) {
+    try {
+      const { data } = await fetchContract(row.id)
+      otherFees.value = mapLoanItemsFromRecord(data.otherFees)
+    } catch {
+      /* keep empty */
+    }
+  }
   const seededRoom = seedRoomOption(row)
   const seededCustomer = seedCustomerOption(row)
   roomSelectOptions.value = seededRoom ? [seededRoom] : []
   customerSelectOptions.value = seededCustomer ? [seededCustomer] : []
+  roomPickMode.value = 'all'
   roomSelectPage.value = 1
   roomSelectHasMore.value = true
   roomSelectKeyword.value = ''
@@ -1245,7 +2396,7 @@ async function openEdit(row: ContractRecord) {
   formVisible.value = true
 }
 
-function payloadFromForm() {
+function payloadFromForm(issueNow = false) {
   return {
     // 新增不传编号，由后端按「房间编号-YYYYMMDD」生成；编辑保留原编号
     contractCode: editing.value ? form.contractCode.trim() || undefined : undefined,
@@ -1256,23 +2407,32 @@ function payloadFromForm() {
     startDate: form.startDate || null,
     endDate: form.endDate || null,
     actualEndDate: form.actualEndDate || null,
-    leaseType: form.leaseType.trim() || undefined,
+    leaseType: resolveLeaseTypeLabel(form.occupancyMode),
     occupancyMode: form.occupancyMode,
     partLabel: form.occupancyMode === 'part' ? form.partLabel.trim().toUpperCase() : '',
-    status: form.status,
+    // 普通保存：新增固定签约中；编辑可带表单状态（后端会拦「租赁中」）
+    // 直接开单：由后端置为租赁中
+    status: issueNow ? undefined : editing.value ? form.status : '簽約中',
     roomDeposit: form.roomDeposit,
     monthlyRent: form.monthlyRent,
     bookingDeposit: form.bookingDeposit,
+    paymentDate: form.paymentDate || null,
     paymentCycle: form.paymentCycle.trim() || undefined,
+    paymentMethod: (form.paymentMethod || '').trim() || undefined,
+    paymentVoucher: form.paymentVoucher.trim(),
     electricityRate: form.electricityRate,
     miscDeposit: form.miscDeposit,
     doorKeyQty: form.doorKeyQty,
     mailboxKeyQty: form.mailboxKeyQty,
-    roomNameText: form.roomNameText.trim(),
+    roomNameText:
+      selectedRoom.value?.name?.trim() ||
+      form.roomNameText.trim() ||
+      '',
     subleaseMark:
       form.occupancyMode === 'part' ? form.partLabel.trim().toUpperCase() : form.subleaseMark.trim(),
     attachment: form.attachment.trim(),
     remark: form.remark.trim(),
+    issueNow: issueNow || undefined,
     periods: periods.value
       .filter((p) => p.startDate && p.endDate)
       .map((p, i) => ({
@@ -1283,10 +2443,20 @@ function payloadFromForm() {
         endDate: p.endDate,
         sortOrder: i,
       })),
+    otherFees: otherFees.value
+      .filter((f) => isLoanItemRowComplete(f))
+      .map((f, i) => ({
+        description: f.description.trim(),
+        quantity: Number(f.quantity),
+        unitAmount: Number(f.unitAmount),
+        subtotal: loanItemSubtotal(f),
+        remark: f.remark.trim(),
+        sortOrder: i,
+      })),
   }
 }
 
-async function saveForm() {
+async function saveForm(mode: 'save' | 'issue' = 'save') {
   if (!form.roomId.trim()) {
     ElMessage.warning(t('contract.roomRequired'))
     return
@@ -1299,41 +2469,126 @@ async function saveForm() {
     ElMessage.warning(t('contract.partLabelRequired'))
     return
   }
+  if (form.bookingDeposit == null || Number.isNaN(Number(form.bookingDeposit))) {
+    ElMessage.warning(t('contract.fields.bookingDepositRequired'))
+    return
+  }
+  if (!form.paymentVoucher.trim()) {
+    ElMessage.warning(t('contract.fields.paymentVoucherRequired'))
+    return
+  }
+  const issueNow = mode === 'issue'
+  if (issueNow && !form.attachment.trim()) {
+    ElMessage.warning(t('contract.issueNowNeedAttachment'))
+    return
+  }
+  const periodErr = validatePeriodsAgainstContractDates()
+  if (periodErr) {
+    ElMessage.warning(periodErr)
+    return
+  }
+  // 仅有免租期（含「只有一条免租期」）不允许提交
+  const hasBillablePeriod = periods.value.some((p) => !isRentFreePeriodType(p.dateType))
+  if (!hasBillablePeriod) {
+    ElMessage.warning(t('contract.periodNeedUsage'))
+    return
+  }
+  const incompleteLoan = otherFees.value.find(
+    (f) => !isLoanItemRowEmpty(f) && !isLoanItemRowComplete(f),
+  )
+  if (incompleteLoan) {
+    ElMessage.warning(t('contract.loanItemRequired'))
+    return
+  }
+  if (editing.value && !isSigningContractStatus(editing.value.status)) {
+    ElMessage.warning(t('contract.editOnlySigning'))
+    return
+  }
+  if (formSaving.value) return
+  formSaving.value = true
   try {
-    const payload = payloadFromForm()
+    const payload = payloadFromForm(issueNow)
     if (editing.value) {
       await updateContractApi(editing.value.id, payload)
-      ElMessage.success(t('contract.updated'))
+      ElMessage.success(
+        issueNow ? t('contract.issueNowDone') : t('contract.updatedWithInvoices'),
+      )
     } else {
       await createContractApi(payload)
-      ElMessage.success(t('contract.created'))
+      ElMessage.success(
+        issueNow ? t('contract.issueNowDone') : t('contract.createdWithInvoices'),
+      )
     }
     formVisible.value = false
+    await loadHeadChipCounts()
     await loadList()
+    void loadIssueBlockedAlerts()
   } catch {
     /* interceptor */
+  } finally {
+    formSaving.value = false
   }
 }
 
-async function onDelete(row: ContractRecord) {
-  if (!perms.delete.value) return
+/** @returns 是否已取消成功；MessageBox 未确认或状态不允许时为 false */
+async function onCancelContract(row: ContractRecord): Promise<boolean> {
+  if (!perms.update.value) return false
+  if (!isSigningContractStatus(row.status)) {
+    try {
+      await ElMessageBox.alert(
+        t('contract.cancelOnlySigning'),
+        t('contract.cancel'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+    } catch {
+      /* dismiss */
+    }
+    return false
+  }
   try {
     await ElMessageBox.confirm(
-      t('contract.deleteConfirm', { code: row.contractCode }),
-      t('common.deleteTitle'),
-      { type: 'warning' },
+      t('contract.cancelConfirm', { code: row.contractCode }),
+      t('contract.cancel'),
+      messageBoxOpts({ type: 'warning' }),
     )
-    await deleteContractApi(row.id)
-    ElMessage.success(t('contract.deleted'))
-    await loadList()
+    const { data } = await updateContractApi(row.id, { status: '已取消' })
+    const idx = list.value.findIndex((r) => r.id === row.id)
+    if (idx >= 0) list.value[idx] = { ...list.value[idx], ...data }
+    if (current.value?.id === row.id) current.value = { ...current.value, ...data }
+    ElMessage.success(t('contract.cancelled'))
+    void loadExpiringSoonCount()
+    return true
   } catch {
-    /* cancel */
+    /* cancel / interceptor */
+    return false
   }
 }
 
 function statusLabel(status: string) {
   const key = `contract.status.${status}`
   return t(key) === key ? status : t(key)
+}
+
+async function onContractInlineSave(
+  row: ContractRecord,
+  field: ContractInlineField,
+  value: string | number | null,
+) {
+  if (!(field in CONTRACT_INLINE_FIELDS)) return
+  // superAdmin 行内编辑不受签约流程限制（组件本身仅 superAdmin 可改）
+  try {
+    const payload = { [field]: value } as Partial<ContractWritePayload>
+    const { data } = await updateContractApi(row.id, payload)
+    const idx = list.value.findIndex((r) => r.id === row.id)
+    if (idx >= 0) {
+      list.value[idx] = { ...list.value[idx], ...data }
+    }
+    if (current.value?.id === row.id) current.value = { ...current.value, ...data }
+    ElMessage.success(t('contract.updated'))
+    if (field === 'status' || field === 'endDate') void loadExpiringSoonCount()
+  } catch {
+    /* interceptor */
+  }
 }
 
 async function openDetail(row: ContractRecord, direction: 'ltr' | 'rtl' = 'rtl') {
@@ -1350,7 +2605,13 @@ async function openDetail(row: ContractRecord, direction: 'ltr' | 'rtl' = 'rtl')
 function onRowClick(row: ContractRecord, column: { type?: string } | undefined, event: Event) {
   if (column?.type === 'selection') return
   const el = event.target as HTMLElement | null
-  if (el?.closest('.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection')) return
+  if (
+    el?.closest(
+      '.action-pills, button, a, .el-switch, input, textarea, .el-checkbox, .el-table-column--selection, .sa-inline, .el-select, .el-date-editor',
+    )
+  ) {
+    return
+  }
   void openDetail(row, 'rtl')
 }
 
@@ -1374,6 +2635,101 @@ function openInvoicesList(row: ContractRecord) {
   if (!row.invoiceCount) return
   relatedInvoicesContract.value = row
   relatedInvoicesDrawerVisible.value = true
+}
+
+/** 操作列「發票記錄」：即使尚無發票也可打開關聯抽屜 */
+function openInvoicesFromAction(row: ContractRecord) {
+  relatedInvoicesContract.value = row
+  relatedInvoicesDrawerVisible.value = true
+}
+
+/** 整頁共用「更多」菜單（避免每行 el-dropdown 在 fixed 操作列卡死渲染） */
+function closeContractMoreMenu() {
+  contractMoreVisible.value = false
+  contractMoreRow.value = null
+}
+
+function openContractMoreMenu(row: ContractRecord, ev: MouseEvent) {
+  const btn = ev.currentTarget as HTMLElement | null
+  if (!btn) return
+  if (contractMoreVisible.value && contractMoreRow.value?.id === row.id) {
+    closeContractMoreMenu()
+    return
+  }
+  const rect = btn.getBoundingClientRect()
+  // 右缘对齐「…」按钮右缘；中/英宽度不同时向左伸展，右侧距离保持一致
+  contractMoreRow.value = row
+  contractMoreStyle.value = {
+    position: 'fixed',
+    top: `${Math.round(rect.bottom + 6)}px`,
+    right: `${Math.round(Math.max(8, window.innerWidth - rect.right))}px`,
+    left: 'auto',
+    zIndex: String(CONTRACT_MORE_MENU_Z),
+  }
+  contractMoreVisible.value = true
+}
+
+/**
+ * 从更多面板执行操作：弹出 MessageBox 时不关面板；
+ * 仅在进入下一界面（开单弹窗 / 发票抽屉等）或操作成功后关闭。
+ */
+function onContractMorePick(cmd: string) {
+  const row = contractMoreRow.value
+  if (!row) return
+  if (cmd === 'openOrder') {
+    void (async () => {
+      const opened = await onOpenOrderClick(row)
+      if (opened) closeContractMoreMenu()
+    })()
+    return
+  }
+  if (cmd === 'invoices') {
+    closeContractMoreMenu()
+    openInvoicesFromAction(row)
+    return
+  }
+  if (cmd === 'renew') {
+    closeContractMoreMenu()
+    onRenewContractPlaceholder()
+    return
+  }
+  if (cmd === 'terminate') {
+    closeContractMoreMenu()
+    onTerminateLeasePlaceholder()
+    return
+  }
+  if (cmd === 'cancel') {
+    void (async () => {
+      const done = await onCancelContract(row)
+      if (done) closeContractMoreMenu()
+    })()
+    return
+  }
+  if (cmd === 'delete') {
+    void (async () => {
+      const done = await onDeleteContract(row)
+      if (done) closeContractMoreMenu()
+    })()
+  }
+}
+
+function onContractMoreDocPointer(ev: Event) {
+  if (!contractMoreVisible.value) return
+  const t = ev.target as HTMLElement | null
+  if (t?.closest('.contract-more-menu, .action-pill--more')) return
+  // MessageBox 打开期间点遮罩/对话框，勿关掉更多面板
+  if (
+    t?.closest(
+      '.el-message-box, .el-message-box__wrapper, .el-overlay-message-box, .el-overlay.is-message-box',
+    )
+  ) {
+    return
+  }
+  closeContractMoreMenu()
+}
+
+function onContractMoreScrollOrResize() {
+  if (contractMoreVisible.value) closeContractMoreMenu()
 }
 
 function openReceivablesList(row: ContractRecord) {
@@ -1453,9 +2809,212 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 <template>
   <div class="admin-page">
-    <div class="admin-page-head">
+    <div class="admin-page-head admin-page-head--with-chips">
       <h2>{{ t('menu.contracts') }}</h2>
+      <div class="building-chips-rail">
+        <div class="building-chips" role="tablist" :aria-label="t('contract.occupancyFilterAria')">
+          <button
+            v-for="chip in occupancyModeChips"
+            :key="chip.key ?? 'all'"
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': occupancyModeFilter === chip.key }"
+            :aria-selected="occupancyModeFilter === chip.key"
+            @click="setOccupancyModeFilter(chip.key)"
+          >
+            <span class="building-chip__name">{{ chip.label }}</span>
+            <span class="building-chip__count">({{ chip.count }})</span>
+          </button>
+          <span class="building-chips__sep" aria-hidden="true">|</span>
+          <div class="building-chip-group">
+            <button
+              type="button"
+              class="building-chip"
+              role="tab"
+              :class="{ 'is-active': expiringSoonFilter }"
+              :aria-selected="expiringSoonFilter"
+              :title="expiringSoonTip || t('contract.expiringSoon')"
+              @click="toggleExpiringSoonFilter"
+            >
+              <span class="building-chip__name">{{ t('contract.expiringSoon') }}</span>
+              <span class="building-chip__count">({{ expiringSoonCount }})</span>
+            </button>
+            <el-popover
+              v-if="userStore.isSuperAdmin"
+              v-model:visible="expiringEditVisible"
+              placement="bottom-start"
+              :width="360"
+              trigger="click"
+              :teleported="true"
+              :show-arrow="true"
+              popper-class="expiring-soon-edit-popper"
+              @show="seedExpiringEditForm"
+            >
+              <template #reference>
+                <button
+                  type="button"
+                  class="building-chip-edit"
+                  :class="{ 'is-open': expiringEditVisible }"
+                  :title="t('contract.expiringSoonEdit')"
+                  :aria-label="t('contract.expiringSoonEdit')"
+                  @click.stop
+                >
+                  <el-icon :size="13"><EditPen /></el-icon>
+                </button>
+              </template>
+              <div class="expiring-edit">
+                <header class="expiring-edit__head">
+                  <div class="expiring-edit__icon" aria-hidden="true">
+                    <el-icon :size="16"><EditPen /></el-icon>
+                  </div>
+                  <div class="expiring-edit__head-text">
+                    <div class="expiring-edit__title">{{ t('contract.expiringSoonEdit') }}</div>
+                    <p class="expiring-edit__desc">{{ t('contract.expiringSoonEditDesc') }}</p>
+                  </div>
+                </header>
+
+                <div class="expiring-edit__body">
+                  <section class="expiring-edit__card">
+                    <div class="expiring-edit__label">
+                      {{ t('systemSettings.fields.expiringWindow') }}
+                    </div>
+                    <div class="expiring-edit__controls">
+                      <el-input-number
+                        v-model="expiringEditForm.amount"
+                        class="expiring-edit__amount"
+                        :min="1"
+                        :max="expiringEditAmountMax"
+                        :step="1"
+                        controls-position="right"
+                      />
+                      <el-select
+                        v-model="expiringEditForm.unit"
+                        class="expiring-edit__unit"
+                        :teleported="false"
+                        @change="onExpiringEditUnitChange"
+                      >
+                        <el-option :label="t('systemSettings.unit.days')" value="day" />
+                        <el-option :label="t('systemSettings.unit.months')" value="month" />
+                      </el-select>
+                    </div>
+                  </section>
+
+                  <section class="expiring-edit__card">
+                    <div class="expiring-edit__label">
+                      {{ t('systemSettings.fields.expiringStatusMode') }}
+                    </div>
+                    <el-radio-group
+                      v-model="expiringEditForm.statusMode"
+                      class="expiring-edit__mode"
+                      @change="onExpiringEditStatusModeChange"
+                    >
+                      <el-radio-button value="all">
+                        {{ t('systemSettings.statusMode.all') }}
+                      </el-radio-button>
+                      <el-radio-button value="include">
+                        {{ t('systemSettings.statusMode.include') }}
+                      </el-radio-button>
+                      <el-radio-button value="exclude">
+                        {{ t('systemSettings.statusMode.exclude') }}
+                      </el-radio-button>
+                    </el-radio-group>
+                    <el-select
+                      v-if="expiringEditForm.statusMode !== 'all'"
+                      v-model="expiringEditForm.statuses"
+                      multiple
+                      collapse-tags
+                      collapse-tags-tooltip
+                      filterable
+                      :teleported="false"
+                      class="expiring-edit__statuses"
+                      :placeholder="t('systemSettings.fields.expiringStatusesPlaceholder')"
+                    >
+                      <el-option
+                        v-for="opt in expiringEditStatusOptions"
+                        :key="opt.value"
+                        :label="opt.label"
+                        :value="opt.value"
+                      />
+                    </el-select>
+                  </section>
+                </div>
+
+                <footer class="expiring-edit__actions">
+                  <el-button @click="expiringEditVisible = false">
+                    {{ t('common.cancel') }}
+                  </el-button>
+                  <el-button
+                    type="primary"
+                    class="lb-btn-primary"
+                    :loading="expiringEditSaving"
+                    @click="saveExpiringEdit"
+                  >
+                    {{ t('common.save') }}
+                  </el-button>
+                </footer>
+              </div>
+            </el-popover>
+          </div>
+        </div>
+      </div>
       <div class="head-actions">
+        <el-popover
+          v-if="issueBlockedAlerts.length"
+          placement="bottom-end"
+          :width="340"
+          trigger="click"
+          popper-class="issue-blocked-popper"
+        >
+          <template #reference>
+            <button
+              type="button"
+              class="issue-blocked-chip"
+              :title="t('contract.issueBlockedChipTip')"
+            >
+              <el-icon :size="14"><WarningFilled /></el-icon>
+              <span>{{ t('contract.issueBlockedChip', { n: issueBlockedAlerts.length }) }}</span>
+            </button>
+          </template>
+          <div class="issue-blocked-pop">
+            <p class="issue-blocked-pop__lead">
+              {{
+                t('contract.issueBlockedPopLead', {
+                  days: issueBlockedLeadDays,
+                })
+              }}
+            </p>
+            <ul class="issue-blocked-pop__list">
+              <li v-for="item in issueBlockedAlerts" :key="item.id" class="issue-blocked-pop__row">
+                <div class="issue-blocked-pop__meta">
+                  <button
+                    type="button"
+                    class="issue-blocked-pop__code"
+                    @click="openIssueBlockedDetail(item.id)"
+                  >
+                    {{ item.contractCode }}
+                  </button>
+                  <span class="issue-blocked-pop__date">
+                    {{ t('contract.issueBlockedPopPeriod', { date: item.secondPeriodStart }) }}
+                    · {{ issueBlockedUrgencyText(item) }}
+                  </span>
+                </div>
+                <el-button
+                  v-if="perms.update"
+                  type="warning"
+                  size="small"
+                  plain
+                  @click="openIssueBlockedOrder(item.id)"
+                >
+                  {{ t('contract.openOrder') }}
+                </el-button>
+              </li>
+            </ul>
+            <p v-if="issueBlockedAlerts.length > 4" class="issue-blocked-pop__foot">
+              {{ t('contract.issueBlockedPopFoot', { n: issueBlockedAlerts.length }) }}
+            </p>
+          </div>
+        </el-popover>
         <el-input
           v-model="keyword"
           clearable
@@ -1521,7 +3080,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="contractTableKey"
           :data="list"
           row-key="id"
           height="100%"
@@ -1652,7 +3211,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 @update:date-range-value="(v) => setDateRange('startDate', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.startDate || '—' }}</template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.startDate || ''"
+                type="date"
+                :display-text="row.startDate || '—'"
+                @save="(v) => onContractInlineSave(row, 'startDate', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('contract.fields.endDate'), { interactive: true, contentMin: 110 })"
@@ -1668,14 +3234,21 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 @update:date-range-value="(v) => setDateRange('endDate', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.endDate || '—' }}</template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.endDate || ''"
+                type="date"
+                :display-text="row.endDate || '—'"
+                @save="(v) => onContractInlineSave(row, 'endDate', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="
               statusColW(
                 t('contract.fields.status'),
                 statusFilterOptions.map((o) => o.label),
-              )
+              ) + (String(locale).toLowerCase().startsWith('zh') ? 4 : 0)
             "
           >
             <template #header>
@@ -1691,19 +3264,42 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               />
             </template>
             <template #default="{ row }">
-              <StatusBadge
-                :tone="contractStatusTone(row.status)"
-                :label="statusLabel(row.status)"
-              />
+              <div class="contract-status-cell">
+                <SuperAdminInlineCell
+                  :value="row.status"
+                  type="select"
+                  :options="statusEditOptionsForRow(row as ContractRecord)"
+                  :display-text="statusLabel(row.status)"
+                  @save="(v) => onContractInlineSave(row, 'status', v)"
+                >
+                  <StatusBadge
+                    :tone="contractStatusTone(row.status)"
+                    :label="statusLabel(row.status)"
+                  />
+                </SuperAdminInlineCell>
+                <el-tooltip
+                  v-if="issueBlockedRowTip(row)"
+                  :content="issueBlockedRowTip(row)"
+                  placement="top"
+                >
+                  <el-icon class="contract-status-cell__warn" :size="16">
+                    <WarningFilled />
+                  </el-icon>
+                </el-tooltip>
+              </div>
             </template>
           </el-table-column>
           <el-table-column
-            :min-width="colW(t('contract.fields.leaseType'), { interactive: true, contentMin: 100 })"
+            :min-width="
+              statusColW(t('contract.fields.leaseType'), occupancyStatusSamples, {
+                interactive: true,
+              })
+            "
           >
             <template #header>
               <TableColumnHeader
                 :label="t('contract.fields.leaseType')"
-                filterable
+                :filterable="!occupancyModeFilter"
                 sortable
                 :options="leaseTypeFilterOptions"
                 :model-value="filters.leaseType || []"
@@ -1712,7 +3308,12 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 @update:sort-order="(v) => setSort('leaseType', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.leaseType || '—' }}</template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="contractOccupancyTone((row as ContractRecord).occupancyMode)"
+                :label="occupancyLabelOf(row as ContractRecord)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('contract.fields.monthlyRent'), { interactive: true, contentMin: 100 })"
@@ -1727,11 +3328,18 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               />
             </template>
             <template #default="{ row }">
-              {{ row.monthlyRent == null ? '—' : formatMoney(row.monthlyRent) }}
+              <SuperAdminInlineCell
+                :value="row.monthlyRent"
+                type="number"
+                :precision="2"
+                :min="0"
+                :display-text="row.monthlyRent == null ? '—' : formatMoney(row.monthlyRent)"
+                @save="(v) => onContractInlineSave(row, 'monthlyRent', v)"
+              />
             </template>
           </el-table-column>
           <el-table-column
-            :min-width="colW(t('contract.fields.paymentCycle'), { interactive: true, contentMin: 100 })"
+            :min-width="colW(t('contract.fields.paymentCycle'), { interactive: true, contentMin: 110 })"
           >
             <template #header>
               <TableColumnHeader
@@ -1745,7 +3353,42 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 @update:sort-order="(v) => setSort('paymentCycle', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.paymentCycle || '—' }}</template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="coerceContractPaymentCycle(row.paymentCycle)"
+                type="select"
+                :options="paymentCycleFilterOptions"
+                :display-text="
+                  row.paymentCycle ? coerceContractPaymentCycle(row.paymentCycle) : '—'
+                "
+                @save="(v) => onContractInlineSave(row, 'paymentCycle', v)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.paymentMethod'), { interactive: true, contentMin: 100 })"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.paymentMethod')"
+                filterable
+                sortable
+                :options="paymentMethodFilterOptions"
+                :model-value="filters.paymentMethod || []"
+                :sort-order="sortOrderOf('paymentMethod')"
+                @update:model-value="(v) => setFilter('paymentMethod', v)"
+                @update:sort-order="(v) => setSort('paymentMethod', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.paymentMethod || ''"
+                type="select"
+                :options="paymentMethodFilterOptions"
+                :display-text="row.paymentMethod || '—'"
+                @save="(v) => onContractInlineSave(row, 'paymentMethod', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('contract.fields.invoiceCount'), { interactive: true, contentMin: 80 })"
@@ -1924,8 +3567,24 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button
+                  v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
+                  @click="openEdit(row as ContractRecord)"
+                >
+                  {{ t('common.edit') }}
+                </button>
+                <button
+                  type="button"
+                  class="action-pill action-pill--accent"
+                  @click="onReceivePayment(row as ContractRecord)"
+                >
+                  {{ t('contract.receivePayment') }}
+                </button>
+                <button
+                  type="button"
+                  class="action-pill action-pill--leave"
                   :disabled="printingAgreementId === (row as ContractRecord).id"
                   @mouseenter="prefetchAgreementPdfApi((row as ContractRecord).id)"
                   @focus="prefetchAgreementPdfApi((row as ContractRecord).id)"
@@ -1934,20 +3593,20 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   {{ t('contract.printAgreement') }}
                 </button>
                 <button
-                  v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
-                  class="action-pill action-pill--edit"
-                  @click="openEdit(row as ContractRecord)"
+                  class="action-pill action-pill--view action-pill--more"
+                  :class="{
+                    'is-open':
+                      contractMoreVisible && contractMoreRow?.id === (row as ContractRecord).id,
+                  }"
+                  :title="t('contract.moreActions')"
+                  :aria-label="t('contract.moreActions')"
+                  :aria-expanded="
+                    contractMoreVisible && contractMoreRow?.id === (row as ContractRecord).id
+                  "
+                  @click.stop="openContractMoreMenu(row as ContractRecord, $event)"
                 >
-                  {{ t('common.edit') }}
-                </button>
-                <button
-                  v-if="perms.delete" v-admin-glow="perms.codes.delete"
-                  type="button"
-                  class="action-pill action-pill--danger"
-                  @click="onDelete(row as ContractRecord)"
-                >
-                  {{ t('common.delete') }}
+                  …
                 </button>
               </div>
             </template>
@@ -1981,6 +3640,90 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       </div>
     </div>
 
+    <Teleport to="body">
+      <div
+        v-if="contractMoreVisible && contractMoreRow"
+        class="contract-more-menu"
+        :style="contractMoreStyle"
+        role="menu"
+        :aria-label="t('contract.moreActions')"
+        @click.stop
+      >
+        <header class="contract-more-menu__head">
+          <span class="contract-more-menu__head-label">{{ t('contract.fields.contractCode') }}</span>
+          <span class="contract-more-menu__head-code" :title="contractMoreRow.contractCode">
+            {{ contractMoreRow.contractCode || '—' }}
+          </span>
+        </header>
+        <section class="contract-more-menu__group">
+          <div class="contract-more-menu__label">{{ t('contract.moreGroupProcess') }}</div>
+          <div class="contract-more-menu__pills">
+            <button
+              type="button"
+              class="action-pill action-pill--info"
+              role="menuitem"
+              @click="onContractMorePick('openOrder')"
+            >
+              {{ t('contract.openOrder') }}
+            </button>
+            <button
+              type="button"
+              class="action-pill action-pill--key"
+              role="menuitem"
+              @click="onContractMorePick('renew')"
+            >
+              {{ t('contract.renew') }}
+            </button>
+          </div>
+        </section>
+        <section class="contract-more-menu__group">
+          <div class="contract-more-menu__label">{{ t('contract.moreGroupRecords') }}</div>
+          <div class="contract-more-menu__pills">
+            <button
+              type="button"
+              class="action-pill action-pill--view"
+              role="menuitem"
+              @click="onContractMorePick('invoices')"
+            >
+              {{ t('contract.invoiceRecords') }}
+            </button>
+          </div>
+        </section>
+        <section class="contract-more-menu__group">
+          <div class="contract-more-menu__label">{{ t('contract.moreGroupEnd') }}</div>
+          <div class="contract-more-menu__pills">
+            <button
+              type="button"
+              class="action-pill action-pill--danger"
+              role="menuitem"
+              @click="onContractMorePick('terminate')"
+            >
+              {{ t('contract.terminateLease') }}
+            </button>
+            <button
+              v-if="perms.update && canOpenOrderSign(contractMoreRow)"
+              type="button"
+              class="action-pill action-pill--muted"
+              role="menuitem"
+              @click="onContractMorePick('cancel')"
+            >
+              {{ t('contract.cancel') }}
+            </button>
+            <button
+              v-if="perms.delete"
+              v-admin-glow="perms.codes.delete"
+              type="button"
+              class="action-pill action-pill--danger"
+              role="menuitem"
+              @click="onContractMorePick('delete')"
+            >
+              {{ t('common.delete') }}
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
+
     <ContractDetailDrawer
       v-model="drawerVisible"
       :contract="current"
@@ -1997,8 +3740,18 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       @open-other-fees="openOtherFeesList"
       @open-deposit-deductions="openDepositDeductionsList"
       @open-deposit-refunds="openDepositRefundsList"
+      @open-booking-deposit-receipt="(id) => relationDrawers?.openReceiptSide(id)"
     />
-    <RelatedEntityDrawers ref="relationDrawers" />
+    <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
+
+    <ContractReceivePaymentDialog
+      v-model="receivePayVisible"
+      :contract="receivePayContract"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+      @collected="loadList"
+    />
 
     <RelatedInvoicesDrawer
       v-model="relatedInvoicesDrawerVisible"
@@ -2006,6 +3759,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromList"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @changed="loadList"
     />
     <RelatedReceivablesDrawer
       v-model="relatedReceivablesDrawerVisible"
@@ -2014,6 +3768,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       @open-receivable="onOpenReceivableFromList"
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @changed="loadList"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawerVisible"
@@ -2023,6 +3778,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @changed="loadList"
     />
     <RelatedPeriodsDrawer
       v-model="relatedPeriodsDrawerVisible"
@@ -2062,11 +3818,40 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
     />
 
     <el-dialog
+      v-model="openOrderVisible"
+      :title="t('contract.openOrderTitle')"
+      :width="isMobile ? '94%' : '480px'"
+      destroy-on-close
+    >
+      <p class="form-hint">{{ t('contract.openOrderHint') }}</p>
+      <el-form label-position="top">
+        <el-form-item :label="t('contract.fields.attachment')" required>
+          <AttachmentField v-model="openOrderAttachment" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="openOrderVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="primary"
+          class="lb-btn-primary"
+          :loading="openOrderSaving"
+          @click="submitOpenOrder"
+        >
+          {{ t('contract.openOrder') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="formVisible"
-      :title="editing ? t('contract.edit') : t('contract.create')"
+      :title="
+        formReadonly ? t('contract.view') : editing ? t('contract.edit') : t('contract.create')
+      "
       :width="dialogWidth"
       destroy-on-close
     >
+      <p v-if="formReadonly" class="form-hint">{{ t('contract.viewOnlyHint') }}</p>
+      <div class="contract-form-body" :class="{ 'is-readonly': formReadonly }">
       <el-form label-position="top">
         <section class="form-section">
           <h3>{{ t('contract.sections.basic') }}</h3>
@@ -2089,6 +3874,27 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 @visible-change="onRoomSelectVisible"
                 @change="onRoomSelectChange"
               >
+                <template #header>
+                  <div
+                    class="contract-room-pick-modes"
+                    role="tablist"
+                    :aria-label="t('contract.roomPickModeAria')"
+                    @mousedown.stop.prevent
+                  >
+                    <button
+                      v-for="chip in roomPickModeChips"
+                      :key="chip.key"
+                      type="button"
+                      class="contract-room-pick-mode"
+                      role="tab"
+                      :class="{ 'is-active': roomPickMode === chip.key }"
+                      :aria-selected="roomPickMode === chip.key"
+                      @click="setRoomPickMode(chip.key)"
+                    >
+                      {{ chip.label }}
+                    </button>
+                  </div>
+                </template>
                 <el-option
                   v-for="r in roomSelectOptions"
                   :key="r.id"
@@ -2096,9 +3902,16 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   :value="r.id"
                   :title="roomOptionLabel(r)"
                 >
-                  <span class="select-option-ellipsis" :title="roomOptionLabel(r)">
-                    {{ roomOptionLabel(r) }}
-                  </span>
+                  <div class="contract-room-option">
+                    <span class="select-option-ellipsis" :title="roomOptionLabel(r)">
+                      {{ roomOptionLabel(r) }}
+                    </span>
+                    <StatusBadge
+                      class="contract-room-option__badge"
+                      :tone="roomPickBadge(r).tone"
+                      :label="roomPickBadge(r).label"
+                    />
+                  </div>
                 </el-option>
               </el-select>
             </el-form-item>
@@ -2157,7 +3970,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 />
               </el-select>
             </el-form-item>
-            <el-form-item :label="t('contract.fields.startDate')">
+            <el-form-item :label="t('contract.fields.startDate')" required>
               <el-date-picker
                 v-model="form.startDate"
                 type="date"
@@ -2165,7 +3978,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 style="width: 100%"
               />
             </el-form-item>
-            <el-form-item :label="t('contract.fields.endDate')">
+            <el-form-item :label="t('contract.fields.endDate')" required>
               <el-date-picker
                 v-model="form.endDate"
                 type="date"
@@ -2173,73 +3986,69 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 style="width: 100%"
               />
             </el-form-item>
-            <el-form-item :label="t('contract.fields.actualEndDate')">
-              <el-date-picker
-                v-model="form.actualEndDate"
-                type="date"
-                value-format="YYYY-MM-DD"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.leaseType')">
-              <el-select v-model="form.leaseType" filterable style="width: 100%">
-                <el-option
-                  v-for="lt in leaseTypeOptions"
-                  :key="lt.id"
-                  :label="lt.label"
-                  :value="lt.label"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.occupancyMode')">
-              <el-radio-group
-                v-model="form.occupancyMode"
-                class="lb-yesno-seg"
-                :disabled="
-                  !form.roomId ||
-                  selectedRoom?.leaseCapability === 'whole_only' ||
-                  selectedRoom?.leaseCapability === 'part_only'
-                "
-              >
-                <el-radio-button value="whole" :disabled="!canWholeLease">
-                  {{ t('contract.occupancyWhole') }}
-                </el-radio-button>
-                <el-radio-button value="part" :disabled="!canPartLease">
-                  {{ t('contract.occupancyPart') }}
-                </el-radio-button>
-              </el-radio-group>
-            </el-form-item>
             <el-form-item
-              v-if="form.occupancyMode === 'part'"
-              :label="t('contract.fields.partLabel')"
-              required
+              class="occupancy-form-item"
+              :required="form.occupancyMode === 'part'"
             >
-              <el-select
-                v-model="form.partLabel"
-                style="width: 100%"
-                :placeholder="t('contract.fields.partLabel')"
-              >
-                <el-option
-                  v-for="opt in roomPartOptions"
-                  :key="opt.value"
-                  :label="opt.disabled ? `${opt.label}（${t('room.occupancy.busy')}）` : opt.label"
-                  :value="opt.value"
-                  :disabled="opt.disabled"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.status')">
-              <el-select v-model="form.status" style="width: 100%">
-                <el-option
-                  v-for="s in CONTRACT_STATUSES"
-                  :key="s"
-                  :label="t(`contract.status.${s}`)"
-                  :value="s"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.roomNameText')">
-              <el-input v-model="form.roomNameText" />
+              <template #label>
+                <span>{{ t('contract.fields.occupancyMode') }}</span>
+                <template v-if="form.occupancyMode === 'part'">
+                  <span class="occupancy-form-item__sep">/</span>
+                  <span>{{ t('contract.fields.partLabel') }}</span>
+                </template>
+              </template>
+              <div class="occupancy-combo">
+                <el-radio-group
+                  v-model="form.occupancyMode"
+                  class="lb-yesno-seg"
+                  :disabled="
+                    !form.roomId ||
+                    selectedRoom?.leaseCapability === 'whole_only' ||
+                    selectedRoom?.leaseCapability === 'part_only'
+                  "
+                >
+                  <el-radio-button value="whole" :disabled="!canWholeLease">
+                    {{ t('contract.occupancyWhole') }}
+                  </el-radio-button>
+                  <el-radio-button value="part" :disabled="!canPartLease">
+                    {{ t('contract.occupancyPart') }}
+                  </el-radio-button>
+                </el-radio-group>
+                <div
+                  v-if="form.occupancyMode === 'part'"
+                  class="part-label-picker"
+                  role="listbox"
+                  :aria-label="t('contract.fields.partLabel')"
+                >
+                  <button
+                    v-for="opt in roomPartOptions"
+                    :key="opt.value"
+                    type="button"
+                    role="option"
+                    class="part-label-chip"
+                    :class="{
+                      'is-active': form.partLabel === opt.value,
+                      'is-busy': opt.disabled,
+                    }"
+                    :disabled="opt.disabled"
+                    :aria-selected="form.partLabel === opt.value"
+                    :title="
+                      opt.disabled
+                        ? `${opt.label} · ${t('room.occupancy.busy')}`
+                        : `${opt.label} · ${t('room.occupancy.slotFreeShort')}`
+                    "
+                    @click="form.partLabel = opt.value"
+                  >
+                    <span class="part-label-chip__letter">{{ opt.label }}</span>
+                    <span v-if="opt.disabled" class="part-label-chip__tag">
+                      {{ t('room.occupancy.busy') }}
+                    </span>
+                  </button>
+                  <span v-if="!roomPartOptions.length" class="part-label-picker__empty">
+                    {{ t('room.occupancy.unset') }}
+                  </span>
+                </div>
+              </div>
             </el-form-item>
           </div>
         </section>
@@ -2272,7 +4081,12 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </div>
           </div>
           <div class="period-table-wrap">
-            <div class="period-table" role="table">
+            <div
+              class="period-table"
+              :class="{ 'period-table--en': periodTableEn }"
+              role="table"
+              :style="{ '--period-page-size': PERIOD_PAGE_SIZE }"
+            >
               <div class="period-table__head" role="row">
                 <div class="period-table__cell period-table__cell--index" role="columnheader">#</div>
                 <div class="period-table__cell period-table__cell--type" role="columnheader">
@@ -2365,7 +4179,11 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                     </el-select>
                   </div>
                   <div class="period-table__cell period-table__cell--unit" role="cell">
-                    <el-select v-model="p.dateUnit" style="width: 100%">
+                    <el-select
+                      v-model="p.dateUnit"
+                      style="width: 100%"
+                      @change="onPeriodDurationChange(p, index)"
+                    >
                       <el-option
                         v-for="u in CONTRACT_PERIOD_UNITS"
                         :key="u"
@@ -2380,6 +4198,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       :min="0"
                       :controls="false"
                       style="width: 100%"
+                      @change="onPeriodDurationChange(p, index)"
                     />
                   </div>
                   <div class="period-table__cell period-table__cell--duration" role="cell">
@@ -2392,6 +4211,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       value-format="YYYY-MM-DD"
                       :placeholder="t('contract.fields.periodStart')"
                       style="width: 100%"
+                      @change="onPeriodDatesChange(p, index)"
                     />
                   </div>
                   <div class="period-table__cell period-table__cell--to" role="cell">
@@ -2404,6 +4224,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       value-format="YYYY-MM-DD"
                       :placeholder="t('contract.fields.periodEnd')"
                       style="width: 100%"
+                      @change="onPeriodDatesChange(p, index)"
                     />
                   </div>
                   <div class="period-table__cell period-table__cell--actions" role="cell">
@@ -2415,9 +4236,164 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           </div>
         </section>
 
+        <section class="form-section form-section--loan-items">
+          <div class="period-section-head">
+            <div class="period-section-head__left">
+              <h3>{{ t('contract.sections.loanItems') }}</h3>
+              <el-button
+                type="primary"
+                size="small"
+                plain
+                :icon="Plus"
+                class="period-add-btn"
+                @click="addLoanItem"
+              >
+                {{ t('contract.addLoanItem') }}
+              </el-button>
+            </div>
+            <div v-if="otherFees.length > LOAN_ITEM_PAGE_SIZE" class="period-table-pager">
+              <el-pagination
+                v-model:current-page="loanItemPage"
+                :page-size="LOAN_ITEM_PAGE_SIZE"
+                :total="otherFees.length"
+                layout="total, prev, pager, next"
+                small
+                background
+                class="period-pager"
+              />
+            </div>
+          </div>
+          <div class="period-table-wrap">
+            <div
+              class="period-table loan-item-table"
+              role="table"
+              :style="{ '--period-page-size': LOAN_ITEM_PAGE_SIZE }"
+            >
+              <div class="period-table__head" role="row">
+                <div class="period-table__cell period-table__cell--index" role="columnheader">#</div>
+                <div class="period-table__cell loan-item-table__cell--desc" role="columnheader">
+                  <span class="req">*</span>{{ t('contractOtherFee.fields.description') }}
+                </div>
+                <div class="period-table__cell loan-item-table__cell--qty" role="columnheader">
+                  <span class="req">*</span>{{ t('contractOtherFee.fields.quantity') }}
+                </div>
+                <div class="period-table__cell loan-item-table__cell--unit" role="columnheader">
+                  <span class="req">*</span>{{ t('contractOtherFee.fields.unitAmount') }}
+                </div>
+                <div class="period-table__cell loan-item-table__cell--sub" role="columnheader">
+                  {{ t('contractOtherFee.fields.subtotal') }}
+                </div>
+                <div class="period-table__cell loan-item-table__cell--remark" role="columnheader">
+                  {{ t('contractOtherFee.fields.remark') }}
+                </div>
+                <div class="period-table__cell loan-item-table__cell--actions" role="columnheader"></div>
+              </div>
+              <div
+                class="period-table__body"
+                :class="{ 'period-table__body--fixed': otherFees.length > LOAN_ITEM_PAGE_SIZE }"
+              >
+                <div
+                  v-for="{ row, index } in pagedLoanItems"
+                  :key="row.uid"
+                  class="period-table__row"
+                  role="row"
+                  :class="{
+                    'is-dragging': dragLoanItemUid === row.uid,
+                    'is-drag-over': dragOverLoanItemUid === row.uid,
+                    'is-editing-index': editingLoanItemIndexUid === row.uid,
+                  }"
+                  @dragover="onLoanItemDragOver(row.uid, $event)"
+                  @drop="onLoanItemDrop(row.uid, $event)"
+                  @dragleave="dragOverLoanItemUid === row.uid && (dragOverLoanItemUid = null)"
+                >
+                  <div
+                    class="period-table__cell period-table__cell--index"
+                    :class="{ 'is-editing-index': editingLoanItemIndexUid === row.uid }"
+                    role="cell"
+                  >
+                    <button
+                      type="button"
+                      class="period-row__handle"
+                      draggable="true"
+                      :title="t('contract.dragLoanItem')"
+                      aria-label="drag"
+                      @dragstart="onLoanItemDragStart(row.uid, $event)"
+                      @dragend="onLoanItemDragEnd"
+                    >
+                      <el-icon :size="14"><Rank /></el-icon>
+                    </button>
+                    <input
+                      v-if="editingLoanItemIndexUid === row.uid"
+                      ref="loanItemIndexInputRef"
+                      :value="editingLoanItemIndexDraft"
+                      class="period-row__index-input"
+                      type="text"
+                      inputmode="numeric"
+                      pattern="[0-9]*"
+                      maxlength="4"
+                      :aria-label="t('contract.editLoanItemIndex')"
+                      @input="editingLoanItemIndexDraft = ($event.target as HTMLInputElement).value.replace(/\D/g, '')"
+                      @keydown="onLoanItemIndexKeydown"
+                      @blur="commitEditLoanItemIndex"
+                    />
+                    <button
+                      v-else
+                      type="button"
+                      class="period-row__index"
+                      :title="t('contract.editLoanItemIndexHint')"
+                      @dblclick.stop="startEditLoanItemIndex(row.uid, index)"
+                    >
+                      {{ index + 1 }}
+                    </button>
+                  </div>
+                  <div class="period-table__cell loan-item-table__cell--desc" role="cell">
+                    <el-input
+                      v-model="row.description"
+                      :placeholder="t('contractOtherFee.fields.description')"
+                    />
+                  </div>
+                  <div class="period-table__cell loan-item-table__cell--qty" role="cell">
+                    <el-input-number
+                      v-model="row.quantity"
+                      :min="0"
+                      :precision="2"
+                      controls-position="right"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div class="period-table__cell loan-item-table__cell--unit" role="cell">
+                    <el-input-number
+                      v-model="row.unitAmount"
+                      :min="0"
+                      :precision="2"
+                      controls-position="right"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div class="period-table__cell loan-item-table__cell--sub" role="cell">
+                    {{ formatMoney(loanItemSubtotal(row)) }}
+                  </div>
+                  <div class="period-table__cell loan-item-table__cell--remark" role="cell">
+                    <el-input
+                      v-model="row.remark"
+                      :placeholder="t('contractOtherFee.fields.remark')"
+                    />
+                  </div>
+                  <div class="period-table__cell loan-item-table__cell--actions" role="cell">
+                    <el-button type="danger" link :icon="Delete" @click="removeLoanItem(index)" />
+                  </div>
+                </div>
+                <div v-if="!otherFees.length" class="loan-item-table__empty">
+                  {{ t('contract.loanItemsEmpty') }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="form-section">
           <h3>{{ t('contract.sections.finance') }}</h3>
-          <div class="form-grid">
+          <div class="form-grid form-grid--finance">
             <el-form-item :label="t('contract.fields.monthlyRent')">
               <el-input-number
                 v-model="form.monthlyRent"
@@ -2434,15 +4410,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 :precision="2"
                 controls-position="right"
                 style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.bookingDeposit')">
-              <el-input-number
-                v-model="form.bookingDeposit"
-                :min="0"
-                :precision="2"
-                controls-position="right"
-                style="width: 100%"
+                @change="onRoomDepositUserChange"
               />
             </el-form-item>
             <el-form-item :label="t('contract.fields.miscDeposit')">
@@ -2454,43 +4422,30 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 style="width: 100%"
               />
             </el-form-item>
-            <el-form-item :label="t('contract.fields.doorKeyQty')">
-              <div class="key-deposit-field">
-                <el-input-number
-                  v-model="form.doorKeyQty"
-                  :min="0"
-                  :precision="0"
-                  controls-position="right"
-                  style="width: 100%"
-                />
-                <p class="key-deposit-field__hint">
-                  {{ t('contract.fields.keyDepositHint') }}：
-                  {{ formatMoney(computedDoorKeyDeposit) }}
-                  <span v-if="doorKeyUnitPrice">（{{ formatMoney(doorKeyUnitPrice) }}/把）</span>
-                </p>
-              </div>
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.mailboxKeyQty')">
-              <div class="key-deposit-field">
-                <el-input-number
-                  v-model="form.mailboxKeyQty"
-                  :min="0"
-                  :precision="0"
-                  controls-position="right"
-                  style="width: 100%"
-                />
-                <p class="key-deposit-field__hint">
-                  {{ t('contract.fields.keyDepositHint') }}：
-                  {{ formatMoney(computedMailboxKeyDeposit) }}
-                  <span v-if="mailboxKeyUnitPrice">（{{ formatMoney(mailboxKeyUnitPrice) }}/把）</span>
-                </p>
-              </div>
-            </el-form-item>
             <el-form-item :label="t('contract.fields.electricityRate')">
               <el-input-number
                 v-model="form.electricityRate"
                 :min="0"
-                :precision="4"
+                :precision="2"
+                :step="0.01"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item :label="doorKeyQtyLabel">
+              <el-input-number
+                v-model="form.doorKeyQty"
+                :min="0"
+                :precision="0"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item :label="mailboxKeyQtyLabel">
+              <el-input-number
+                v-model="form.mailboxKeyQty"
+                :min="0"
+                :precision="0"
                 controls-position="right"
                 style="width: 100%"
               />
@@ -2499,8 +4454,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               <el-select
                 v-model="form.paymentCycle"
                 filterable
-                allow-create
-                default-first-option
                 style="width: 100%"
               >
                 <el-option
@@ -2511,21 +4464,92 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 />
               </el-select>
             </el-form-item>
+            <el-form-item>
+              <template #label>
+                <span class="form-label-with-tip">
+                  {{ t('contract.fields.totalDeposit') }}
+                  <el-tooltip
+                    :content="t('contract.fields.totalDepositHint')"
+                    placement="top"
+                  >
+                    <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
+              <div class="total-deposit-field">
+                <span class="total-deposit-field__value">{{ formatMoney(computedTotalDeposit) }}</span>
+              </div>
+            </el-form-item>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h3>{{ t('contract.sections.payment') }}</h3>
+          <div class="form-grid form-grid--finance">
+            <el-form-item :label="t('contract.fields.paymentMethod')">
+              <el-select
+                v-model="form.paymentMethod"
+                filterable
+                clearable
+                :value-on-clear="null"
+                style="width: 100%"
+                :placeholder="t('common.pleaseSelect')"
+              >
+                <el-option
+                  v-for="pm in CONTRACT_PAYMENT_METHODS"
+                  :key="pm"
+                  :label="pm"
+                  :value="pm"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('contract.fields.bookingDeposit')" required>
+              <el-input-number
+                v-model="form.bookingDeposit"
+                :min="0"
+                :precision="2"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item :label="t('contract.fields.paymentDate')">
+              <el-date-picker
+                v-model="form.paymentDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item :label="t('contract.fields.paymentVoucher')" required class="span-3">
+              <AttachmentField v-model="form.paymentVoucher" :disabled="formReadonly" />
+            </el-form-item>
           </div>
         </section>
 
         <section class="form-section">
           <h3>{{ t('contract.sections.extra') }}</h3>
+          <el-alert
+            v-if="formIssueBlockedHint"
+            class="contract-form-issue-alert"
+            type="warning"
+            show-icon
+            :closable="false"
+            :title="t('contract.issueBlockedFormTitle')"
+            :description="
+              t('contract.issueBlockedFormBody', {
+                date: formIssueBlockedHint.secondPeriodStart || '—',
+                days: rentInvoiceLeadDays,
+              })
+            "
+          />
           <el-form-item :label="t('contract.fields.attachment')">
-            <el-input
-              v-model="form.attachment"
-              class="path-input"
-              readonly
-              placeholder="/upload/..."
-            />
+            <AttachmentField v-model="form.attachment" :disabled="formReadonly" />
+            <p v-if="!formReadonly" class="form-hint form-hint--inline">
+              {{ t('contract.issueNowHint') }}
+            </p>
           </el-form-item>
           <el-form-item :label="t('contract.fields.remark')">
-            <el-input v-model="form.remark" type="textarea" :rows="3" />
+            <el-input v-model="form.remark" type="textarea" :rows="2" />
           </el-form-item>
         </section>
 
@@ -2537,18 +4561,35 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           :updated-at="editing.updatedAt"
         />
       </el-form>
+      </div>
       <template #footer>
         <div class="dialog-footer">
           <el-button
             v-if="editing"
             :loading="previewingDraft"
+            :disabled="formSaving"
             @click="onPreviewAgreementDraft"
           >
             {{ t('contract.previewAgreement') }}
           </el-button>
-          <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" class="lb-btn-primary" @click="saveForm">
+          <el-button :disabled="formSaving" @click="formVisible = false">
+            {{ formReadonly ? t('common.close') : t('common.cancel') }}
+          </el-button>
+          <el-button
+            v-if="!formReadonly"
+            :loading="formSaving"
+            @click="saveForm('save')"
+          >
             {{ t('common.save') }}
+          </el-button>
+          <el-button
+            v-if="!formReadonly"
+            type="primary"
+            class="lb-btn-primary"
+            :loading="formSaving"
+            @click="saveForm('issue')"
+          >
+            {{ t('contract.issueNow') }}
           </el-button>
         </div>
       </template>
@@ -2589,7 +4630,133 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   width: min(280px, 42vw);
 }
 
+.issue-blocked-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--el-color-warning-light-5);
+  border-radius: 999px;
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning-dark-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.issue-blocked-chip:hover {
+  background: var(--el-color-warning-light-8);
+  border-color: var(--el-color-warning);
+}
+
+.issue-blocked-pop__lead {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-regular);
+}
+
+.issue-blocked-pop__list {
+  /* 滚动条靠 popover 右缘；列表内容右侧留白，与「开单」拉开 */
+  margin: 0;
+  padding: 0 8px 0 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(320px, 45vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.issue-blocked-pop__foot {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--el-border-color-extra-light);
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
+}
+
+.issue-blocked-pop__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.issue-blocked-pop__meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.issue-blocked-pop__code {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lb-brand, var(--el-color-primary));
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.issue-blocked-pop__date {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.contract-form-issue-alert {
+  margin-bottom: 14px;
+}
+
+.contract-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.contract-status-cell__warn {
+  color: var(--el-color-warning);
+  flex-shrink: 0;
+  cursor: help;
+}
+
 .contract-table--clickable :deep(.el-table__body tr) {
+  cursor: pointer;
+}
+
+.form-hint {
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.form-hint--inline {
+  margin: 6px 0 0;
+}
+
+.contract-form-body.is-readonly {
+  pointer-events: none;
+  user-select: text;
+  opacity: 0.96;
+}
+
+/* 只读时仍允许预览已上传附件 */
+.contract-form-body.is-readonly :deep(.attachment-field__chip) {
+  pointer-events: auto;
   cursor: pointer;
 }
 
@@ -2597,6 +4764,10 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.form-grid--finance {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .path-input :deep(.el-input__inner) {
@@ -2644,9 +4815,37 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   height: 26px;
 }
 
-.form-section--periods {
+.form-section--periods,
+.form-section--loan-items {
   margin-bottom: 14px;
   padding-bottom: 6px;
+}
+
+.loan-item-table.period-table .period-table__head,
+.loan-item-table.period-table .period-table__row {
+  grid-template-columns:
+    52px
+    minmax(140px, 1.6fr)
+    120px
+    120px
+    88px
+    minmax(120px, 1.2fr)
+    40px;
+}
+
+.loan-item-table__empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--lb-muted, #6a7a70);
+  font-size: 0.84rem;
+}
+
+.loan-item-table .period-table__row .loan-item-table__cell--sub {
+  justify-content: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: #3d4f45;
 }
 
 .period-table-wrap {
@@ -2708,8 +4907,19 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 .period-table {
   --period-row-h: 44px;
+  --period-page-size: 5;
+  --period-col-unit: 72px;
+  --period-col-value: 72px;
+  --period-col-duration: 72px;
   display: grid;
   min-width: 780px;
+}
+
+.period-table--en {
+  --period-col-unit: 104px;
+  --period-col-value: 56px;
+  --period-col-duration: 96px;
+  min-width: 820px;
 }
 
 .period-table__head,
@@ -2718,9 +4928,9 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   grid-template-columns:
     52px
     minmax(118px, 1.2fr)
-    72px
-    72px
-    72px
+    var(--period-col-unit)
+    var(--period-col-value)
+    var(--period-col-duration)
     minmax(128px, 1fr)
     28px
     minmax(128px, 1fr)
@@ -2745,8 +4955,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 .period-table__body--fixed {
   box-sizing: border-box;
-  height: calc(var(--period-row-h) * 10);
-  min-height: calc(var(--period-row-h) * 10);
+  height: calc(var(--period-row-h) * var(--period-page-size));
+  min-height: calc(var(--period-row-h) * var(--period-page-size));
   overflow: hidden;
 }
 
@@ -2908,24 +5118,330 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   padding-right: 8px;
 }
 
+/* 右侧增减按钮需额外内边距，避免数字贴边 */
+.period-table__row :deep(.el-input-number.is-controls-right .el-input__wrapper) {
+  padding-right: 36px;
+}
+
 .period-table__row :deep(.el-date-editor.el-input) {
   width: 100%;
 }
 
-.key-deposit-field {
-  width: 100%;
+.form-label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.key-deposit-field__hint {
-  margin: 6px 0 0;
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: var(--lb-muted);
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+}
+
+.total-deposit-field {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #f4f7f5);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
+}
+
+.total-deposit-field__value {
+  font-size: 1.05rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--lb-brand, #0f4a32);
+  line-height: 1.2;
 }
 
 @media (max-width: 640px) {
-  .form-grid {
+  .form-grid,
+  .form-grid--finance {
     grid-template-columns: 1fr;
   }
+}
+
+.occupancy-form-item__sep {
+  margin: 0 4px;
+  color: var(--lb-muted, #6a7a70);
+  font-weight: 500;
+}
+
+.occupancy-combo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  width: 100%;
+}
+
+.occupancy-combo .part-label-picker {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.part-label-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.part-label-picker__empty {
+  font-size: 0.84rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.part-label-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  gap: 5px;
+  min-width: 36px;
+  height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #cfd8d3;
+  color: #4a5c54;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.part-label-chip__letter {
+  font-size: 0.88rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.part-label-chip__tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.part-label-chip:hover:not(:disabled):not(.is-active) {
+  color: var(--lb-brand, #0f4a32);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #cfd8d3);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
+}
+
+.part-label-chip:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px var(--lb-brand, #0f4a32),
+    0 0 0 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, transparent);
+}
+
+.part-label-chip.is-active {
+  background: var(--lb-brand, #0f4a32);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px var(--lb-brand, #0f4a32);
+}
+
+.part-label-chip.is-busy,
+.part-label-chip:disabled {
+  cursor: not-allowed;
+  background: #f1f3f2;
+  color: #9aa39e;
+  box-shadow: inset 0 0 0 1px #d5dcd7;
+  opacity: 1;
+}
+
+.part-label-chip.is-busy .part-label-chip__tag {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+}
+</style>
+
+<!-- popper 挂到 body，需非 scoped；右侧内边距收窄让滚动条靠右边缘 -->
+<style>
+.el-popover.issue-blocked-popper,
+.el-popper.issue-blocked-popper {
+  padding-right: 4px !important;
+}
+
+.el-popover.expiring-soon-edit-popper,
+.el-popper.expiring-soon-edit-popper {
+  padding: 0 !important;
+  border: 1px solid #dce6e0 !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 10px 28px rgba(15, 40, 30, 0.12),
+    0 2px 8px rgba(15, 40, 30, 0.06) !important;
+  /* 勿 overflow:hidden，否则面板内 teleported=false 的下拉会被裁切 */
+  overflow: visible;
+}
+
+.el-popover.expiring-soon-edit-popper .el-popper__arrow::before,
+.el-popper.expiring-soon-edit-popper .el-popper__arrow::before {
+  border: 1px solid #dce6e0 !important;
+  background: #f7faf8 !important;
+}
+
+.expiring-soon-edit-popper .expiring-edit {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.expiring-soon-edit-popper .expiring-edit__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  background: linear-gradient(180deg, #f7faf8 0%, #fff 100%);
+  border-bottom: 1px solid #e8efe9;
+  border-radius: 14px 14px 0 0;
+}
+
+.expiring-soon-edit-popper .expiring-edit__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  color: #0f4a32;
+  background: color-mix(in srgb, #0f4a32 12%, #fff);
+}
+
+.expiring-soon-edit-popper .expiring-edit__head-text {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: #16362a;
+}
+
+.expiring-soon-edit-popper .expiring-edit__desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6b7c74;
+}
+
+.expiring-soon-edit-popper .expiring-edit__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e6eee9;
+  border-radius: 10px;
+  background: #fbfcfb;
+}
+
+.expiring-soon-edit-popper .expiring-edit__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #4a5c54;
+}
+
+.expiring-soon-edit-popper .expiring-edit__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__amount {
+  width: 128px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__unit {
+  width: 108px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__mode {
+  display: flex;
+  width: 100%;
+}
+
+.expiring-soon-edit-popper .expiring-edit__mode .el-radio-button {
+  flex: 1 1 0;
+}
+
+.expiring-soon-edit-popper .expiring-edit__mode .el-radio-button__inner {
+  width: 100%;
+  padding: 8px 6px;
+  border-color: #d7ded9 !important;
+  color: #4a5c54;
+  font-weight: 600;
+  box-shadow: none !important;
+}
+
+.expiring-soon-edit-popper .expiring-edit__mode .el-radio-button:first-child .el-radio-button__inner {
+  border-radius: 8px 0 0 8px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__mode .el-radio-button:last-child .el-radio-button__inner {
+  border-radius: 0 8px 8px 0;
+}
+
+.expiring-soon-edit-popper
+  .expiring-edit__mode
+  .el-radio-button__original-radio:checked
+  + .el-radio-button__inner {
+  background: #0f4a32 !important;
+  border-color: #0f4a32 !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
+.expiring-soon-edit-popper .expiring-edit__statuses {
+  width: 100%;
+}
+
+.expiring-soon-edit-popper .expiring-edit__statuses .el-select__wrapper {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+/* 下拉挂在面板内，避免选完选项被当成 outside 而关面板 */
+.expiring-soon-edit-popper .el-select-dropdown {
+  z-index: 10;
+}
+
+.expiring-soon-edit-popper .expiring-edit__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid #e8efe9;
+  background: #fafbfa;
+  border-radius: 0 0 14px 14px;
+}
+
+.expiring-soon-edit-popper .expiring-edit__actions .el-button {
+  border-radius: 8px;
+  min-width: 72px;
 }
 </style>

@@ -27,6 +27,8 @@ import { ReceivablesModule } from './receivables/receivables.module';
 import { ReceiptsModule } from './receipts/receipts.module';
 import { DocumentTemplatesModule } from './document-templates/document-templates.module';
 import { NumberingRulesModule } from './numbering-rules/numbering-rules.module';
+import { SystemSettingsModule } from './system-settings/system-settings.module';
+import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { UploadsModule } from './uploads/uploads.module';
 
@@ -60,6 +62,8 @@ import { UploadsModule } from './uploads/uploads.module';
     ReceiptsModule,
     DocumentTemplatesModule,
     NumberingRulesModule,
+    SystemSettingsModule,
+    ScheduledJobsModule,
     RolesModule,
     MenusModule,
   ],

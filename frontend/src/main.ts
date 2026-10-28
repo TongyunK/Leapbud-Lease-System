@@ -6,6 +6,7 @@ import App from './App.vue'
 import router from './router'
 import { i18n, LOCALE_KEY } from './i18n'
 import { vAdminGlow } from './directives/adminGlow'
+import { setupDialogContentFullscreen } from './utils/dialogContentFullscreen'
 import './style.css'
 
 document.documentElement.lang = localStorage.getItem(LOCALE_KEY) || 'zh-TW'
@@ -59,3 +60,4 @@ app.use(i18n)
 app.directive('admin-glow', vAdminGlow)
 
 app.mount('#app')
+setupDialogContentFullscreen()

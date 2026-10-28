@@ -16,7 +16,9 @@ export const CONTRACT_IO_FIELD_KEYS = [
   'monthlyRent',
   'roomDeposit',
   'bookingDeposit',
+  'paymentDate',
   'paymentCycle',
+  'paymentMethod',
   'electricityRate',
   'miscDeposit',
   'doorKeyQty',
@@ -59,8 +61,10 @@ const HEADER_ALIASES: Record<ContractIoFieldKey, string[]> = {
   status: ['狀態', '状态', 'Status'],
   monthlyRent: ['租金/月', '月租'],
   roomDeposit: ['房間按金', '房间按金'],
-  bookingDeposit: ['訂金', '订金'],
+  bookingDeposit: ['已收訂金', '已收订金', '訂金', '订金'],
+  paymentDate: ['收款日期'],
   paymentCycle: ['繳費周期', '缴费周期'],
+  paymentMethod: ['收款方式'],
   electricityRate: ['電費/度', '电费/度'],
   miscDeposit: ['雜項按金', '杂项按金'],
   doorKeyQty: ['房門匙數量', '房门匙数量'],
@@ -118,7 +122,9 @@ export function contractToIoRow(
     [h('monthlyRent')]: o.monthlyRent ?? '',
     [h('roomDeposit')]: o.roomDeposit ?? '',
     [h('bookingDeposit')]: o.bookingDeposit ?? '',
+    [h('paymentDate')]: o.paymentDate || '',
     [h('paymentCycle')]: o.paymentCycle || '',
+    [h('paymentMethod')]: o.paymentMethod || '',
     [h('electricityRate')]: o.electricityRate ?? '',
     [h('miscDeposit')]: o.miscDeposit ?? '',
     [h('doorKeyQty')]: o.doorKeyQty ?? 0,
@@ -152,7 +158,9 @@ export function contractIoTemplateExampleRow(t: Translate): Record<string, strin
     [h('monthlyRent')]: 12000,
     [h('roomDeposit')]: 24000,
     [h('bookingDeposit')]: '',
-    [h('paymentCycle')]: '月繳',
+    [h('paymentDate')]: '',
+    [h('paymentCycle')]: '月繳-1',
+    [h('paymentMethod')]: '轉數快',
     [h('electricityRate')]: '',
     [h('miscDeposit')]: '',
     [h('doorKeyQty')]: 1,
@@ -204,7 +212,9 @@ export type ContractIoPayload = {
   monthlyRent: number | null
   roomDeposit: number | null
   bookingDeposit: number | null
+  paymentDate: string
   paymentCycle: string
+  paymentMethod: string
   electricityRate: number | null
   miscDeposit: number | null
   doorKeyQty: number
@@ -249,7 +259,9 @@ export function rowToContractIoPayload(
     monthlyRent: parseNum(pickContractIoValue(row, 'monthlyRent', t)),
     roomDeposit: parseNum(pickContractIoValue(row, 'roomDeposit', t)),
     bookingDeposit: parseNum(pickContractIoValue(row, 'bookingDeposit', t)),
+    paymentDate: normalizeDateCell(pickContractIoValue(row, 'paymentDate', t)),
     paymentCycle: pickContractIoValue(row, 'paymentCycle', t),
+    paymentMethod: pickContractIoValue(row, 'paymentMethod', t),
     electricityRate: parseNum(pickContractIoValue(row, 'electricityRate', t)),
     miscDeposit: parseNum(pickContractIoValue(row, 'miscDeposit', t)),
     doorKeyQty: Math.max(0, Math.floor(Number(doorRaw || 0) || 0)),
@@ -277,7 +289,9 @@ export type ContractImportApiItem = {
   monthlyRent?: number | null
   roomDeposit?: number | null
   bookingDeposit?: number | null
+  paymentDate?: string | null
   paymentCycle?: string
+  paymentMethod?: string
   electricityRate?: number | null
   miscDeposit?: number | null
   doorKeyQty?: number
@@ -304,7 +318,9 @@ export function contractIoPayloadToImportItem(p: ContractIoPayload): ContractImp
     monthlyRent: p.monthlyRent,
     roomDeposit: p.roomDeposit,
     bookingDeposit: p.bookingDeposit,
+    paymentDate: p.paymentDate || null,
     paymentCycle: p.paymentCycle || undefined,
+    paymentMethod: p.paymentMethod || undefined,
     electricityRate: p.electricityRate,
     miscDeposit: p.miscDeposit,
     doorKeyQty: p.doorKeyQty,

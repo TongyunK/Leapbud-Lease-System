@@ -1,5 +1,12 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isSuperAdminRole } from '../common/actor-role';
 import {
   DEFAULT_USER_PERMISSION_CODES,
   PERMISSION_CATALOG,
@@ -25,7 +32,12 @@ export class PermissionsService implements OnModuleInit {
     }
   }
 
-  /** 将代码目录同步到 DB；admin 补齐全部；user 仅首次补齐默认项 */
+  /**
+   * 将代码目录同步到 DB。
+   * - superAdmin：运行时视为全权限，不依赖本表补齐
+   * - admin：须由超级管理员在角色管理中授予，启动时不自动灌入全部
+   * - user：仅补齐默认项（skipDuplicates，不覆盖已关掉的）
+   */
   async syncCatalog() {
     for (const def of PERMISSION_CATALOG) {
       await this.prisma.permission.upsert({
@@ -49,21 +61,12 @@ export class PermissionsService implements OnModuleInit {
     const all = await this.prisma.permission.findMany({ select: { id: true, code: true } });
     const byCode = new Map(all.map((p) => [p.code, p.id]));
 
-    const admin = await this.prisma.role.findUnique({ where: { code: 'admin' } });
-    if (admin) {
-      await this.prisma.rolePermission.createMany({
-        data: all.map((p) => ({ roleId: admin.id, permissionId: p.id })),
-        skipDuplicates: true,
-      });
-    }
-
     const user = await this.prisma.role.findUnique({ where: { code: 'user' } });
     if (user) {
       const ids = DEFAULT_USER_PERMISSION_CODES.map((c) => byCode.get(c)).filter(
         (id): id is string => Boolean(id),
       );
       if (ids.length) {
-        // 仅补齐缺省项，不覆盖管理员在角色里手动关掉的权限之外的新增模块默认项
         await this.prisma.rolePermission.createMany({
           data: ids.map((permissionId) => ({ roleId: user.id, permissionId })),
           skipDuplicates: true,
@@ -82,8 +85,8 @@ export class PermissionsService implements OnModuleInit {
   }
 
   /**
-   * 当前没有任何「非 admin」角色被授予的权限码。
-   * 用于前端 admin 视角：仅管理员可点的功能按钮加发光描边。
+   * 当前没有任何「非 superAdmin」角色被授予的权限码（含 admin 也未授予）。
+   * 用于前端超级管理员视角：仅超管可点的功能按钮加发光描边。
    */
   async getAdminExclusiveCodes(): Promise<string[]> {
     const cached = this.adminExclusiveCache;
@@ -94,7 +97,12 @@ export class PermissionsService implements OnModuleInit {
     const exclusive = await this.prisma.permission.findMany({
       where: {
         rolePermissions: {
-          none: { role: { code: { not: 'admin' } } },
+          none: {
+            role: {
+              // superAdmin 权限不依赖绑定表；任一其它角色有绑定则不算独占
+              code: { notIn: ['superAdmin'] },
+            },
+          },
         },
       },
       select: { code: true },
@@ -105,12 +113,12 @@ export class PermissionsService implements OnModuleInit {
     return codes;
   }
 
-  /** admin 视为拥有目录内全部权限 */
+  /** 仅 superAdmin 视为拥有目录内全部权限；admin / 其他角色读角色权限表 */
   async getCodesForRole(roleCode: string): Promise<string[]> {
     const code = (roleCode || '').trim();
     if (!code) return [];
 
-    if (code === 'admin') {
+    if (isSuperAdminRole(code)) {
       return PERMISSION_CATALOG.map((p) => p.code);
     }
 
@@ -139,8 +147,16 @@ export class PermissionsService implements OnModuleInit {
     return this.getCodesForRole(user.role);
   }
 
-  catalogGrouped() {
-    const byModule = new Map<string, { module: string; moduleName: string; items: typeof PERMISSION_CATALOG }>();
+  /**
+   * 权限目录（按模块分组）。
+   * @param allowedCodes 若传入，仅返回这些码（空模块省略）；用于管理员视角：只看到自身已有权限
+   */
+  catalogGrouped(allowedCodes?: string[] | null) {
+    const allow = allowedCodes ? new Set(allowedCodes) : null;
+    const byModule = new Map<
+      string,
+      { module: string; moduleName: string; items: typeof PERMISSION_CATALOG }
+    >();
     for (const m of PERMISSION_MODULES) {
       byModule.set(m.module, {
         module: m.module,
@@ -149,10 +165,11 @@ export class PermissionsService implements OnModuleInit {
       });
     }
     for (const p of PERMISSION_CATALOG) {
+      if (allow && !allow.has(p.code)) continue;
       const g = byModule.get(p.module);
       if (g) g.items.push(p);
     }
-    return [...byModule.values()];
+    return [...byModule.values()].filter((g) => g.items.length > 0);
   }
 
   async listAll() {
@@ -170,15 +187,48 @@ export class PermissionsService implements OnModuleInit {
       },
     });
     if (!role) throw new NotFoundException(`Role ${roleId} not found`);
-    if (role.code === 'admin') return PERMISSION_CATALOG.map((p) => p.code);
+    // 仅 superAdmin：视为拥有目录内全部权限（不依赖绑定表）
+    if (isSuperAdminRole(role.code)) {
+      return PERMISSION_CATALOG.map((p) => p.code);
+    }
     return role.rolePermissions.map((rp) => rp.permission.code);
   }
 
-  async assignCodesByRoleId(roleId: string, codes: string[]) {
+  /**
+   * 分配角色功能权限。
+   * - 不可改 superAdmin（始终全权限）
+   * - 改 admin 角色：仅超级管理员可操作
+   * - 非超级管理员：只能勾选自身已有权限；目标角色上「操作者没有」的权限码原样保留（避免误清）
+   */
+  async assignCodesByRoleId(roleId: string, codes: string[], actorRole?: string | null) {
     const role = await this.prisma.role.findUnique({ where: { id: roleId } });
     if (!role) throw new NotFoundException(`Role ${roleId} not found`);
 
-    const unique = [...new Set((codes ?? []).map((c) => c.trim()).filter(Boolean))];
+    if (isSuperAdminRole(role.code)) {
+      throw new ForbiddenException('超级管理员角色默认拥有全部功能权限，无需配置');
+    }
+    if (role.code === 'admin' && !isSuperAdminRole(actorRole)) {
+      throw new ForbiddenException('仅超级管理员可为管理员角色配置功能权限');
+    }
+
+    let unique = [...new Set((codes ?? []).map((c) => c.trim()).filter(Boolean))];
+
+    if (!isSuperAdminRole(actorRole)) {
+      const actorCodes = new Set(await this.getCodesForRole((actorRole || '').trim()));
+      const beyond = unique.filter((c) => !actorCodes.has(c));
+      if (beyond.length) {
+        throw new ForbiddenException('只能分配自身已有的功能权限');
+      }
+      const existingRows = await this.prisma.rolePermission.findMany({
+        where: { roleId },
+        select: { permission: { select: { code: true } } },
+      });
+      const preserved = existingRows
+        .map((rp) => rp.permission.code)
+        .filter((c) => !actorCodes.has(c));
+      unique = [...new Set([...preserved, ...unique])];
+    }
+
     const perms = await this.prisma.permission.findMany({
       where: { code: { in: unique } },
       select: { id: true, code: true },

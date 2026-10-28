@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -10,6 +10,50 @@ import type {
   RoomStatus,
 } from '@/types/room'
 import { roomStatusTone, type StatusTone } from '@/constants/statusBadges'
+
+/** 全局仅保留一个份位汽包；点外关闭，但忽略汽包自身与左侧合约抽屉（避免抢焦点卡顿） */
+let dismissActiveSplitPopover: (() => void) | null = null
+let splitPopoverOutsideBound = false
+
+function shouldIgnoreSplitPopoverOutside(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return true
+  if (target.closest('.room-occ-popper')) return true
+  if (target.closest('.occ-trigger')) return true
+  if (target.closest('.el-drawer')) return true
+  if (target.closest('.el-message-box')) return true
+  if (target.closest('.el-dialog')) return true
+  const overlay = target.closest('.el-overlay')
+  if (overlay?.querySelector('.el-drawer, .el-dialog, .el-message-box')) return true
+  return false
+}
+
+function onSplitPopoverDocPointerDown(e: PointerEvent) {
+  if (shouldIgnoreSplitPopoverOutside(e.target)) return
+  dismissActiveSplitPopover?.()
+}
+
+function onSplitPopoverDocKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  dismissActiveSplitPopover?.()
+}
+
+function bindSplitPopoverOutsideClose() {
+  if (splitPopoverOutsideBound) return
+  splitPopoverOutsideBound = true
+  // 错开打开当次点击，避免刚打开就被关掉
+  requestAnimationFrame(() => {
+    if (!splitPopoverOutsideBound) return
+    document.addEventListener('pointerdown', onSplitPopoverDocPointerDown, true)
+    document.addEventListener('keydown', onSplitPopoverDocKeydown, true)
+  })
+}
+
+function unbindSplitPopoverOutsideClose() {
+  if (!splitPopoverOutsideBound) return
+  splitPopoverOutsideBound = false
+  document.removeEventListener('pointerdown', onSplitPopoverDocPointerDown, true)
+  document.removeEventListener('keydown', onSplitPopoverDocKeydown, true)
+}
 
 const props = withDefaults(
   defineProps<{
@@ -32,6 +76,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+/** manual：点份额开抽屉不会因点外/失焦关掉，避免与抽屉抢焦点造成卡顿 */
 const popoverVisible = ref(false)
 
 const summary = computed(() => props.occupancy?.summary || 'idle')
@@ -96,9 +141,27 @@ function slotStatusLabel(slot: RoomOccupancySlot) {
   return t(`room.status.${slotRoomStatus(slot)}`)
 }
 
+function toggleSplitPopover() {
+  if (popoverVisible.value) {
+    dismissActiveSplitPopover?.()
+    return
+  }
+  dismissActiveSplitPopover?.()
+  popoverVisible.value = true
+  dismissActiveSplitPopover = () => {
+    popoverVisible.value = false
+    dismissActiveSplitPopover = null
+    unbindSplitPopoverOutsideClose()
+  }
+  bindSplitPopoverOutsideClose()
+}
+
+onBeforeUnmount(() => {
+  if (popoverVisible.value) dismissActiveSplitPopover?.()
+})
+
 function openContract(contractId?: string | null) {
   if (!contractId) return
-  popoverVisible.value = false
   emit('openContract', contractId)
 }
 
@@ -184,15 +247,20 @@ function onSlotKeydown(slot: RoomOccupancySlot, e: KeyboardEvent) {
     <!-- 分租 · 列表：点击查看份位，再点已租行开合约 -->
     <el-popover
       v-else
-      v-model:visible="popoverVisible"
+      :visible="popoverVisible"
       placement="bottom-start"
       :width="320"
-      trigger="click"
+      trigger="manual"
       :show-arrow="true"
       popper-class="room-occ-popper"
     >
       <template #reference>
-        <button type="button" class="occ-trigger" :title="t('room.occupancy.splitHint')">
+        <button
+          type="button"
+          class="occ-trigger"
+          :title="t('room.occupancy.splitHint')"
+          @click.stop="toggleSplitPopover"
+        >
           <StatusBadge :tone="badge.tone" :label="badge.label" />
           <span class="occ-trigger__meta">
             <span class="occ-trigger__ratio">{{ occupiedCount }}/{{ totalCount }}</span>

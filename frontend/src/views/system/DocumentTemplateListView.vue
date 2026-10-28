@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('documentTemplates')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Document, Plus } from '@element-plus/icons-vue'
+import { Document, Plus, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   batchDeleteDocumentTemplatesApi,
@@ -730,39 +730,53 @@ function onClearFilters() {
             accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             @change="onPickFile"
           />
-          <div v-if="hasTemplateFile()" class="file-chip-wrap">
+          <div class="template-upload">
             <button
+              v-if="!hasTemplateFile()"
               type="button"
-              class="file-chip"
-              :class="{
-                'file-chip--clickable': canPreviewFile(),
-                'file-chip--pending': Boolean(uploadFile),
-              }"
-              :title="
-                canPreviewFile()
-                  ? t('building.templatePreviewHint')
-                  : uploadFile
-                    ? t('building.templatePreviewNeedSave')
-                    : undefined
-              "
-              @click="onPreviewFile"
+              class="template-upload__trigger"
+              @click="triggerPickFile"
             >
-              <span class="file-chip-icon file-chip-icon--docx">W</span>
-              <span class="file-chip-name">{{ fileDisplayName() }}</span>
+              <el-icon class="template-upload__cloud" :size="18">
+                <UploadFilled />
+              </el-icon>
+              <span class="template-upload__text">{{ t('attachment.upload') }}</span>
+              <span class="template-upload__count">
+                {{ t('attachment.count', { current: 0, max: 1 }) }}
+              </span>
             </button>
-            <button
-              type="button"
-              class="file-chip-remove"
-              :title="t('common.delete')"
-              @click="clearPickedFile"
-            >
-              ×
-            </button>
+            <div v-if="hasTemplateFile()" class="file-chip-wrap">
+              <button
+                type="button"
+                class="file-chip"
+                :class="{
+                  'file-chip--clickable': canPreviewFile(),
+                  'file-chip--pending': Boolean(uploadFile),
+                }"
+                :title="
+                  canPreviewFile()
+                    ? t('building.templatePreviewHint')
+                    : uploadFile
+                      ? t('building.templatePreviewNeedSave')
+                      : undefined
+                "
+                @click="onPreviewFile"
+              >
+                <span class="file-chip-icon file-chip-icon--docx">W</span>
+                <span class="file-chip-name">{{ fileDisplayName() }}</span>
+              </button>
+              <button
+                type="button"
+                class="file-chip-remove"
+                :title="t('common.delete')"
+                @click="clearPickedFile"
+              >
+                ×
+              </button>
+            </div>
+            <p v-else class="template-upload__empty">{{ t('attachment.empty') }}</p>
+            <p class="template-file-note">{{ t('documentTemplate.docxOnly') }}</p>
           </div>
-          <el-button v-else @click="triggerPickFile">
-            {{ t('building.chooseTemplateFile') }}
-          </el-button>
-          <p class="template-file-note">{{ t('documentTemplate.docxOnly') }}</p>
         </el-form-item>
         <el-form-item :label="t('documentTemplate.fields.enabled')">
           <el-switch v-model="form.enabled" />
@@ -863,8 +877,51 @@ function onClearFilters() {
 .template-file-input {
   display: none;
 }
+.template-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.template-upload__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #3a7bd5;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.template-upload__trigger:hover .template-upload__text {
+  text-decoration: underline;
+}
+.template-upload__cloud {
+  flex: 0 0 auto;
+  color: #3a7bd5;
+}
+.template-upload__text {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.template-upload__count {
+  font-weight: 550;
+  text-decoration: none;
+}
+.template-upload__empty {
+  margin: 0;
+  color: #8a9690;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
 .template-file-note {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 12px;
   line-height: 1.4;
   color: var(--el-text-color-placeholder);

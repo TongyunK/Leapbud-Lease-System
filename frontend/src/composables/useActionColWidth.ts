@@ -1,18 +1,56 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 /** 与 .action-pill 一致：左右 14 + border 1*2 */
 const PILL_PAD_BORDER = 30
 const PILL_GAP = 6
-/** 与 td.col-actions > .cell 左右各 10px 一致 */
-const CELL_PAD = 20
-/** 余量：字重/字体回退与 canvas 实测偏差，避免右侧被裁切 */
-const WIDTH_SLACK = 10
+/** 与 td.col-actions > .cell 左侧 10px 一致 */
+const CELL_PAD_LEFT = 10
+/** 常规右侧留白，与 style.css col-actions padding-right 一致 */
+const CELL_PAD_RIGHT = 4
+/**
+ * 14 寸及更窄（≤1439px，含 1366 与 150% 缩放下的 1280）。
+ * 与 style.css 中 col-actions 的 padding-right 同步。
+ */
+const COMPACT_ACTION_QUERY = '(max-width: 1439.98px)'
+const CELL_PAD_RIGHT_COMPACT = 2
+/** 余量：字体回退与 canvas 实测偏差；测宽已贴近 650 字重，不宜再大 */
+const WIDTH_SLACK = 2
+/** 窄屏按钮更靠近列右缘，仅留测量误差 */
+const WIDTH_SLACK_COMPACT = 1
+/** 字号档位变化时重测（与 .admin-page 的 --lb-table-action 断点一致） */
+const ACTION_FONT_QUERIES = [
+  '(max-width: 1279.98px)',
+  COMPACT_ACTION_QUERY,
+  '(min-width: 1800px)',
+]
 
 /** 无 DOM 时的回退：CJK 1em，拉丁约 0.5em（原先 0.58 偏宽） */
 const FALLBACK_FONT_PX = 12.5
 
 let measureCtx: CanvasRenderingContext2D | null | undefined
+/** 断点或首帧挂载后递增，让列宽 computed 重测 */
+const actionLayoutEpoch = ref(0)
+let actionLayoutWatching = false
+
+function ensureActionLayoutWatch() {
+  if (typeof window === 'undefined' || actionLayoutWatching) return
+  actionLayoutWatching = true
+  const bump = () => {
+    actionLayoutEpoch.value += 1
+  }
+  for (const query of ACTION_FONT_QUERIES) {
+    window.matchMedia(query).addEventListener('change', bump)
+  }
+  // setup 阶段 .admin-page 可能尚未挂载，首帧后再按真实字号测一次
+  queueMicrotask(() => {
+    requestAnimationFrame(bump)
+  })
+}
+
+function isCompactActionViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia(COMPACT_ACTION_QUERY).matches
+}
 
 function getMeasureCtx(): CanvasRenderingContext2D | null {
   if (measureCtx !== undefined) return measureCtx
@@ -25,15 +63,27 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
   return measureCtx
 }
 
+function resolveActionFontSizePx(): number {
+  const host = document.querySelector('.admin-page') ?? document.documentElement
+  const raw = getComputedStyle(host).getPropertyValue('--lb-table-action').trim() || '0.78rem'
+  if (raw.endsWith('px')) return parseFloat(raw) || 12.5
+  if (raw.endsWith('rem')) {
+    const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    return (parseFloat(raw) || 0.78) * rootPx
+  }
+  if (raw.endsWith('em')) {
+    const basePx = parseFloat(getComputedStyle(host).fontSize) || 16
+    return (parseFloat(raw) || 0.78) * basePx
+  }
+  return 12.5
+}
+
 function resolveActionFont(): string {
-  const root = document.documentElement
-  const styles = getComputedStyle(root)
-  const size = styles.getPropertyValue('--lb-table-action').trim() || '0.78rem'
   const family =
     getComputedStyle(document.body).fontFamily ||
     'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif'
-  // 与 .action-pill 字重接近；略偏粗避免低估
-  return `bold ${size} ${family}`
+  // 与 .action-pill 的 font-weight: 650 对齐；用 px，避免 canvas 不解析 rem
+  return `650 ${resolveActionFontSizePx()}px ${family}`
 }
 
 function estimateTextWidth(text: string): number {
@@ -51,17 +101,22 @@ function estimateTextWidth(text: string): number {
 }
 
 function estimatePillWidth(label: string): number {
-  return Math.ceil(estimateTextWidth(label) + PILL_PAD_BORDER)
+  return estimateTextWidth(label) + PILL_PAD_BORDER
 }
 
 /** 按实际按钮文案估算操作列宽（刚好容纳、不换行） */
 export function measureActionColWidth(labels: string[]): number {
-  if (!labels.length) return CELL_PAD
+  ensureActionLayoutWatch()
+  void actionLayoutEpoch.value
+  const rightPad = isCompactActionViewport() ? CELL_PAD_RIGHT_COMPACT : CELL_PAD_RIGHT
+  const slack = isCompactActionViewport() ? WIDTH_SLACK_COMPACT : WIDTH_SLACK
+  if (!labels.length) return CELL_PAD_LEFT + rightPad + slack
   const pills = labels.reduce(
     (sum, label, i) => sum + estimatePillWidth(label) + (i > 0 ? PILL_GAP : 0),
     0,
   )
-  return pills + CELL_PAD + WIDTH_SLACK
+  // 只在总和上取整，避免多按钮时每个 ceil 把右侧空隙叠宽
+  return Math.ceil(pills + CELL_PAD_LEFT + rightPad + slack)
 }
 
 /**

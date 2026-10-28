@@ -7,9 +7,20 @@ import {
 import { Prisma, RoomLeaseCapability, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildingAccessService } from '../building-access/building-access.service';
-import { CreateContractDto, ContractPeriodInputDto, UpdateContractDto, ImportContractsDto } from './dto/contract.dto';
+import {
+  CreateContractDto,
+  ContractOtherFeeInputDto,
+  ContractPeriodInputDto,
+  UpdateContractDto,
+  ImportContractsDto,
+  OpenContractOrderDto,
+} from './dto/contract.dto';
 import { contractInclude, toContractDto } from './contract.mapper';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
+import { ReceiptsService } from '../receipts/receipts.service';
+import { InvoiceAutoService } from '../invoices/invoice-auto.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
+import type { ContractExpiringSoonConfig } from '../system-settings/system-settings.constants';
 import { userWhereActorLabels } from '../common/audit';
 import {
   dateRangeFilter,
@@ -29,14 +40,36 @@ import {
   normalizeOccupancyMode,
   normalizeSplitLabels,
 } from '../common/room-lease';
+import {
+  formatDateYmd,
+  listBillingPeriods,
+  parsePaymentCycleMonths,
+  rentBillingStartDate,
+} from '../common/billing-period';
+import { isSuperAdminRole } from '../common/actor-role';
+
+/** 仍属签约流程、尚未开单为「租賃中」的状态（含历史归并态） */
+const SIGNING_STATUSES_FOR_ISSUE_ALERT = ['簽約中', '已簽約', '草稿', '交吉中'] as const;
+
+export type IssueBlockedAlertItem = {
+  id: string;
+  contractCode: string;
+  secondPeriodStart: string;
+  /** 距第 2 期开始的天数；负数表示已过开始日（越紧急越小） */
+  daysUntilSecond: number;
+  roomCode: string;
+  customerName: string;
+};
+
+export type IssueBlockedAlertResult = {
+  leadDays: number;
+  total: number;
+  items: IssueBlockedAlertItem[];
+};
 
 const ALLOWED_STATUSES = new Set([
-  '草稿',
   '簽約中',
-  '已簽約',
-  '交吉中',
   '租賃中',
-  '已完成',
   '退租中',
   '已退租',
   '已取消',
@@ -44,20 +77,21 @@ const ALLOWED_STATUSES = new Set([
 ]);
 
 const STATUS_ALIASES: Record<string, string> = {
-  草稿: '草稿',
-  draft: '草稿',
+  // 已下线状态写入时归并到现行状态
+  草稿: '簽約中',
+  draft: '簽約中',
+  已簽約: '簽約中',
+  已签约: '簽約中',
+  signed: '簽約中',
+  交吉中: '簽約中',
+  已完成: '已退租',
+  completed: '已退租',
   簽約中: '簽約中',
   签约中: '簽約中',
   signing: '簽約中',
-  已簽約: '已簽約',
-  已签约: '已簽約',
-  signed: '已簽約',
-  交吉中: '交吉中',
   租賃中: '租賃中',
   租赁中: '租賃中',
   leased: '租賃中',
-  已完成: '已完成',
-  completed: '已完成',
   退租中: '退租中',
   terminating: '退租中',
   已退租: '已退租',
@@ -83,7 +117,7 @@ const PERIOD_UNIT_ALIASES: Record<string, string> = {
   days: '日',
 };
 
-/** 合约状态 → 房间状态（保存时同步） */
+/** 合约状态 → 房间状态（保存时同步；含历史状态以便占用聚合） */
 const ROOM_STATUS_BY_CONTRACT: Record<string, RoomStatus> = {
   草稿: RoomStatus.idle,
   簽約中: RoomStatus.signing,
@@ -120,13 +154,96 @@ function numOrNull(v: number | null | undefined): number | null {
   return Number(v);
 }
 
+function decimalField(v: number, field: string): Prisma.Decimal {
+  const n = Number(v);
+  if (Number.isNaN(n)) throw new BadRequestException(`${field} must be a number`);
+  return new Prisma.Decimal(n);
+}
+
+function feeSubtotal(
+  quantity: Prisma.Decimal,
+  unitAmount: Prisma.Decimal,
+  subtotal?: number | null,
+): Prisma.Decimal {
+  if (subtotal != null && !Number.isNaN(Number(subtotal))) {
+    return decimalField(subtotal, 'subtotal');
+  }
+  return new Prisma.Decimal(Number(quantity.toString()) * Number(unitAmount.toString()));
+}
+
 @Injectable()
 export class ContractsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractConfigs: ContractConfigsService,
     private readonly access: BuildingAccessService,
+    private readonly receipts: ReceiptsService,
+    private readonly invoiceAuto: InvoiceAutoService,
+    private readonly systemSettings: SystemSettingsService,
   ) {}
+
+  /**
+   * 紧急待开单：签约中且已进入第 2 缴费期提前窗的合约（不受列表分页限制）。
+   * 按第 2 期开始日升序（越早 / 越过期越紧急）。受当前大厦筛选与权限约束。
+   */
+  async listIssueBlockedAlerts(): Promise<IssueBlockedAlertResult> {
+    const leadDays = await this.systemSettings.getRentInvoiceLeadDays();
+    const where: Prisma.ContractWhereInput = {
+      status: { in: [...SIGNING_STATUSES_FOR_ISSUE_ALERT] },
+      startDate: { not: null },
+      endDate: { not: null },
+    };
+    await this.access.constrain(where, 'viaRoom');
+
+    const rows = await this.prisma.contract.findMany({
+      where,
+      select: {
+        id: true,
+        contractCode: true,
+        startDate: true,
+        endDate: true,
+        paymentCycle: true,
+        room: { select: { roomCode: true } },
+        customer: { select: { name: true } },
+        periods: {
+          select: { dateType: true, startDate: true, endDate: true, sortOrder: true },
+          orderBy: [{ sortOrder: 'asc' }, { startDate: 'asc' }],
+        },
+      },
+    });
+
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const items: IssueBlockedAlertItem[] = [];
+
+    for (const c of rows) {
+      const billingStart = rentBillingStartDate(c.startDate, c.periods);
+      const months = parsePaymentCycleMonths(c.paymentCycle);
+      const periods = listBillingPeriods(billingStart, c.endDate, months);
+      const second = periods[1];
+      if (!second) continue;
+      const windowOpen = new Date(second.start.getTime() - leadDays * 24 * 60 * 60 * 1000);
+      if (today.getTime() < windowOpen.getTime()) continue;
+      const daysUntilSecond = Math.round(
+        (second.start.getTime() - today.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      items.push({
+        id: c.id,
+        contractCode: c.contractCode,
+        secondPeriodStart: formatDateYmd(second.start),
+        daysUntilSecond,
+        roomCode: c.room?.roomCode || '',
+        customerName: c.customer?.name || '',
+      });
+    }
+
+    items.sort((a, b) => {
+      if (a.daysUntilSecond !== b.daysUntilSecond) return a.daysUntilSecond - b.daysUntilSecond;
+      return a.contractCode.localeCompare(b.contractCode, 'zh-Hant');
+    });
+
+    return { leadDays, total: items.length, items };
+  }
 
   /** 按大厦聚合合约数量（一次 GROUP BY，供筛选下拉展示） */
   async countByBuilding(): Promise<Array<{ buildingId: string; count: number }>> {
@@ -146,6 +263,83 @@ export class ContractsService {
       }));
   }
 
+  /** 按占用方式统计（受大厦范围约束；空/非 part 计为整租） */
+  async countByOccupancyMode(): Promise<{ all: number; whole: number; part: number }> {
+    const where: Prisma.ContractWhereInput = {};
+    await this.access.constrain(where, 'viaRoom');
+    const rows = await this.prisma.contract.groupBy({
+      by: ['occupancyMode'],
+      where,
+      _count: { _all: true },
+    });
+    const counts = { all: 0, whole: 0, part: 0 };
+    for (const row of rows) {
+      const n = row._count._all;
+      counts.all += n;
+      const mode = String(row.occupancyMode || '')
+        .trim()
+        .toLowerCase();
+      if (mode === 'part') counts.part += n;
+      else counts.whole += n;
+    }
+    return counts;
+  }
+
+  /** HK 今日 YYYY-MM-DD */
+  private hkTodayYmd(now = new Date()): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  }
+
+  private addLeadYmd(ymd: string, amount: number, unit: 'day' | 'month'): string {
+    const [y, m, d] = ymd.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    if (unit === 'month') {
+      dt.setUTCMonth(dt.getUTCMonth() + amount);
+    } else {
+      dt.setUTCDate(dt.getUTCDate() + amount);
+    }
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  /** 即将到期条件 → Prisma where 片段（endDate + status） */
+  private expiringSoonWhereParts(cfg: ContractExpiringSoonConfig): {
+    endDateFrom: string;
+    endDateTo: string;
+    statusFilter?: Prisma.StringFilter;
+  } {
+    const from = this.hkTodayYmd();
+    const to = this.addLeadYmd(from, cfg.amount, cfg.unit);
+    let statusFilter: Prisma.StringFilter | undefined;
+    const statuses = (cfg.statuses || []).map((s) => s.trim()).filter(Boolean);
+    if (cfg.statusMode === 'include' && statuses.length) {
+      statusFilter = { in: statuses };
+    } else if (cfg.statusMode === 'exclude' && statuses.length) {
+      statusFilter = { notIn: statuses };
+    }
+    return { endDateFrom: from, endDateTo: to, statusFilter };
+  }
+
+  /** 页头「即将到期」数量（受大厦范围；条件读系统设置） */
+  async countExpiringSoon(): Promise<{ count: number; config: ContractExpiringSoonConfig }> {
+    const config = await this.systemSettings.getContractExpiringSoon();
+    const parts = this.expiringSoonWhereParts(config);
+    const where: Prisma.ContractWhereInput = {};
+    const endDate = dateRangeFilter(parts.endDateFrom, parts.endDateTo);
+    if (endDate) where.endDate = endDate;
+    if (parts.statusFilter) where.status = parts.statusFilter;
+    await this.access.constrain(where, 'viaRoom');
+    const count = await this.prisma.contract.count({ where });
+    return { count, config };
+  }
+
   async findAll(params: {
     keyword?: string;
     status?: string;
@@ -158,7 +352,10 @@ export class ContractsService {
     customerNames?: string[];
     salesManagers?: string[];
     leaseTypes?: string[];
+    /** 租赁方式筛选：whole | part | part:A */
+    occupancyKeys?: string[];
     paymentCycles?: string[];
+    paymentMethods?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     startDateFrom?: string;
@@ -167,12 +364,60 @@ export class ContractsService {
     endDateTo?: string;
     createdAtFrom?: string;
     createdAtTo?: string;
+    /** 页头「即将到期」：按系统设置套用到期窗与状态 */
+    expiringSoon?: boolean;
     page?: number;
     pageSize?: number;
   }): Promise<PaginatedResult<ReturnType<typeof toContractDto>>> {
     const page = parsePage(params.page);
     const pageSize = parsePageSize(params.pageSize);
-    const where = this.buildListWhere(params);
+    let listParams = { ...params };
+    if (params.expiringSoon) {
+      const cfg = await this.systemSettings.getContractExpiringSoon();
+      const parts = this.expiringSoonWhereParts(cfg);
+      const maxYmd = (a?: string, b?: string) => {
+        if (!a) return b;
+        if (!b) return a;
+        return a >= b ? a : b;
+      };
+      const minYmd = (a?: string, b?: string) => {
+        if (!a) return b;
+        if (!b) return a;
+        return a <= b ? a : b;
+      };
+      listParams = {
+        ...listParams,
+        endDateFrom: maxYmd(listParams.endDateFrom, parts.endDateFrom),
+        endDateTo: minYmd(listParams.endDateTo, parts.endDateTo),
+        // 页头即将到期状态条件优先于表头状态多选（避免互相打架）
+        status: undefined,
+        statuses: undefined,
+      };
+      const where = this.buildListWhere(listParams);
+      if (parts.statusFilter) {
+        const and = Array.isArray(where.AND) ? [...where.AND] : where.AND ? [where.AND] : [];
+        and.push({ status: parts.statusFilter });
+        where.AND = and;
+      }
+      await this.access.constrain(where, 'viaRoom');
+      const { skip, take } = paginateArgs(page, pageSize);
+      const [total, rows] = await this.prisma.$transaction([
+        this.prisma.contract.count({ where }),
+        this.prisma.contract.findMany({
+          where,
+          include: contractInclude,
+          orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+          ...(skip != null ? { skip, take } : {}),
+        }),
+      ]);
+      return {
+        items: rows.map((r) => toContractDto(r)),
+        total,
+        page,
+        pageSize: pageSize ?? total,
+      };
+    }
+    const where = this.buildListWhere(listParams);
     await this.access.constrain(where, 'viaRoom');
     const { skip, take } = paginateArgs(page, pageSize);
 
@@ -206,7 +451,9 @@ export class ContractsService {
     customerNames?: string[];
     salesManagers?: string[];
     leaseTypes?: string[];
+    occupancyKeys?: string[];
     paymentCycles?: string[];
+    paymentMethods?: string[];
     startDateFrom?: string;
     startDateTo?: string;
     endDateFrom?: string;
@@ -256,9 +503,33 @@ export class ContractsService {
     if (leaseTypes.length === 1) where.leaseType = leaseTypes[0];
     else if (leaseTypes.length > 1) where.leaseType = { in: leaseTypes };
 
+    const occupancyKeys = [...new Set((params.occupancyKeys || []).map((v) => s(v)).filter(Boolean))];
+    if (occupancyKeys.length) {
+      const occOr: Prisma.ContractWhereInput[] = [];
+      for (const key of occupancyKeys) {
+        const lower = key.toLowerCase();
+        if (lower === 'whole') {
+          occOr.push({
+            OR: [{ occupancyMode: 'whole' }, { occupancyMode: '' }],
+          });
+        } else if (lower === 'part') {
+          occOr.push({ occupancyMode: 'part' });
+        } else if (lower.startsWith('part:')) {
+          const label = key.slice(5).trim().toUpperCase();
+          if (label) occOr.push({ occupancyMode: 'part', partLabel: label });
+        }
+      }
+      if (occOr.length === 1) and.push(occOr[0]!);
+      else if (occOr.length > 1) and.push({ OR: occOr });
+    }
+
     const paymentCycles = (params.paymentCycles || []).map((v) => s(v)).filter(Boolean);
     if (paymentCycles.length === 1) where.paymentCycle = paymentCycles[0];
     else if (paymentCycles.length > 1) where.paymentCycle = { in: paymentCycles };
+
+    const paymentMethods = (params.paymentMethods || []).map((v) => s(v)).filter(Boolean);
+    if (paymentMethods.length === 1) where.paymentMethod = paymentMethods[0];
+    else if (paymentMethods.length > 1) where.paymentMethod = { in: paymentMethods };
 
     const keyword = s(params.keyword);
     if (keyword) {
@@ -310,9 +581,12 @@ export class ContractsService {
     if (key === 'startDate') return [{ startDate: dir }, { createdAt: 'desc' }];
     if (key === 'endDate') return [{ endDate: dir }, { createdAt: 'desc' }];
     if (key === 'status') return [{ status: dir }, { startDate: 'desc' }];
-    if (key === 'leaseType') return [{ leaseType: dir }];
+    if (key === 'leaseType' || key === 'occupancyMode') {
+      return [{ occupancyMode: dir }, { partLabel: dir }];
+    }
     if (key === 'monthlyRent') return [{ monthlyRent: dir }];
     if (key === 'paymentCycle') return [{ paymentCycle: dir }];
+    if (key === 'paymentMethod') return [{ paymentMethod: dir }];
     if (key === 'invoiceCount') return [{ invoices: { _count: dir } }];
     if (key === 'receivableCount') return [{ receivables: { _count: dir } }];
     if (key === 'receiptCount') return [{ receipts: { _count: dir } }];
@@ -524,12 +798,25 @@ export class ContractsService {
   }
 
   private normalizeStatus(status?: string) {
-    const raw = s(status) || '草稿';
+    const raw = s(status) || '簽約中';
     const v = STATUS_ALIASES[raw] || STATUS_ALIASES[raw.toLowerCase()] || raw;
     if (!ALLOWED_STATUSES.has(v)) {
       throw new BadRequestException(`status must be one of: ${[...ALLOWED_STATUSES].join(' / ')}`);
     }
     return v;
+  }
+
+  /** 现行/历史归并后的状态文案 */
+  private canonicalStatus(status?: string | null) {
+    const raw = s(status);
+    return STATUS_ALIASES[raw] || STATUS_ALIASES[raw.toLowerCase()] || raw;
+  }
+
+  /** 仅「簽約中」可经 update 接口修改；superAdmin / 开单等专用路径不受此限 */
+  private assertSigningEditable(existingStatus?: string | null) {
+    if (this.canonicalStatus(existingStatus) !== '簽約中') {
+      throw new BadRequestException('僅「簽約中」的合約可修改');
+    }
   }
 
   private async normalizePeriodType(v?: string) {
@@ -577,24 +864,81 @@ export class ContractsService {
         sortOrder: item.sortOrder != null ? Math.floor(Number(item.sortOrder)) : idx,
       });
     }
+    this.assertPeriodsNoOverlap(out);
     return out;
   }
 
-  /** 用「使用期」汇总合约起止；无使用期则用全部合约期 */
+  /** 无用户显式传入起止时，用合约期首段开始 / 末段结束兜底 */
   private async summarizeDatesFromPeriods(
-    periods: { dateType: string; startDate: Date; endDate: Date }[],
+    periods: { sortOrder: number; startDate: Date; endDate: Date }[],
   ): Promise<{ startDate: Date | null; endDate: Date | null }> {
     if (!periods.length) return { startDate: null, endDate: null };
-    const usageLabels = await this.contractConfigs.usagePeriodLabels();
-    const usage = periods.filter((p) => usageLabels.has(p.dateType));
-    const src = usage.length ? usage : periods;
-    let min = src[0].startDate.getTime();
-    let max = src[0].endDate.getTime();
-    for (const p of src) {
-      min = Math.min(min, p.startDate.getTime());
-      max = Math.max(max, p.endDate.getTime());
+    const sorted = [...periods].sort((a, b) => a.sortOrder - b.sortOrder);
+    return {
+      startDate: sorted[0].startDate,
+      endDate: sorted[sorted.length - 1].endDate,
+    };
+  }
+
+  /** 合约期日期不可重叠（含首尾同日） */
+  private assertPeriodsNoOverlap(
+    periods: { startDate: Date; endDate: Date; sortOrder: number }[],
+  ): void {
+    if (periods.length < 2) return;
+    const sorted = [...periods].sort((a, b) => {
+      const t = a.startDate.getTime() - b.startDate.getTime();
+      if (t !== 0) return t;
+      return a.sortOrder - b.sortOrder;
+    });
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const a = sorted[i];
+        const b = sorted[j];
+        if (
+          a.startDate.getTime() <= b.endDate.getTime() &&
+          b.startDate.getTime() <= a.endDate.getTime()
+        ) {
+          throw new BadRequestException(
+            `合約期日期重疊（第 ${i + 1} 段與第 ${j + 1} 段），請調整後再儲存`,
+          );
+        }
+      }
     }
-    return { startDate: new Date(min), endDate: new Date(max) };
+  }
+
+  /**
+   * 用户填写的合约起止约束合约期：
+   * 首段开始日 = 合约开始日；末段结束日 = 合约结束日。
+   */
+  private assertPeriodsMatchContractSpan(
+    periods: { sortOrder: number; startDate: Date; endDate: Date }[],
+    startDate: Date | null,
+    endDate: Date | null,
+  ): void {
+    if (!periods.length || !startDate || !endDate) return;
+    if (endDate.getTime() < startDate.getTime()) {
+      throw new BadRequestException('合約結束日期不可早於開始日期');
+    }
+    const sorted = [...periods].sort((a, b) => a.sortOrder - b.sortOrder);
+    if (sorted[0].startDate.getTime() !== startDate.getTime()) {
+      throw new BadRequestException('第一段合約期的開始日期必須等於合約開始日期');
+    }
+    if (sorted[sorted.length - 1].endDate.getTime() !== endDate.getTime()) {
+      throw new BadRequestException('最後一段合約期的結束日期必須等於合約結束日期');
+    }
+  }
+
+  /** 合约期不能仅有免租期，须至少一段非免租期 */
+  private async assertPeriodsNotOnlyRentFree(
+    periods: { dateType: string }[],
+  ): Promise<void> {
+    if (!periods.length) return;
+    const rentFree = await this.contractConfigs.rentFreePeriodLabels();
+    if (periods.every((p) => rentFree.has(p.dateType))) {
+      throw new BadRequestException(
+        '合約期不能僅有免租期，請至少添加一段使用期或必須使用期',
+      );
+    }
   }
 
   private async replacePeriods(
@@ -620,6 +964,57 @@ export class ContractsService {
         startDate: p.startDate,
         endDate: p.endDate,
         sortOrder: p.sortOrder,
+      })),
+    });
+  }
+
+  private parseOtherFees(items?: ContractOtherFeeInputDto[]) {
+    if (!items?.length) return [];
+    return items.map((item, idx) => {
+      const description = s(item.description);
+      if (!description) {
+        throw new BadRequestException(`otherFees[${idx}].description is required`);
+      }
+      if (item.quantity == null || Number.isNaN(Number(item.quantity))) {
+        throw new BadRequestException(`otherFees[${idx}].quantity is required`);
+      }
+      if (item.unitAmount == null || Number.isNaN(Number(item.unitAmount))) {
+        throw new BadRequestException(`otherFees[${idx}].unitAmount is required`);
+      }
+      const quantity = decimalField(item.quantity, `otherFees[${idx}].quantity`);
+      const unitAmount = decimalField(item.unitAmount, `otherFees[${idx}].unitAmount`);
+      const subtotal = feeSubtotal(quantity, unitAmount, item.subtotal);
+      return {
+        description,
+        quantity,
+        unitAmount,
+        subtotal,
+        remark: s(item.remark),
+        sortOrder: item.sortOrder != null ? Math.floor(Number(item.sortOrder)) : idx,
+      };
+    });
+  }
+
+  /** 仅替换合约级借出物品（terminationId 为空）；退租关联费用保留 */
+  private async replaceContractOtherFees(
+    tx: Prisma.TransactionClient,
+    contractId: string,
+    fees: ReturnType<ContractsService['parseOtherFees']>,
+    actorId: string | null,
+  ) {
+    await tx.contractOtherFee.deleteMany({ where: { contractId, terminationId: null } });
+    if (!fees.length) return;
+    await tx.contractOtherFee.createMany({
+      data: fees.map((f) => ({
+        contractId,
+        description: f.description,
+        quantity: f.quantity,
+        unitAmount: f.unitAmount,
+        subtotal: f.subtotal,
+        remark: f.remark,
+        sortOrder: f.sortOrder,
+        createdById: actorId,
+        updatedById: actorId,
       })),
     });
   }
@@ -695,7 +1090,13 @@ export class ContractsService {
     const requirementId = nullId(dto.requirementId);
     await this.assertRequirement(requirementId, customerId);
 
-    const status = this.normalizeStatus(dto.status);
+    const issueNow = Boolean(dto.issueNow);
+    const attachment = s(dto.attachment);
+    if (issueNow && !attachment) {
+      throw new BadRequestException('直接開單請先上傳租客簽約文件');
+    }
+    // 普通保存固定「簽約中」；直接开单 →「租賃中」（忽略客户端随意改状态）
+    const status = issueNow ? '租賃中' : '簽約中';
     const occupancy = await this.resolveOccupancy(room, dto, { status });
     const codeBase = contractCodeRoomBase({
       roomCode: room.roomCode,
@@ -709,6 +1110,8 @@ export class ContractsService {
     const monthlyRent =
       dto.monthlyRent !== undefined ? numOrNull(dto.monthlyRent) : Number(room.monthlyRent);
     const periods = await this.parsePeriods(dto.periods);
+    await this.assertPeriodsNotOnlyRentFree(periods);
+    const otherFees = this.parseOtherFees(dto.otherFees);
     const summarized = await this.summarizeDatesFromPeriods(periods);
     const startDate =
       dto.startDate !== undefined
@@ -716,6 +1119,10 @@ export class ContractsService {
         : summarized.startDate;
     const endDate =
       dto.endDate !== undefined ? parseDateOnly(dto.endDate, 'endDate') : summarized.endDate;
+    if (!startDate || !endDate) {
+      throw new BadRequestException('請填寫合約開始日期與結束日期');
+    }
+    this.assertPeriodsMatchContractSpan(periods, startDate, endDate);
     const keyDeposits = await this.contractConfigs.calcKeyDeposits(
       dto.doorKeyQty,
       dto.mailboxKeyQty,
@@ -740,7 +1147,10 @@ export class ContractsService {
             roomDeposit: numOrNull(dto.roomDeposit),
             monthlyRent,
             bookingDeposit: numOrNull(dto.bookingDeposit),
+            paymentDate: parseDateOnly(dto.paymentDate, 'paymentDate'),
             paymentCycle: s(dto.paymentCycle),
+            paymentMethod: s(dto.paymentMethod),
+            paymentVoucher: s(dto.paymentVoucher),
             electricityRate: numOrNull(dto.electricityRate),
             miscDeposit: numOrNull(dto.miscDeposit),
             doorKeyQty: keyDeposits.doorKeyQty,
@@ -749,14 +1159,34 @@ export class ContractsService {
             mailboxKeyDeposit: keyDeposits.mailboxKeyDeposit,
             roomNameText,
             subleaseMark: occupancy.subleaseMark,
-            attachment: s(dto.attachment),
+            attachment,
             remark: s(dto.remark),
             createdById: actorId,
             updatedById: actorId,
           },
         });
         await this.replacePeriods(tx, created.id, periods);
+        if (dto.otherFees !== undefined) {
+          await this.replaceContractOtherFees(tx, created.id, otherFees, actorId);
+        }
         await this.syncRoomFromContract(tx, roomId, contractCode, status, actorId);
+        // 创建即幂等生成按金发票 + 首个缴费周期租金发票（及对应应收）；后续期须「租賃中」才由日任务开票
+        await this.invoiceAuto.ensureInitialInvoicesOnIssue(created.id, actorId, tx);
+        if (issueNow) {
+          await this.receipts.ensureBookingDepositReceipt(
+            {
+              id: created.id,
+              customerId,
+              bookingDeposit: numOrNull(dto.bookingDeposit),
+              paymentDate: parseDateOnly(dto.paymentDate, 'paymentDate'),
+              paymentMethod: s(dto.paymentMethod),
+              paymentVoucher: s(dto.paymentVoucher),
+              bookingDepositReceiptId: null,
+            },
+            actorId,
+            tx,
+          );
+        }
         return tx.contract.findUniqueOrThrow({
           where: { id: created.id },
           include: contractInclude,
@@ -771,9 +1201,76 @@ export class ContractsService {
     }
   }
 
-  async update(id: string, dto: UpdateContractDto, actor = '') {
+  /**
+   * 开单：上传租客签约文件，仅「簽約中」（含历史归并态）可操作，状态改为「租賃中」。
+   */
+  async openOrder(id: string, dto: OpenContractOrderDto, actor = '') {
     const existing = await this.prisma.contract.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Contract ${id} not found`);
+    await this.access.assertContractId(existing.id);
+
+    if (this.canonicalStatus(existing.status) !== '簽約中') {
+      throw new BadRequestException('僅「簽約中」的合約可開單');
+    }
+
+    const attachment = s(dto.attachment);
+    if (!attachment) {
+      throw new BadRequestException('請上傳租客簽約文件');
+    }
+
+    const status = '租賃中';
+    const actorId = actor || null;
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.contract.update({
+        where: { id },
+        data: {
+          attachment,
+          status,
+          ...(actorId ? { updatedById: actorId } : {}),
+        },
+      });
+      await this.syncRoomFromContract(
+        tx,
+        existing.roomId,
+        existing.contractCode,
+        status,
+        actorId,
+      );
+      await this.receipts.ensureBookingDepositReceipt(
+        {
+          id: existing.id,
+          customerId: existing.customerId,
+          bookingDeposit: existing.bookingDeposit,
+          paymentDate: existing.paymentDate,
+          paymentMethod: existing.paymentMethod,
+          paymentVoucher: existing.paymentVoucher,
+          bookingDepositReceiptId: existing.bookingDepositReceiptId,
+        },
+        actorId,
+        tx,
+      );
+      await this.invoiceAuto.ensureInitialInvoicesOnIssue(existing.id, actorId, tx);
+      return tx.contract.findUniqueOrThrow({
+        where: { id },
+        include: contractInclude,
+      });
+    });
+    return toContractDto(row);
+  }
+
+  async update(
+    id: string,
+    dto: UpdateContractDto,
+    actor = '',
+    opts?: { role?: string | null },
+  ) {
+    const existing = await this.prisma.contract.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`Contract ${id} not found`);
+    // superAdmin 行内/任意修补不受签约流程限制
+    const bypassFlow = isSuperAdminRole(opts?.role);
+    if (!bypassFlow) {
+      this.assertSigningEditable(existing.status);
+    }
 
     let roomId = existing.roomId;
     let room = await this.assertRoom(roomId);
@@ -800,13 +1297,33 @@ export class ContractsService {
       await this.assertRequirement(requirementId, customerId);
     }
 
+    const issueNow = Boolean(dto.issueNow);
+    const attachmentResolved =
+      dto.attachment !== undefined ? s(dto.attachment) : s(existing.attachment);
+    if (issueNow && !attachmentResolved) {
+      throw new BadRequestException('直接開單請先上傳租客簽約文件');
+    }
+
+    let status: string;
+    if (issueNow) {
+      status = '租賃中';
+    } else if (dto.status !== undefined) {
+      status = this.normalizeStatus(dto.status);
+      // 普通用户须走「直接开单」；superAdmin 可直接改状态（含租賃中）
+      if (!bypassFlow && status === '租賃中') {
+        throw new BadRequestException('請使用「直接開單」將合約轉為租賃中');
+      }
+    } else {
+      status = existing.status;
+    }
+
     const touchOccupancy =
       dto.occupancyMode !== undefined ||
       dto.partLabel !== undefined ||
       dto.subleaseMark !== undefined ||
       dto.roomId !== undefined ||
-      dto.status !== undefined;
-    const status = dto.status !== undefined ? this.normalizeStatus(dto.status) : existing.status;
+      dto.status !== undefined ||
+      issueNow;
     const occupancy = touchOccupancy
       ? await this.resolveOccupancy(
           room,
@@ -823,7 +1340,28 @@ export class ContractsService {
     const actorId = actor || null;
     const replacePeriods = dto.periods !== undefined;
     const periods = replacePeriods ? await this.parsePeriods(dto.periods) : null;
+    if (periods) await this.assertPeriodsNotOnlyRentFree(periods);
+    const replaceOtherFees = dto.otherFees !== undefined;
+    const otherFees = replaceOtherFees ? this.parseOtherFees(dto.otherFees) : null;
     const summarized = periods ? await this.summarizeDatesFromPeriods(periods) : null;
+    const nextStartDate =
+      dto.startDate !== undefined
+        ? parseDateOnly(dto.startDate, 'startDate')
+        : summarized
+          ? summarized.startDate
+          : existing.startDate;
+    const nextEndDate =
+      dto.endDate !== undefined
+        ? parseDateOnly(dto.endDate, 'endDate')
+        : summarized
+          ? summarized.endDate
+          : existing.endDate;
+    if (periods) {
+      if (!nextStartDate || !nextEndDate) {
+        throw new BadRequestException('請填寫合約開始日期與結束日期');
+      }
+      this.assertPeriodsMatchContractSpan(periods, nextStartDate, nextEndDate);
+    }
     const recalcKeys =
       dto.doorKeyQty !== undefined || dto.mailboxKeyQty !== undefined
         ? await this.contractConfigs.calcKeyDeposits(
@@ -843,17 +1381,13 @@ export class ContractsService {
             salesManagerId,
             requirementId,
             startDate:
-              dto.startDate !== undefined
-                ? parseDateOnly(dto.startDate, 'startDate')
-                : summarized
-                  ? summarized.startDate
-                  : undefined,
+              dto.startDate !== undefined || summarized
+                ? nextStartDate
+                : undefined,
             endDate:
-              dto.endDate !== undefined
-                ? parseDateOnly(dto.endDate, 'endDate')
-                : summarized
-                  ? summarized.endDate
-                  : undefined,
+              dto.endDate !== undefined || summarized
+                ? nextEndDate
+                : undefined,
             actualEndDate:
               dto.actualEndDate !== undefined
                 ? parseDateOnly(dto.actualEndDate, 'actualEndDate')
@@ -866,14 +1400,21 @@ export class ContractsService {
                   subleaseMark: occupancy.subleaseMark,
                 }
               : {}),
-            status: dto.status !== undefined ? status : undefined,
+            status: issueNow || dto.status !== undefined ? status : undefined,
             roomDeposit:
               dto.roomDeposit !== undefined ? numOrNull(dto.roomDeposit) : undefined,
             monthlyRent:
               dto.monthlyRent !== undefined ? numOrNull(dto.monthlyRent) : undefined,
             bookingDeposit:
               dto.bookingDeposit !== undefined ? numOrNull(dto.bookingDeposit) : undefined,
+            paymentDate:
+              dto.paymentDate !== undefined
+                ? parseDateOnly(dto.paymentDate, 'paymentDate')
+                : undefined,
             paymentCycle: dto.paymentCycle !== undefined ? s(dto.paymentCycle) : undefined,
+            paymentMethod: dto.paymentMethod !== undefined ? s(dto.paymentMethod) : undefined,
+            paymentVoucher:
+              dto.paymentVoucher !== undefined ? s(dto.paymentVoucher) : undefined,
             electricityRate:
               dto.electricityRate !== undefined ? numOrNull(dto.electricityRate) : undefined,
             miscDeposit:
@@ -888,13 +1429,33 @@ export class ContractsService {
               : {}),
             roomNameText: dto.roomNameText !== undefined ? s(dto.roomNameText) : undefined,
             subleaseMark: dto.subleaseMark !== undefined ? s(dto.subleaseMark) : undefined,
-            attachment: dto.attachment !== undefined ? s(dto.attachment) : undefined,
+            attachment:
+              dto.attachment !== undefined || issueNow ? attachmentResolved : undefined,
             remark: dto.remark !== undefined ? s(dto.remark) : undefined,
             ...(actorId ? { updatedById: actorId } : {}),
           },
         });
         if (periods) await this.replacePeriods(tx, id, periods);
+        if (otherFees) await this.replaceContractOtherFees(tx, id, otherFees, actorId);
         await this.syncRoomFromContract(tx, roomId, contractCode, status, actorId);
+        const after = await tx.contract.findUniqueOrThrow({ where: { id } });
+        // 签约中保存亦确保按金+首期发票存在（幂等；历史数据补齐）
+        await this.invoiceAuto.ensureInitialInvoicesOnIssue(after.id, actorId, tx);
+        if (issueNow) {
+          await this.receipts.ensureBookingDepositReceipt(
+            {
+              id: after.id,
+              customerId: after.customerId,
+              bookingDeposit: after.bookingDeposit,
+              paymentDate: after.paymentDate,
+              paymentMethod: after.paymentMethod,
+              paymentVoucher: after.paymentVoucher,
+              bookingDepositReceiptId: after.bookingDepositReceiptId,
+            },
+            actorId,
+            tx,
+          );
+        }
         return tx.contract.findUniqueOrThrow({
           where: { id },
           include: contractInclude,
@@ -1102,6 +1663,8 @@ export class ContractsService {
             roomDeposit: item.roomDeposit,
             bookingDeposit: item.bookingDeposit,
             paymentCycle: item.paymentCycle,
+            paymentMethod: item.paymentMethod,
+            paymentDate: item.paymentDate ?? null,
             electricityRate: item.electricityRate,
             miscDeposit: item.miscDeposit,
             doorKeyQty: item.doorKeyQty,

@@ -156,7 +156,6 @@ function onRowClick(row: ContractOtherFeeRecord, column?: { type?: string }, eve
           style="width: 100%"
           @row-click="onRowClick"
         >
-          <el-table-column type="selection" width="48" align="center" header-align="center" />
           <el-table-column type="index" :index="rowIndex" label="#" width="48" align="center" header-align="center" />
           <el-table-column
             prop="terminationCode"

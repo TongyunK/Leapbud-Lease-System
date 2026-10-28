@@ -184,6 +184,17 @@ export class ContractConfigsService {
     return set;
   }
 
+  /** 免租期标签（含历史文案兜底） */
+  async rentFreePeriodLabels(): Promise<Set<string>> {
+    const rows = await this.prisma.contractConfigOption.findMany({
+      where: { type: ContractConfigType.periodType, code: 'rent_free' },
+      select: { label: true },
+    });
+    const set = new Set(rows.map((r) => r.label).filter(Boolean));
+    set.add('免租期');
+    return set;
+  }
+
   private resolveCode(type: ContractConfigType, code: string | undefined, label: string) {
     const trimmed = (code ?? '').trim();
     if (trimmed) return trimmed;

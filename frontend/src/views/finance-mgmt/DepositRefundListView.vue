@@ -1000,8 +1000,9 @@ async function onImportFile(ev: Event) {
       @open-receivable="onOpenReceivableFromRelated"
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @changed="loadList"
     />
-    <RelatedEntityDrawers ref="relationDrawers" />
+    <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
 
     <el-dialog
       v-model="formVisible"

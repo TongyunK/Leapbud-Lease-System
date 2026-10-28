@@ -25,6 +25,11 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import SuperAdminInlineCell from '@/components/SuperAdminInlineCell.vue'
+import {
+  CUSTOMER_INLINE_FIELDS,
+  type CustomerInlineField,
+} from '@/config/inlineEditWhitelist'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentField from '@/components/AttachmentField.vue'
 import CustomerDetailDrawer from '@/components/CustomerDetailDrawer.vue'
@@ -810,6 +815,23 @@ async function openBuildingSide(buildingId?: string | null) {
   await relationDrawers.value?.openBuildingSide(buildingId)
 }
 
+async function onCustomerInlineSave(
+  row: CustomerRecord,
+  field: CustomerInlineField,
+  value: string | number | null,
+) {
+  if (!(field in CUSTOMER_INLINE_FIELDS)) return
+  try {
+    const payload = { [field]: value } as Partial<CustomerWritePayload>
+    const { data } = await updateCustomerApi(row.id, payload)
+    const idx = list.value.findIndex((r) => r.id === row.id)
+    if (idx >= 0) list.value[idx] = { ...list.value[idx], ...data }
+    ElMessage.success(t('customer.updated'))
+  } catch {
+    /* interceptor */
+  }
+}
+
 function statusLabel(status: string) {
   return t(`customer.status.${status}`, status)
 }
@@ -1129,6 +1151,14 @@ async function onImportFile(ev: Event) {
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
+            <template #default="{ row }">
+              <SuperAdminInlineCell
+                :value="row.name"
+                type="text"
+                :display-text="row.name || '—'"
+                @save="(v) => onCustomerInlineSave(row, 'name', v)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="
@@ -1151,7 +1181,15 @@ async function onImportFile(ev: Event) {
               />
             </template>
             <template #default="{ row }">
-              <StatusBadge :tone="customerStatusTone(row.status)" :label="statusLabel(row.status)" />
+              <SuperAdminInlineCell
+                :value="row.status"
+                type="select"
+                :options="statusFilterOptions"
+                :display-text="statusLabel(row.status)"
+                @save="(v) => onCustomerInlineSave(row, 'status', v)"
+              >
+                <StatusBadge :tone="customerStatusTone(row.status)" :label="statusLabel(row.status)" />
+              </SuperAdminInlineCell>
             </template>
           </el-table-column>
           <el-table-column
@@ -1500,6 +1538,7 @@ async function onImportFile(ev: Event) {
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromRelated"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @changed="loadList"
     />
     <RelatedReceivablesDrawer
       v-model="relatedReceivablesDrawer"
@@ -1509,6 +1548,7 @@ async function onImportFile(ev: Event) {
       @open-receivable="onOpenReceivableFromRelated"
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @changed="loadList"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawer"
@@ -1519,6 +1559,7 @@ async function onImportFile(ev: Event) {
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @changed="loadList"
     />
     <RelatedTerminationsDrawer
       v-model="relatedTerminationsDrawer"
@@ -1536,7 +1577,7 @@ async function onImportFile(ev: Event) {
       desktop-direction="ltr"
       @open-deposit-refund="onOpenDepositRefundFromRelated"
     />
-    <RelatedEntityDrawers ref="relationDrawers" />
+    <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
     <OccupantDetailDrawer
       v-model="relatedOccupantDrawer"
       :occupant="relatedOccupant"
@@ -1854,42 +1895,4 @@ async function onImportFile(ev: Event) {
   line-height: 1.4;
 }
 
-.lb-yesno-seg {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 10px;
-  background: rgba(15, 74, 50, 0.06);
-  box-shadow: inset 0 0 0 1px rgba(15, 74, 50, 0.1);
-}
-
-.lb-yesno-seg :deep(.el-radio-button) {
-  --el-radio-button-checked-bg-color: var(--lb-brand, #0f4a32);
-  --el-radio-button-checked-border-color: var(--lb-brand, #0f4a32);
-  --el-radio-button-checked-text-color: #fff;
-}
-
-.lb-yesno-seg :deep(.el-radio-button__inner) {
-  min-width: 64px;
-  padding: 7px 18px;
-  border: none !important;
-  border-radius: 8px !important;
-  background: transparent;
-  color: var(--lb-muted, #6a7a70);
-  font-weight: 600;
-  box-shadow: none !important;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.lb-yesno-seg :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background: var(--lb-brand, #0f4a32);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(15, 74, 50, 0.22) !important;
-}
-
-.lb-yesno-seg :deep(.el-radio-button__inner:hover) {
-  color: var(--lb-brand, #0f4a32);
-}
 </style>

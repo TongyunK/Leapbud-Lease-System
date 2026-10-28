@@ -290,18 +290,21 @@ async function main() {
     create: {
       account: 'admin',
       passwordHash: adminHash,
-      displayName: 'superAdmin',
+      displayName: 'Admin',
       role: 'admin',
       status: 'active',
       email: 'admin@leapbud.local',
     },
     update: {
       passwordHash: adminHash,
-      displayName: 'superAdmin',
+      displayName: 'Admin',
       role: 'admin',
       status: 'active',
     },
   });
+
+  // 须在角色表有 superAdmin 之后写入；此处先占位，seedRolesAndMenus 后可再 upsert
+  // 账号 superadmin / admin123，角色 superAdmin（行内编辑专用）
 
   const userHash = await bcrypt.hash('user123', 10);
   await prisma.user.upsert({
@@ -409,6 +412,30 @@ async function main() {
 
   await seedRolesAndMenus(admin.id);
 
+  const superAdminHash = await bcrypt.hash('admin123', 10);
+  const superAdminUser = await prisma.user.upsert({
+    where: { account: 'superadmin' },
+    create: {
+      account: 'superadmin',
+      passwordHash: superAdminHash,
+      displayName: 'superAdmin',
+      role: 'superAdmin',
+      status: 'active',
+      email: 'superadmin@leapbud.local',
+      createdById: admin.id,
+      updatedById: admin.id,
+    },
+    update: {
+      passwordHash: superAdminHash,
+      displayName: 'superAdmin',
+      role: 'superAdmin',
+      status: 'active',
+      updatedById: admin.id,
+    },
+  });
+  // superAdmin 默认可访问全部大厦：不绑定 userBuilding
+  await prisma.userBuilding.deleteMany({ where: { userId: superAdminUser.id } });
+
   const configs = await prisma.roomConfigOption.count();
   const roomTypes = await prisma.roomTypeOption.count();
   const customerSources = await prisma.customerSourceOption.count();
@@ -459,6 +486,29 @@ async function seedRolesAndMenus(actorId: string) {
     update: {
       name: '普通用戶',
       description: '業務用戶，可見房間與客戶菜單',
+      active: true,
+      isSystem: true,
+      updatedById: actorId,
+    },
+  });
+
+  /** 超级管理员：与 admin 同级菜单/权限，默认可访问全部大厦；额外可做列表行内改字段（admin 不可） */
+  const roleSuperAdmin = await prisma.role.upsert({
+    where: { code: 'superAdmin' },
+    create: {
+      id: 'role_super_admin',
+      code: 'superAdmin',
+      name: '超級管理員',
+      description: '超級管理員：全部菜單與全部大廈，並可在列表行內修改白名單字段',
+      sortOrder: 0,
+      active: true,
+      isSystem: true,
+      createdById: actorId,
+      updatedById: actorId,
+    },
+    update: {
+      name: '超級管理員',
+      description: '超級管理員：全部菜單與全部大廈，並可在列表行內修改白名單字段',
       active: true,
       isSystem: true,
       updatedById: actorId,
@@ -761,6 +811,28 @@ async function seedRolesAndMenus(actorId: string) {
       sortOrder: 43,
     },
     {
+      id: 'menu_system_settings',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '系統設置',
+      nameKey: 'menu.systemSettings',
+      routeName: 'systemSettings',
+      path: 'system/settings',
+      icon: 'SetUp',
+      sortOrder: 40,
+    },
+    {
+      id: 'menu_scheduled_jobs',
+      parentId: 'menu_system',
+      type: 'menu',
+      name: '定時任務',
+      nameKey: 'menu.scheduledJobs',
+      routeName: 'scheduledJobs',
+      path: 'system/scheduled-jobs',
+      icon: 'Timer',
+      sortOrder: 45,
+    },
+    {
       id: 'menu_document_templates',
       parentId: 'menu_system',
       type: 'menu',
@@ -887,9 +959,82 @@ async function seedRolesAndMenus(actorId: string) {
     });
   }
 
+  await prisma.systemSetting.upsert({
+    where: { key: 'rent_invoice_lead_days' },
+    create: {
+      id: 'sysset_rent_invoice_lead_days',
+      key: 'rent_invoice_lead_days',
+      value: '7',
+      label: '租金自動開票提前天數',
+      remark: '距下一繳費週期開始日還有多少天時，自動開立該期租金發票（含當天）。預設 7。',
+      sortOrder: 10,
+      createdById: actorId,
+      updatedById: actorId,
+    },
+    update: {
+      label: '租金自動開票提前天數',
+      remark: '距下一繳費週期開始日還有多少天時，自動開立該期租金發票（含當天）。預設 7。',
+      sortOrder: 10,
+      updatedById: actorId,
+    },
+  });
+
+  await prisma.systemSetting.upsert({
+    where: { key: 'contract_expiring_soon' },
+    create: {
+      id: 'sysset_contract_expiring_soon',
+      key: 'contract_expiring_soon',
+      value: JSON.stringify({
+        amount: 30,
+        unit: 'day',
+        statusMode: 'include',
+        statuses: ['租賃中', '退租中'],
+      }),
+      label: '合約即將到期篩選條件',
+      remark:
+        '合約列表「即將到期」：到期日前多久 + 狀態含/排；僅 SuperAdmin 可改。預設 30 天、含租賃中/退租中。',
+      sortOrder: 20,
+      createdById: actorId,
+      updatedById: actorId,
+    },
+    update: {
+      label: '合約即將到期篩選條件',
+      remark:
+        '合約列表「即將到期」：到期日前多久 + 狀態含/排；僅 SuperAdmin 可改。預設 30 天、含租賃中/退租中。',
+      sortOrder: 20,
+      updatedById: actorId,
+    },
+  });
+
+  await prisma.scheduledJob.upsert({
+    where: { code: 'rent_invoice_due' },
+    create: {
+      id: 'sjob_rent_invoice_due',
+      code: 'rent_invoice_due',
+      name: '租金自動開票',
+      handlerKey: 'rent_invoice_due',
+      enabled: true,
+      scheduleKind: 'recurring',
+      recurrence: 'daily',
+      runTime: '01:00',
+      recurrenceConfig: '{}',
+      sortOrder: 10,
+      remark: '按系統設置「繳費期前自動開票天數」為租賃中合約開立到期租金發票',
+      createdById: actorId,
+      updatedById: actorId,
+    },
+    update: {
+      handlerKey: 'rent_invoice_due',
+      sortOrder: 10,
+      updatedById: actorId,
+    },
+  });
+
   const allMenuIds = menuSeeds.map((m) => m.id);
   const adminOnlyMenus = new Set([
     'menu_system',
+    'menu_system_settings',
+    'menu_scheduled_jobs',
     'menu_users',
     'menu_roles',
     'menu_menus',
@@ -905,6 +1050,11 @@ async function seedRolesAndMenus(actorId: string) {
   await prisma.roleMenu.deleteMany({ where: { roleId: roleAdmin.id } });
   await prisma.roleMenu.createMany({
     data: allMenuIds.map((menuId) => ({ roleId: roleAdmin.id, menuId })),
+  });
+
+  await prisma.roleMenu.deleteMany({ where: { roleId: roleSuperAdmin.id } });
+  await prisma.roleMenu.createMany({
+    data: allMenuIds.map((menuId) => ({ roleId: roleSuperAdmin.id, menuId })),
   });
 
   await prisma.roleMenu.deleteMany({ where: { roleId: roleUser.id } });

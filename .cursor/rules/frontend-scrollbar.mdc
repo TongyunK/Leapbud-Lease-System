@@ -1,0 +1,23 @@
+---
+description: 全局滚动条必须使用统一美化样式；新增滚动区域勿回退系统默认粗滚动条
+alwaysApply: true
+---
+
+# 滚动条美化（强制）
+
+本项目已在 `frontend/src/style.css` 提供**全局**细滚动条样式（原生 `::-webkit-scrollbar` / `scrollbar-width` + Element Plus `.el-scrollbar__*`）。
+
+## 必须
+
+- 新增可滚动区域默认继承全局样式，**不要**再露出系统默认粗滚动条（含上下箭头）。
+- 深色背景（如侧栏）可继续用局部覆盖（参考 `AppLayout.vue` 的 `.sidebar-nav`），但保持「细轨道、圆角拇指、无箭头」。
+- Popover / 下拉 / 抽屉 / 表单内嵌列表若自写 `overflow: auto`，确认落在全局样式作用域内，无需重复造一套，除非有对比度特殊需求。
+
+## 禁止
+
+- 为「省事」去掉美化、直接依赖浏览器默认滚动条。
+- 在局部再写一套与全局冲突的粗滚动条（除非显式 `scrollbar-width: none` 隐藏，如快捷导航）。
+
+## 检查
+
+改完含滚动的 UI 后，在 Windows Chrome 上看一眼：应为约 6px 圆角拇指，hover 略加深，无上下箭头按钮。

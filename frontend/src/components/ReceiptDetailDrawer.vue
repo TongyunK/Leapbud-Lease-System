@@ -5,6 +5,9 @@ import { ElMessage } from 'element-plus'
 import type { ReceiptRecord } from '@/types/receipt'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import ReceiptAttachmentList from '@/components/ReceiptAttachmentList.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import { receiptKindTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
 import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 
@@ -49,6 +52,12 @@ function dash(v?: string | null) {
 
 function money(v: number | null | undefined) {
   return v == null ? '—' : formatMoney(v)
+}
+
+function kindLabel(kind?: string | null) {
+  const k = (kind || 'invoice').trim()
+  const key = `receipt.kind.${k}`
+  return t(key) === key ? k : t(key)
 }
 
 async function onPrintReceipt() {
@@ -97,6 +106,15 @@ async function onPrintReceipt() {
           <div>
             <dt>{{ t('receipt.fields.receiptCode') }}</dt>
             <dd>{{ record.receiptCode }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('receipt.fields.kind') }}</dt>
+            <dd>
+              <StatusBadge
+                :tone="receiptKindTone(record.kind)"
+                :label="kindLabel(record.kind)"
+              />
+            </dd>
           </div>
           <div>
             <dt>{{ t('receipt.fields.paymentMethod') }}</dt>
@@ -172,12 +190,13 @@ async function onPrintReceipt() {
         <h3>{{ t('receipt.sections.finance') }}</h3>
         <dl class="detail-grid two">
           <div class="full">
-            <dt>{{ t('receipt.fields.voucher1') }}</dt>
-            <dd class="path-text">{{ dash(record.voucher1) }}</dd>
-          </div>
-          <div class="full">
-            <dt>{{ t('receipt.fields.voucher2') }}</dt>
-            <dd class="path-text">{{ dash(record.voucher2) }}</dd>
+            <dt>{{ t('receipt.fields.attachments') }}</dt>
+            <dd>
+              <ReceiptAttachmentList
+                :receipt-id="record.id"
+                :attachments="record.attachments || []"
+              />
+            </dd>
           </div>
           <div class="full">
             <dt>{{ t('receipt.fields.remark') }}</dt>

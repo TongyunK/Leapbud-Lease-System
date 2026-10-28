@@ -975,6 +975,8 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button
+                  v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
@@ -982,6 +984,8 @@ async function onImportFile(ev: Event) {
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="perms.delete"
+                  v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"
@@ -1039,8 +1043,9 @@ async function onImportFile(ev: Event) {
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @changed="loadList"
     />
-    <RelatedEntityDrawers ref="relationDrawers" />
+    <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
 
     <el-dialog
       v-model="formVisible"

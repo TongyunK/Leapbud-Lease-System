@@ -258,6 +258,26 @@ const router = createRouter({
             subtitleKey: 'autoNumbering.subtitle',
           },
         },
+        {
+          path: 'system/settings',
+          name: 'systemSettings',
+          component: () => import('@/views/system/SystemSettingsView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.systemSettings',
+            subtitleKey: 'systemSettings.subtitle',
+          },
+        },
+        {
+          path: 'system/scheduled-jobs',
+          name: 'scheduledJobs',
+          component: () => import('@/views/system/ScheduledJobListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.scheduledJobs',
+            subtitleKey: 'scheduledJob.subtitle',
+          },
+        },
         // 旧路径兼容跳转
         { path: 'system/room-configs', redirect: { name: 'roomConfigs' } },
         { path: 'system/room-types', redirect: { name: 'roomTypes' } },
