@@ -29,6 +29,7 @@ import CountListPill from '@/components/CountListPill.vue'
 import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
 import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -201,8 +202,15 @@ const customerNameFilterOptions = computed(() => {
 
 const selectedContractDisplay = computed(() => {
   const opt = contractFilterOptions.value.find((o) => o.value === form.contractId)
-  if (!opt) return { customerName: '—', roomCode: '—' }
-  return { customerName: opt.customerName || '—', roomCode: opt.roomCode || '—' }
+  if (!opt) {
+    return { customerName: '—', roomCode: '—', customerId: '', roomId: '' }
+  }
+  return {
+    customerName: opt.customerName || '—',
+    roomCode: opt.roomCode || '—',
+    customerId: opt.customerId || '',
+    roomId: opt.roomId || '',
+  }
 })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '920px'))
@@ -940,30 +948,47 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="termination-form">
         <div class="form-grid">
           <el-form-item :label="t('leaseTermination.fields.contractCode')" required class="span-2">
-            <el-select
-              v-model="form.contractId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('leaseTermination.fields.contractCode')"
-              :disabled="!!editing"
+            <SelectWithViewAction
+              :disabled="!form.contractId"
+              @view="openContractSide(form.contractId, 'ltr')"
             >
-              <el-option
-                v-for="opt in contractFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.contractId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('leaseTermination.fields.contractCode')"
+                :disabled="!!editing"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in contractFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('leaseTermination.fields.customerName')">
-            <el-input :model-value="selectedContractDisplay.customerName" readonly />
+            <SelectWithViewAction
+              control="input"
+              :disabled="!selectedContractDisplay.customerId"
+              @view="openCustomerSide(selectedContractDisplay.customerId, 'ltr')"
+            >
+              <el-input :model-value="selectedContractDisplay.customerName" readonly />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('leaseTermination.fields.roomCode')">
-            <el-input :model-value="selectedContractDisplay.roomCode" readonly />
+            <SelectWithViewAction
+              control="input"
+              :disabled="!selectedContractDisplay.roomId"
+              @view="openRoomSide(selectedContractDisplay.roomId, 'ltr')"
+            >
+              <el-input :model-value="selectedContractDisplay.roomCode" readonly />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('leaseTermination.fields.reason')">
             <el-input v-model="form.reason" />

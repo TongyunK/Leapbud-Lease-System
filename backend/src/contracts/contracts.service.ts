@@ -37,6 +37,9 @@ import {
   aggregateRoomStatus,
   buildRoomOccupancy,
   contractCodeRoomBase,
+  dateOnlyYmd,
+  dateRangesOverlap,
+  isActiveShortTermInvoiceStatus,
   normalizeOccupancyMode,
   normalizeSplitLabels,
 } from '../common/room-lease';
@@ -761,6 +764,38 @@ export class ContractsService {
       const slot = occupancy.slots.find((x) => x.label === partLabel);
       if (slot?.occupied) {
         throw new BadRequestException(`份位「${partLabel}」已被合约「${slot.contractCode}」占用`);
+      }
+    }
+
+    // 与有效短租发票租期冲突（合约占用视为整段长期占用：与任意未取消短租重叠则拒绝）
+    const shortHits = await this.prisma.invoice.findMany({
+      where: {
+        roomId: room.id,
+        source: 'short_term',
+        status: { not: '已取消' },
+        rentalStartDate: { not: null },
+        rentalEndDate: { not: null },
+      },
+      select: {
+        invoiceCode: true,
+        shortTermRentalCode: true,
+        status: true,
+        rentalStartDate: true,
+        rentalEndDate: true,
+      },
+      take: 50,
+    });
+    const today = dateOnlyYmd(new Date());
+    const far = '9999-12-31';
+    for (const inv of shortHits) {
+      if (!isActiveShortTermInvoiceStatus(inv.status)) continue;
+      if (dateRangesOverlap(today, far, inv.rentalStartDate, inv.rentalEndDate)) {
+        const code = inv.shortTermRentalCode || inv.invoiceCode || '';
+        throw new BadRequestException(
+          code
+            ? `该房间存在短租发票「${code}」占用时段，无法签约`
+            : '该房间存在短租占用时段，无法签约',
+        );
       }
     }
 

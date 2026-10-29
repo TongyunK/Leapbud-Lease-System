@@ -6,7 +6,7 @@ import {
   NotFoundException,
   StreamableFile,
 } from '@nestjs/common';
-import { Prisma, RoomStatus } from '@prisma/client';
+import { Prisma, RoomLeaseCapability, RoomStatus } from '@prisma/client';
 import * as fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import * as path from 'path';
@@ -27,14 +27,26 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
-import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
+import {
+  BatchUpdateRoomsDto,
+  CreateRoomDto,
+  ImportRoomsDto,
+  UpdateRoomDto,
+} from './dto/room.dto';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
+  applyShortTermOccupancy,
   buildRoomOccupancy,
+  dateInRange,
+  dateOnlyYmd,
+  defaultSplitLabels,
+  isActiveShortTermInvoiceStatus,
+  normalizeLeaseCapability,
   OCCUPYING_CONTRACT_STATUSES,
   resolveRoomLeaseFields,
   type RoomOccupancyDto,
+  type ShortTermOccupancyHit,
 } from '../common/room-lease';
 
 function s(v?: string | null) {
@@ -112,7 +124,7 @@ function parseRoomStatuses(raw?: string[]): RoomStatus[] {
     .filter((v): v is RoomStatus => Object.values(RoomStatus).includes(v as RoomStatus));
 }
 
-const OCCUPANCY_SUMMARIES = ['idle', 'whole', 'partial', 'full'] as const;
+const OCCUPANCY_SUMMARIES = ['idle', 'whole', 'partial', 'full', 'short'] as const;
 type OccupancySummary = (typeof OCCUPANCY_SUMMARIES)[number];
 
 function parseOccupancySummaries(raw?: string[]): OccupancySummary[] {
@@ -123,9 +135,10 @@ function parseOccupancySummaries(raw?: string[]): OccupancySummary[] {
 
 const OCCUPANCY_SUMMARY_SORT_RANK: Record<OccupancySummary, number> = {
   idle: 0,
-  whole: 1,
-  partial: 2,
-  full: 3,
+  short: 1,
+  whole: 2,
+  partial: 3,
+  full: 4,
 };
 
 @Injectable()
@@ -290,30 +303,66 @@ export class RoomsService {
   ): Promise<Array<T & { occupancy: RoomOccupancyDto }>> {
     if (!items.length) return [];
     const ids = items.map((r) => r.id);
-    const contracts = await this.prisma.contract.findMany({
-      where: {
-        roomId: { in: ids },
-        status: { in: [...OCCUPYING_CONTRACT_STATUSES] },
-      },
-      select: {
-        id: true,
-        roomId: true,
-        contractCode: true,
-        status: true,
-        occupancyMode: true,
-        partLabel: true,
-        customer: { select: { name: true } },
-      },
-    });
+    const asOf = dateOnlyYmd(new Date());
+    const [contracts, shortInvoices] = await Promise.all([
+      this.prisma.contract.findMany({
+        where: {
+          roomId: { in: ids },
+          status: { in: [...OCCUPYING_CONTRACT_STATUSES] },
+        },
+        select: {
+          id: true,
+          roomId: true,
+          contractCode: true,
+          status: true,
+          occupancyMode: true,
+          partLabel: true,
+          customer: { select: { name: true } },
+        },
+      }),
+      this.prisma.invoice.findMany({
+        where: {
+          roomId: { in: ids },
+          source: 'short_term',
+          status: { not: '已取消' },
+          rentalStartDate: { not: null },
+          rentalEndDate: { not: null },
+        },
+        select: {
+          id: true,
+          roomId: true,
+          invoiceCode: true,
+          shortTermRentalCode: true,
+          status: true,
+          rentalStartDate: true,
+          rentalEndDate: true,
+          customer: { select: { name: true } },
+        },
+      }),
+    ]);
     const byRoom = new Map<string, typeof contracts>();
     for (const c of contracts) {
       const list = byRoom.get(c.roomId) || [];
       list.push(c);
       byRoom.set(c.roomId, list);
     }
+    const shortByRoom = new Map<string, ShortTermOccupancyHit>();
+    for (const inv of shortInvoices) {
+      if (!isActiveShortTermInvoiceStatus(inv.status)) continue;
+      if (!dateInRange(asOf, inv.rentalStartDate, inv.rentalEndDate)) continue;
+      if (shortByRoom.has(inv.roomId)) continue;
+      shortByRoom.set(inv.roomId, {
+        invoiceId: inv.id,
+        invoiceCode: inv.invoiceCode || inv.shortTermRentalCode || '',
+        shortTermRentalCode: inv.shortTermRentalCode || undefined,
+        customerName: inv.customer?.name,
+        rentalStartDate: dateOnlyYmd(inv.rentalStartDate),
+        rentalEndDate: dateOnlyYmd(inv.rentalEndDate),
+      });
+    }
     return items.map((room) => {
       const list = byRoom.get(room.id) || [];
-      const occupancy = buildRoomOccupancy(
+      const base = buildRoomOccupancy(
         {
           leaseCapability: room.leaseCapability || 'flexible',
           splitLabels: room.splitLabels || [],
@@ -327,6 +376,7 @@ export class RoomsService {
           customerName: c.customer?.name,
         })),
       );
+      const occupancy = applyShortTermOccupancy(base, shortByRoom.get(room.id));
       return { ...room, occupancy };
     });
   }
@@ -522,6 +572,7 @@ export class RoomsService {
           subleaseMark: lease.subleaseMark,
           leaseCapability: lease.leaseCapability,
           splitLabels: lease.splitLabels,
+          allowShortTerm: dto.allowShortTerm === true,
           createdById: actorId,
           updatedById: actorId,
         },
@@ -602,6 +653,9 @@ export class RoomsService {
             : dto.subleaseMark !== undefined
               ? { subleaseMark: s(dto.subleaseMark) || null }
               : {}),
+          ...(dto.allowShortTerm !== undefined
+            ? { allowShortTerm: dto.allowShortTerm === true }
+            : {}),
           ...(actor ? { updatedById: actor } : {}),
         },
         include: roomListInclude,
@@ -749,6 +803,82 @@ export class RoomsService {
 
   async removeMany(ids: string[]) {
     return runBatchRemove(ids, (id) => this.remove(id));
+  }
+
+  /** 批量修改房间字段（仅 SuperAdmin 入口调用；仅提交字段会更新） */
+  async batchUpdate(dto: BatchUpdateRoomsDto, actor = '') {
+    const ids = [
+      ...new Set((dto.ids || []).map((id) => s(id)).filter(Boolean)),
+    ];
+    if (!ids.length) {
+      throw new BadRequestException('请至少选择一个房间');
+    }
+
+    const data: Prisma.RoomUncheckedUpdateManyInput = {};
+    if (dto.allowShortTerm !== undefined) {
+      data.allowShortTerm = dto.allowShortTerm === true;
+    }
+    if (dto.roomType !== undefined) {
+      data.roomType = s(dto.roomType);
+    }
+    if (dto.windowConfig !== undefined) {
+      data.windowConfig = s(dto.windowConfig) || null;
+    }
+    if (dto.acConfig !== undefined) {
+      data.acConfig = s(dto.acConfig) || null;
+    }
+    if (dto.monthlyRent !== undefined) data.monthlyRent = n(dto.monthlyRent);
+    if (dto.dailyRent !== undefined) data.dailyRent = n(dto.dailyRent);
+    if (dto.hourlyRent !== undefined) data.hourlyRent = n(dto.hourlyRent);
+    if (dto.sizeSqft !== undefined) data.sizeSqft = n(dto.sizeSqft);
+    if (dto.description !== undefined) {
+      data.description = s(dto.description) || null;
+    }
+    if (dto.remark !== undefined) {
+      data.remark = s(dto.remark) || null;
+    }
+
+    if (dto.buildingId !== undefined) {
+      const buildingId = s(dto.buildingId);
+      if (!buildingId) throw new BadRequestException('请选择所属大厦');
+      await this.access.assertBuildingId(buildingId);
+      const building = await this.prisma.building.findUnique({
+        where: { id: buildingId },
+        select: { id: true },
+      });
+      if (!building) throw new BadRequestException('大厦不存在');
+      data.buildingId = buildingId;
+    }
+
+    if (dto.leaseCapability !== undefined) {
+      const cap = normalizeLeaseCapability(dto.leaseCapability);
+      data.leaseCapability = cap;
+      if (
+        cap === RoomLeaseCapability.whole_only ||
+        cap === RoomLeaseCapability.part_only
+      ) {
+        data.splitLabels = [];
+      } else {
+        const count =
+          dto.splitCount != null && Number.isFinite(Number(dto.splitCount))
+            ? Math.max(2, Math.min(12, Math.floor(Number(dto.splitCount))))
+            : 2;
+        data.splitLabels = defaultSplitLabels(count);
+      }
+    }
+
+    // updatedById 不算业务字段
+    const businessKeys = Object.keys(data);
+    if (!businessKeys.length) {
+      throw new BadRequestException('请至少指定一个要修改的字段');
+    }
+    if (actor) data.updatedById = actor;
+
+    const where: Prisma.RoomWhereInput = { id: { in: ids } };
+    await this.access.constrain(where, 'room');
+
+    const result = await this.prisma.room.updateMany({ where, data });
+    return { updated: result.count, requested: ids.length };
   }
 
   private absPath(storageKey: string) {

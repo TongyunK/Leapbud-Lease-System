@@ -5,7 +5,7 @@ import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
-import { INVOICE_STATUSES } from '@/types/invoice'
+import { INVOICE_STATUSES, INVOICE_TYPE_I18N_KEY } from '@/types/invoice'
 import { batchDeleteInvoicesApi, deleteInvoiceApi, fetchInvoices } from '@/api/invoices'
 import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -148,6 +148,11 @@ function onRowClick(row: InvoiceRecord, column?: { type?: string }, event?: Even
   emit('openInvoice', row)
 }
 
+function typeLabel(type: string) {
+  const key = INVOICE_TYPE_I18N_KEY[type]
+  return key ? t(`invoice.types.${key}`) : type
+}
+
 function statusLabel(status: string) {
   return t(`invoice.status.${status}`, status)
 }
@@ -237,7 +242,7 @@ async function onToolbarDelete() {
         <div class="related-list__actions">
           <button
             type="button"
-            class="action-pill action-pill--edit"
+            class="action-pill action-pill--leave"
             :disabled="printing"
             @mouseenter="onToolbarPrintHover"
             @focus="onToolbarPrintHover"
@@ -332,7 +337,9 @@ async function onToolbarDelete() {
             :label="t('invoice.fields.invoiceType')"
             :min-width="colW(t('invoice.fields.invoiceType'), { contentMin: 140 })"
             show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">{{ typeLabel(row.invoiceType) || '—' }}</template>
+          </el-table-column>
           <el-table-column
             :label="t('invoice.fields.status')"
             :min-width="statusColW(t('invoice.fields.status'), statusLabels, { interactive: false })"

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import type { ContractRecord } from '@/types/contract'
 import type { ReceivableRecord } from '@/types/receivable'
+import { INVOICE_TYPE_I18N_KEY } from '@/types/invoice'
 import { fetchReceivables } from '@/api/receivables'
 import { createReceiptApi, uploadReceiptAttachmentsApi } from '@/api/receipts'
 import { RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
@@ -38,6 +39,13 @@ const { t } = useI18n()
 const isMobile = useIsMobile()
 const receiptPerms = useResourcePermissions('receipts')
 const { colW, codeColW, textColW, tableLayoutKey } = useTableColWidth()
+
+function invoiceTypeLabel(type?: string | null) {
+  const raw = (type || '').trim()
+  if (!raw) return '—'
+  const key = INVOICE_TYPE_I18N_KEY[raw]
+  return key ? t(`invoice.types.${key}`) : raw
+}
 const {
   tableRef,
   selectedCount,
@@ -388,7 +396,7 @@ function onViewCustomer() {
           :min-width="colW(t('invoice.fields.invoiceType'), { contentMin: 120 })"
           show-overflow-tooltip
         >
-          <template #default="{ row }">{{ row.invoiceType || '—' }}</template>
+          <template #default="{ row }">{{ invoiceTypeLabel(row.invoiceType) }}</template>
         </el-table-column>
         <el-table-column
           :label="t('invoice.fields.description')"

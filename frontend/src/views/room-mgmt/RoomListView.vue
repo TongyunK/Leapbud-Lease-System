@@ -7,12 +7,18 @@ import {
   updateRoomApi,
   deleteRoomApi,
   batchDeleteRoomsApi,
+  batchUpdateRoomsApi,
   importRoomsApi,
   uploadRoomImagesApi,
   deleteRoomImageApi,
   fetchRoomImageBlob,
 } from '@/api/rooms'
-import type { RoomLeaseCapabilityCounts, RoomListQuery, RoomWritePayload } from '@/api/rooms'
+import type {
+  RoomBatchUpdatePayload,
+  RoomLeaseCapabilityCounts,
+  RoomListQuery,
+  RoomWritePayload,
+} from '@/api/rooms'
 import { fetchRoomConfigs, matchSizeOption } from '@/api/room-configs'
 import { fetchRoomTypes } from '@/api/room-types'
 import type { BuildingRecord } from '@/types/building'
@@ -49,6 +55,7 @@ import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
 import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
@@ -230,7 +237,7 @@ const roomTypeToneByLabel = computed(() => {
 })
 
 /** 状态列：闲置中 / 整租中 / 分租中 / 满租 */
-const fillStatusOptions: RoomFillStatus[] = ['idle', 'whole', 'partial', 'full']
+const fillStatusOptions: RoomFillStatus[] = ['idle', 'short', 'whole', 'partial', 'full']
 const {
   filters,
   setFilter,
@@ -354,6 +361,38 @@ const {
   selectRows,
 } = useTableSelection<RoomRecord>()
 const batchDeleting = ref(false)
+const batchEditVisible = ref(false)
+const batchEditing = ref(false)
+/** 勾选才写入：未勾选字段不会出现在请求体 */
+const batchEditEnable = reactive({
+  allowShortTerm: true,
+  roomType: false,
+  buildingId: false,
+  windowConfig: false,
+  acConfig: false,
+  leaseCapability: false,
+  monthlyRent: false,
+  dailyRent: false,
+  hourlyRent: false,
+  sizeSqft: false,
+  description: false,
+  remark: false,
+})
+const batchEditForm = reactive({
+  allowShortTerm: true,
+  roomType: '',
+  buildingId: '',
+  windowConfig: '',
+  acConfig: '',
+  leaseCapability: 'flexible' as RoomLeaseCapability,
+  splitCount: 2,
+  monthlyRent: 0,
+  dailyRent: 0,
+  hourlyRent: 0,
+  sizeSqft: 0,
+  description: '',
+  remark: '',
+})
 const selectAllLoading = ref(false)
 const {
   state: batchState,
@@ -404,6 +443,101 @@ async function onBatchDelete() {
     finishBatch(0, ids.length)
   } finally {
     batchDeleting.value = false
+  }
+}
+
+function resetBatchEditForm() {
+  batchEditEnable.allowShortTerm = true
+  batchEditEnable.roomType = false
+  batchEditEnable.buildingId = false
+  batchEditEnable.windowConfig = false
+  batchEditEnable.acConfig = false
+  batchEditEnable.leaseCapability = false
+  batchEditEnable.monthlyRent = false
+  batchEditEnable.dailyRent = false
+  batchEditEnable.hourlyRent = false
+  batchEditEnable.sizeSqft = false
+  batchEditEnable.description = false
+  batchEditEnable.remark = false
+  batchEditForm.allowShortTerm = true
+  batchEditForm.roomType = ''
+  batchEditForm.buildingId = ''
+  batchEditForm.windowConfig = ''
+  batchEditForm.acConfig = ''
+  batchEditForm.leaseCapability = 'flexible'
+  batchEditForm.splitCount = 2
+  batchEditForm.monthlyRent = 0
+  batchEditForm.dailyRent = 0
+  batchEditForm.hourlyRent = 0
+  batchEditForm.sizeSqft = 0
+  batchEditForm.description = ''
+  batchEditForm.remark = ''
+}
+
+function openBatchEdit() {
+  if (!userStore.isSuperAdmin || !selectedIds.value.length) return
+  resetBatchEditForm()
+  batchEditVisible.value = true
+}
+
+function buildBatchUpdatePayload(ids: string[]) {
+  const payload: RoomBatchUpdatePayload = { ids }
+  if (batchEditEnable.allowShortTerm) payload.allowShortTerm = batchEditForm.allowShortTerm
+  if (batchEditEnable.roomType) payload.roomType = batchEditForm.roomType
+  if (batchEditEnable.buildingId) payload.buildingId = batchEditForm.buildingId
+  if (batchEditEnable.windowConfig) payload.windowConfig = batchEditForm.windowConfig
+  if (batchEditEnable.acConfig) payload.acConfig = batchEditForm.acConfig
+  if (batchEditEnable.leaseCapability) {
+    payload.leaseCapability = batchEditForm.leaseCapability
+    if (batchEditForm.leaseCapability === 'flexible') {
+      payload.splitCount = batchEditForm.splitCount
+    }
+  }
+  if (batchEditEnable.monthlyRent) payload.monthlyRent = batchEditForm.monthlyRent
+  if (batchEditEnable.dailyRent) payload.dailyRent = batchEditForm.dailyRent
+  if (batchEditEnable.hourlyRent) payload.hourlyRent = batchEditForm.hourlyRent
+  if (batchEditEnable.sizeSqft) payload.sizeSqft = batchEditForm.sizeSqft
+  if (batchEditEnable.description) payload.description = batchEditForm.description
+  if (batchEditEnable.remark) payload.remark = batchEditForm.remark
+  return payload
+}
+
+async function onBatchEditSubmit() {
+  if (!userStore.isSuperAdmin || !selectedIds.value.length) return
+  const enabled = Object.values(batchEditEnable).some(Boolean)
+  if (!enabled) {
+    ElMessage.warning(t('room.batchEdit.needField'))
+    return
+  }
+  if (batchEditEnable.roomType && !batchEditForm.roomType) {
+    ElMessage.warning(t('room.roomTypeRequired'))
+    return
+  }
+  if (batchEditEnable.buildingId && !batchEditForm.buildingId) {
+    ElMessage.warning(t('room.buildingRequired'))
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchEditing.value = true
+  try {
+    let updated = 0
+    const chunkSize = 100
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize)
+      const { data } = await batchUpdateRoomsApi(buildBatchUpdatePayload(chunk))
+      updated += data.updated || 0
+    }
+    batchEditVisible.value = false
+    if (updated === ids.length) {
+      ElMessage.success(t('room.batchEdit.done', { n: updated }))
+    } else {
+      ElMessage.warning(t('room.batchEdit.partial', { ok: updated, req: ids.length }))
+    }
+    clearSelection()
+    await loadLeaseCapabilityCounts()
+    await loadList()
+  } finally {
+    batchEditing.value = false
   }
 }
 
@@ -479,6 +613,7 @@ const form = reactive({
   subleaseMark: '',
   leaseCapability: 'flexible' as RoomLeaseCapability,
   splitCount: 2,
+  allowShortTerm: false,
 })
 
 const previewSplitLabels = computed(() => {
@@ -842,6 +977,7 @@ function openCreate() {
     subleaseMark: '',
     leaseCapability: 'flexible',
     splitCount: 2,
+    allowShortTerm: false,
   })
   formVisible.value = true
 }
@@ -868,6 +1004,7 @@ function openEdit(row: RoomRecord) {
     subleaseMark: row.subleaseMark || '',
     leaseCapability: row.leaseCapability || 'flexible',
     splitCount: Math.max(2, row.splitLabels?.length || 2),
+    allowShortTerm: row.allowShortTerm === true,
   })
   formVisible.value = true
   void loadFormExistingUrls()
@@ -946,6 +1083,7 @@ async function saveForm() {
     leaseCapability: form.leaseCapability,
     splitCount: formNeedsSplitParts.value ? form.splitCount : undefined,
     splitLabels: formNeedsSplitParts.value ? previewSplitLabels.value : [],
+    allowShortTerm: form.allowShortTerm === true,
   }
   saving.value = true
   try {
@@ -1502,12 +1640,22 @@ async function saveForm() {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="perms.batchDelete" #batch>
+          <template v-if="perms.batchDelete || userStore.isSuperAdmin" #batch>
             <button
+              v-if="userStore.isSuperAdmin"
+              type="button"
+              class="lb-pager__batch-btn lb-pager__batch-btn--primary"
+              :disabled="batchEditing || batchDeleting || selectAllLoading"
+              @click="openBatchEdit"
+            >
+              {{ t('room.batchEdit.action') }}
+            </button>
+            <button
+              v-if="perms.batchDelete"
               v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
-              :disabled="batchDeleting || selectAllLoading"
+              :disabled="batchDeleting || batchEditing || selectAllLoading"
               @click="onBatchDelete"
             >
               {{ t('common.batchDelete') }}
@@ -1692,19 +1840,27 @@ async function saveForm() {
             :label="t('room.fields.building')"
             required
           >
-            <el-select
-              v-model="form.buildingId"
-              style="width: 100%"
-              :placeholder="t('common.pleaseSelect')"
+            <SelectWithViewAction
+              :disabled="!form.buildingId"
+              @view="openBuildingDetail(form.buildingId)"
             >
-              <el-option
-                v-for="b in formBuildingOptions"
-                :key="b.id"
-                :label="b.name"
-                :value="b.id"
-                :disabled="!b.active && b.id !== form.buildingId"
-              />
-            </el-select>
+              <el-select
+                v-model="form.buildingId"
+                style="width: 100%"
+                :placeholder="t('common.pleaseSelect')"
+              >
+                <el-option
+                  v-for="b in formBuildingOptions"
+                  :key="b.id"
+                  :label="b.name"
+                  :value="b.id"
+                  :disabled="!b.active && b.id !== form.buildingId"
+                />
+              </el-select>
+            </SelectWithViewAction>
+          </el-form-item>
+          <el-form-item :label="t('room.fields.allowShortTerm')">
+            <el-switch v-model="form.allowShortTerm" />
           </el-form-item>
 
           <div
@@ -1928,6 +2084,235 @@ async function saveForm() {
       :result-tone="batchState.resultTone"
       @close="closeBatch"
     />
+
+    <el-dialog
+      v-model="batchEditVisible"
+      :title="t('room.batchEdit.title')"
+      width="560px"
+      class="lb-dialog"
+      destroy-on-close
+    >
+      <p class="form-hint" style="margin-top: 0">
+        {{ t('room.batchEdit.hint', { n: selectedCount }) }}
+      </p>
+      <div class="batch-edit-fields">
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.allowShortTerm">
+            {{ t('room.fields.allowShortTerm') }}
+          </el-checkbox>
+          <el-switch
+            v-model="batchEditForm.allowShortTerm"
+            :disabled="!batchEditEnable.allowShortTerm"
+          />
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.roomType">
+            {{ t('room.fields.roomType') }}
+          </el-checkbox>
+          <el-select
+            v-model="batchEditForm.roomType"
+            :disabled="!batchEditEnable.roomType"
+            :placeholder="t('common.pleaseSelect')"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="opt in roomTypeOptions"
+              :key="opt.id"
+              :label="opt.label"
+              :value="opt.label"
+            />
+          </el-select>
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.buildingId">
+            {{ t('room.fields.building') }}
+          </el-checkbox>
+          <SelectWithViewAction
+            :disabled="!batchEditEnable.buildingId || !batchEditForm.buildingId"
+            @view="openBuildingDetail(batchEditForm.buildingId)"
+          >
+            <el-select
+              v-model="batchEditForm.buildingId"
+              :disabled="!batchEditEnable.buildingId"
+              :placeholder="t('common.pleaseSelect')"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="b in formBuildingOptions"
+                :key="b.id"
+                :label="b.name"
+                :value="b.id"
+                :disabled="!b.active && b.id !== batchEditForm.buildingId"
+              />
+            </el-select>
+          </SelectWithViewAction>
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.leaseCapability">
+            {{ t('room.fields.leaseCapability') }}
+          </el-checkbox>
+          <div class="batch-edit-row__stack">
+            <el-radio-group
+              v-model="batchEditForm.leaseCapability"
+              class="lb-yesno-seg"
+              :disabled="!batchEditEnable.leaseCapability"
+            >
+              <el-radio-button value="flexible">
+                {{ t('room.leaseCapability.flexibleShort') }}
+              </el-radio-button>
+              <el-radio-button value="whole_only">
+                {{ t('room.leaseCapability.wholeOnlyShort') }}
+              </el-radio-button>
+              <el-radio-button value="part_only">
+                {{ t('room.leaseCapability.partOnlyShort') }}
+              </el-radio-button>
+            </el-radio-group>
+            <el-input-number
+              v-if="batchEditForm.leaseCapability === 'flexible'"
+              v-model="batchEditForm.splitCount"
+              :min="2"
+              :max="12"
+              :disabled="!batchEditEnable.leaseCapability"
+              controls-position="right"
+              style="width: 140px"
+            />
+          </div>
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.windowConfig">
+            {{ t('room.fields.windowConfig') }}
+          </el-checkbox>
+          <el-select
+            v-model="batchEditForm.windowConfig"
+            :disabled="!batchEditEnable.windowConfig"
+            clearable
+            :placeholder="t('common.pleaseSelect')"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="o in windowOptions"
+              :key="o.id"
+              :label="o.label"
+              :value="o.label"
+            />
+          </el-select>
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.acConfig">
+            {{ t('room.fields.acConfig') }}
+          </el-checkbox>
+          <el-select
+            v-model="batchEditForm.acConfig"
+            :disabled="!batchEditEnable.acConfig"
+            clearable
+            :placeholder="t('common.pleaseSelect')"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="o in acOptions"
+              :key="o.id"
+              :label="o.label"
+              :value="o.label"
+            />
+          </el-select>
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.monthlyRent">
+            {{ t('room.fields.monthlyRent') }}
+          </el-checkbox>
+          <el-input-number
+            v-model="batchEditForm.monthlyRent"
+            :min="0"
+            :precision="2"
+            :disabled="!batchEditEnable.monthlyRent"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.dailyRent">
+            {{ t('room.fields.dailyRent') }}
+          </el-checkbox>
+          <el-input-number
+            v-model="batchEditForm.dailyRent"
+            :min="0"
+            :precision="2"
+            :disabled="!batchEditEnable.dailyRent"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.hourlyRent">
+            {{ t('room.fields.hourlyRent') }}
+          </el-checkbox>
+          <el-input-number
+            v-model="batchEditForm.hourlyRent"
+            :min="0"
+            :precision="2"
+            :disabled="!batchEditEnable.hourlyRent"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </div>
+
+        <div class="batch-edit-row">
+          <el-checkbox v-model="batchEditEnable.sizeSqft">
+            {{ t('room.fields.sizeSqft') }}
+          </el-checkbox>
+          <el-input-number
+            v-model="batchEditForm.sizeSqft"
+            :min="0"
+            :precision="2"
+            :disabled="!batchEditEnable.sizeSqft"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </div>
+
+        <div class="batch-edit-row batch-edit-row--top">
+          <el-checkbox v-model="batchEditEnable.description">
+            {{ t('room.fields.description') }}
+          </el-checkbox>
+          <el-input
+            v-model="batchEditForm.description"
+            type="textarea"
+            :rows="2"
+            :disabled="!batchEditEnable.description"
+            :placeholder="t('room.fields.description')"
+          />
+        </div>
+
+        <div class="batch-edit-row batch-edit-row--top">
+          <el-checkbox v-model="batchEditEnable.remark">
+            {{ t('room.fields.remark') }}
+          </el-checkbox>
+          <el-input
+            v-model="batchEditForm.remark"
+            type="textarea"
+            :rows="2"
+            :disabled="!batchEditEnable.remark"
+            :placeholder="t('room.fields.remark')"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <el-button :disabled="batchEditing" @click="batchEditVisible = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button type="primary" :loading="batchEditing" @click="onBatchEditSubmit">
+          {{ t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1937,6 +2322,37 @@ async function saveForm() {
   font-size: 12px;
   line-height: 1.45;
   color: var(--lb-muted, #6a7a70);
+}
+
+.batch-edit-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 12px;
+  margin-top: 12px;
+}
+
+.batch-edit-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+
+.batch-edit-row--top {
+  align-items: start;
+}
+
+.batch-edit-row--top :deep(.el-checkbox) {
+  padding-top: 6px;
+}
+
+.batch-edit-row__stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
 }
 
 .room-lease-panel {

@@ -454,6 +454,8 @@ button {
   --lb-table-body: 0.86rem;
   --lb-table-head: 0.82rem;
   --lb-table-action: 0.78rem;
+  /* 操作列最右按钮与列右缘：大屏 10px；小屏见下方 media（与 useActionColWidth 同读此变量） */
+  --lb-action-pad-right: 10px;
 }
 
 @media (max-width: 1279.98px) {
@@ -1693,20 +1695,22 @@ button {
   vertical-align: middle;
 }
 
-.table-card .el-table td.col-actions > .cell,
-.table-card .el-table th.col-actions > .cell {
-  padding-left: 10px;
-  /* 最右按钮（含「…」）贴近列右缘；须与 useActionColWidth 同步 */
-  padding-right: 4px;
-  overflow: visible;
-  text-overflow: clip;
+@media (max-width: 1439.98px) {
+  .admin-page {
+    --lb-action-pad-right: 6px; /* 小屏（约 14 寸 / 窄视口） */
+  }
 }
 
-@media (max-width: 1439.98px) {
-  .table-card .el-table td.col-actions > .cell,
-  .table-card .el-table th.col-actions > .cell {
-    padding-right: 2px;
-  }
+/* 操作列左右留白全站统一；右侧读 --lb-action-pad-right，列宽测宽同读此变量 */
+.table-card .el-table td.col-actions > .cell,
+.table-card .el-table th.col-actions > .cell,
+.related-list__table td.col-actions > .cell,
+.related-list__table th.col-actions > .cell {
+  padding-left: 10px;
+  padding-right: var(--lb-action-pad-right, 10px);
+  text-align: left;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .action-pill {
@@ -1748,13 +1752,25 @@ button {
   color: #2a3d34;
 }
 
+/**
+ * 操作列配色语义（以合约列表为准，其它表对齐）：
+ * --edit   编辑（品牌绿实心）
+ * --accent 收款等强调操作（橙）
+ * --leave  打印协议 / 列印发票·收据等（雾青，贴近品牌绿）
+ * --info   开单 / 运行任务等（雾蓝）
+ * --key    续约 / 重置密码等（深绿）
+ * --view   查看·详情·下载等次要描边
+ * --danger 删除 / 退租
+ * --muted  取消等次要实心灰
+ * --warn   警告性重置等（黄）
+ */
 .action-pill--edit {
   border: 1px solid #0f4a32;
   background: #0f4a32;
   color: #fff;
 }
 
-/** 开单等：中低饱和雾蓝，贴近品牌绿明度 */
+/** 开单 / 运行等：中低饱和雾蓝，贴近品牌绿明度 */
 .action-pill--info {
   border: 1px solid #4f7fa3;
   background: #4f7fa3;
@@ -1810,16 +1826,16 @@ button {
   border-color: #b37330;
 }
 
-/** 退租等：雾紫，区别于删除红 */
+/** 列印等：雾青，贴近品牌绿、区别于开单蓝与删除红 */
 .action-pill--leave {
-  border: 1px solid #7a6b8c;
-  background: #7a6b8c;
+  border: 1px solid #4f8a7c;
+  background: #4f8a7c;
   color: #fff;
 }
 
 .action-pill--leave:hover {
-  background: #665a76;
-  border-color: #665a76;
+  background: #427568;
+  border-color: #427568;
 }
 
 /** 取消等次要操作：中性灰 */

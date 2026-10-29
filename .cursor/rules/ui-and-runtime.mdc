@@ -1,11 +1,13 @@
 ---
-description: 项目约定：弹窗、服务重启、表头筛选与清空
+description: 项目约定：弹窗样式（lb-dialog）、实体选择框内查看、服务重启、表头筛选与清空
 alwaysApply: true
 ---
 
 # Leapbud 约定
 
 - 所有 `el-dialog` / `ElMessageBox` 弹窗默认窗口居中、标题栏可拖动；已在 `App.vue` 的 `ElConfigProvider` 与 `main.ts` 全局配置，新增弹窗无需重复写 `align-center` / `draggable`（除非要覆盖）。
+- **新增业务弹窗样式统一对齐「新增房间」**：`class="lb-dialog"`；内容滚动交给全局 `.el-dialog__body`（`style.css` 已设 padding / max-height / 细滚动条），**不要**再在弹窗内自建带 `overflow: auto` 的滚动容器，也**不要**用负 `margin` 去挪滚动条位置。参考：`RoomListView.vue` 新增/编辑房间弹窗、批量修改房间弹窗。
+- **客户 / 房间 / 合约 / 大厦 / 发票 / 应收等实体选择框**：统一用 `SelectWithViewAction`；右侧顺序 `[▼][查看]`（箭头在查看左侧、小间距贴右）；可清空时与普通 `el-select` 一致——有值且悬停/聚焦时 `[▼]` **变为** `[×]`（不同时出现）。只读回填 `control="input"` 无箭头，「查看」与下拉「查看」对齐。可清空下拉**必须**在组件与内层 `el-select` 都加 `clearable`，且字符串字段加 `value-on-clear=""`（避免 EP 默认清成 `undefined` 导致 `.trim()` 报错）；曾选选项须 sticky/pin，清空后仍出现在下拉中。禁止业务页再写 right/padding。组件：`frontend/src/components/SelectWithViewAction.vue`。
 - 完成代码修改后**不要**主动重启 backend / frontend 开发服务；由用户自行刷新或重启。
 - 表格列宽中/英自适应：见规则 `frontend-table-layout.mdc`（`useTableColWidth` / `colW` / `datetimeColWidth` / `tableLayoutKey`）。
 - 表格**日期/时间列**须支持排序 + **时间范围筛选**：`TableColumnHeader` 开启 `sortable` 与 `date-range`，经 `useTableSortFilter` 的 `setDateRange` / `dateRangeOf` 接入；仅日期列（如需求日期）同样加 `date-range`。

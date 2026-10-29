@@ -225,16 +225,141 @@ export class PrintAgreementDto {
   draft?: AgreementPreviewDraftDto;
 }
 
-export class PrintInvoiceDto {
-  @ApiProperty({ description: '发票 ID' })
+export class InvoicePreviewServiceDetailDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  quantity?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  unitAmount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  subtotal?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  remark?: string;
+}
+
+/**
+ * 发票预览草稿：用新增／编辑弹窗当前表单填充模板（可无 invoiceId）。
+ */
+export class InvoicePreviewDraftDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  contractId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  invoiceId!: string;
+  customerId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  roomId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  invoiceCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  invoiceType?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  amount?: number | null;
+
+  @ApiPropertyOptional({ example: '2026-10-29' })
+  @IsOptional()
+  @IsString()
+  invoiceDate?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-10-29' })
+  @IsOptional()
+  @IsString()
+  paymentDueDate?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  roomNameText?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  remark?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  whatsappNumber?: string;
+
+  @ApiPropertyOptional({ type: [InvoicePreviewServiceDetailDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InvoicePreviewServiceDetailDto)
+  serviceDetails?: InvoicePreviewServiceDetailDto[];
+}
+
+export class PrintInvoiceDto {
+  @ApiPropertyOptional({ description: '发票 ID；纯草稿预览（新增）时可省略' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  invoiceId?: string;
 
   @ApiPropertyOptional({ enum: ['docx', 'pdf'], default: 'docx' })
   @IsOptional()
   @IsIn(['docx', 'pdf'])
   format?: 'docx' | 'pdf';
+
+  @ApiPropertyOptional({
+    description: '新增／编辑弹窗草稿；传入时按未保存表单内容填充模板',
+    type: InvoicePreviewDraftDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InvoicePreviewDraftDto)
+  draft?: InvoicePreviewDraftDto;
 }
 
 export class PrintReceiptDto {

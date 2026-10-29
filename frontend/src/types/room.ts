@@ -1,7 +1,7 @@
 export type RoomStatus = 'idle' | 'signing' | 'leased' | 'terminating'
 
-/** 状态列：闲置中 / 整租中 / 分租中 / 满租 */
-export type RoomFillStatus = 'idle' | 'whole' | 'partial' | 'full'
+/** 状态列：闲置中 / 短租中 / 整租中 / 分租中 / 满租 */
+export type RoomFillStatus = 'idle' | 'short' | 'whole' | 'partial' | 'full'
 
 /** whole_only=只能整租；flexible=可整可分；part_only=只能分租 */
 export type RoomLeaseCapability = 'whole_only' | 'flexible' | 'part_only'
@@ -23,6 +23,13 @@ export type RoomOccupancy = {
   wholeCustomerName?: string
   /** 整租合约业务状态（租用情况四态） */
   wholeStatus?: string
+  /** 短租占用（无合约占用时） */
+  shortInvoiceId?: string
+  shortInvoiceCode?: string
+  shortTermRentalCode?: string
+  shortCustomerName?: string
+  shortRentalStartDate?: string
+  shortRentalEndDate?: string
   slots: RoomOccupancySlot[]
 }
 
@@ -66,5 +73,7 @@ export interface RoomRecord {
   subleaseMark?: string
   leaseCapability?: RoomLeaseCapability
   splitLabels?: string[]
+  /** 是否允许短租开票（无合约） */
+  allowShortTerm?: boolean
   occupancy?: RoomOccupancy
 }

@@ -649,7 +649,7 @@ function onClearFilters() {
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
-                  class="action-pill action-pill--edit"
+                  class="action-pill action-pill--view"
                   @click="onDownload(row as DocumentTemplateRecord)"
                 >
                   {{ t('documentTemplate.actions.download') }}

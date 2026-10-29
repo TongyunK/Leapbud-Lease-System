@@ -31,6 +31,7 @@ import CountListPill from '@/components/CountListPill.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
 import type { ReceiptRecord } from '@/types/receipt'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -1058,39 +1059,60 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
           <el-form-item :label="t('receivable.fields.invoiceCode')" required class="span-2">
-            <el-select
-              v-model="form.invoiceId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('receivable.fields.invoiceCode')"
-              :disabled="!!editing"
-              @change="onInvoiceSelected"
+            <SelectWithViewAction
+              :disabled="!form.invoiceId"
+              @view="openInvoiceSide(form.invoiceId, 'ltr')"
             >
-              <el-option
-                v-for="opt in invoiceFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.invoiceId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('receivable.fields.invoiceCode')"
+                :disabled="!!editing"
+                @change="onInvoiceSelected"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in invoiceFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receivable.fields.contractCode')">
-            <el-input
-              :model-value="selectedInvoice?.contractCode || editing?.contractCode || ''"
-              readonly
-              :placeholder="t('receivable.autoFromInvoice')"
-            />
+            <SelectWithViewAction
+              control="input"
+              :disabled="!(selectedInvoice?.contractId || editing?.contractId)"
+              @view="
+                openContractSide(selectedInvoice?.contractId || editing?.contractId, 'ltr')
+              "
+            >
+              <el-input
+                :model-value="selectedInvoice?.contractCode || editing?.contractCode || ''"
+                readonly
+                :placeholder="t('receivable.autoFromInvoice')"
+              />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receivable.fields.customerName')">
-            <el-input
-              :model-value="selectedInvoice?.customerName || editing?.customerName || ''"
-              readonly
-              :placeholder="t('receivable.autoFromInvoice')"
-            />
+            <SelectWithViewAction
+              control="input"
+              :disabled="!(selectedInvoice?.customerId || editing?.customerId)"
+              @view="
+                openCustomerSide(selectedInvoice?.customerId || editing?.customerId, 'ltr')
+              "
+            >
+              <el-input
+                :model-value="selectedInvoice?.customerName || editing?.customerName || ''"
+                readonly
+                :placeholder="t('receivable.autoFromInvoice')"
+              />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receivable.fields.receivableCode')" class="span-2">
             <el-input

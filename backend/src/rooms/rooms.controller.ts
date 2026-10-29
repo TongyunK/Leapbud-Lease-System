@@ -23,11 +23,17 @@ import {
 import { UserRole } from '@prisma/client';
 import { memoryStorage } from 'multer';
 import { RoomsService } from './rooms.service';
-import { CreateRoomDto, ImportRoomsDto, UpdateRoomDto } from './dto/room.dto';
+import {
+  BatchUpdateRoomsDto,
+  CreateRoomDto,
+  ImportRoomsDto,
+  UpdateRoomDto,
+} from './dto/room.dto';
 import { BatchDeleteDto } from '../common/batch-delete';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { SuperAdminGuard } from '../auth/super-admin.guard';
 import { PermissionsGuard } from '../permissions/permissions.guard';
 import { RequirePermissions } from '../permissions/require-permissions.decorator';
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
@@ -77,7 +83,7 @@ export class RoomsController {
   @ApiQuery({
     name: 'occupancySummaries',
     required: false,
-    description: 'Comma-separated occupancy fill statuses: idle,whole,partial,full',
+    description: 'Comma-separated occupancy fill statuses: idle,whole,partial,full,short',
   })
   @ApiQuery({ name: 'roomTypes', required: false })
   @ApiQuery({ name: 'sizeRangeIds', required: false })
@@ -162,6 +168,19 @@ export class RoomsController {
   @ApiOkResponse({ description: 'Batch delete rooms by ids' })
   removeMany(@Body() dto: BatchDeleteDto) {
     return this.roomsService.removeMany(dto.ids);
+  }
+
+  /** 批量修改房间字段：仅 SuperAdmin */
+  @Post('batch-update')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, SuperAdminGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @ApiOkResponse({ description: 'Batch update rooms (SuperAdmin only)' })
+  batchUpdate(
+    @Body() dto: BatchUpdateRoomsDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.roomsService.batchUpdate(dto, actorUserId(user));
   }
 
   @Post()

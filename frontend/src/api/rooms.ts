@@ -24,6 +24,7 @@ export type RoomWritePayload = {
   leaseCapability?: 'whole_only' | 'flexible' | 'part_only'
   splitLabels?: string[]
   splitCount?: number
+  allowShortTerm?: boolean
 }
 
 export type RoomListQuery = {
@@ -34,7 +35,7 @@ export type RoomListQuery = {
   statuses?: string[]
   leaseCapability?: 'whole_only' | 'flexible' | 'part_only' | ''
   leaseCapabilities?: string[]
-  /** 状态列：idle | whole | partial | full */
+  /** 状态列：idle | short | whole | partial | full */
   occupancySummaries?: string[]
   roomTypes?: string[]
   sizeRangeIds?: string[]
@@ -115,6 +116,28 @@ export function batchDeleteRoomsApi(ids: string[]) {
     '/rooms/batch-delete',
     { ids },
   )
+}
+
+/** 批量修改房间字段（仅 SuperAdmin；仅提交的字段会更新） */
+export type RoomBatchUpdatePayload = {
+  ids: string[]
+  allowShortTerm?: boolean
+  roomType?: string
+  buildingId?: string
+  windowConfig?: string
+  acConfig?: string
+  leaseCapability?: 'whole_only' | 'flexible' | 'part_only'
+  splitCount?: number
+  monthlyRent?: number
+  dailyRent?: number
+  hourlyRent?: number
+  sizeSqft?: number
+  description?: string
+  remark?: string
+}
+
+export function batchUpdateRoomsApi(payload: RoomBatchUpdatePayload) {
+  return request.post<{ updated: number; requested: number }>('/rooms/batch-update', payload)
 }
 
 export function importRoomsApi(items: RoomWritePayload[]) {

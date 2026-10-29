@@ -188,6 +188,7 @@ export class DocumentTemplatesController {
   ) {
     const result = await this.invoicePrintService.print({
       invoiceId: dto.invoiceId,
+      draft: dto.draft,
       format: dto.format,
     });
     res.set({
@@ -201,11 +202,13 @@ export class DocumentTemplatesController {
 
   @Post('prints/invoice/preview-ticket')
   @ApiOkResponse({
-    description: '生成发票 PDF 预览票据；前端用 /view/:ticket 打开以保留正确文件名',
+    description:
+      '生成发票 PDF 预览票据；可带 draft（新增／编辑未保存表单）；前端用 /view/:ticket 打开以保留正确文件名',
   })
   async createInvoicePreviewTicket(@Body() dto: PrintInvoiceDto) {
     const result = await this.invoicePrintService.print({
       invoiceId: dto.invoiceId,
+      draft: dto.draft,
       format: 'pdf',
     });
     if (result.format !== 'pdf') {

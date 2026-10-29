@@ -29,6 +29,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import InvoiceServiceDetailDrawer from '@/components/InvoiceServiceDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -818,29 +819,34 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
           <el-form-item :label="t('invoiceServiceDetail.fields.invoiceCode')" required class="span-2">
-            <el-select
-              v-model="form.invoiceId"
-              filterable
-              remote
-              reserve-keyword
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('invoiceServiceDetail.fields.invoiceCode')"
-              :disabled="!!editing"
-              :remote-method="searchInvoicesRemote"
-              :loading="invoiceSelectLoading"
-              @visible-change="(open: boolean) => open && !editing && searchInvoicesRemote('')"
+            <SelectWithViewAction
+              :disabled="!form.invoiceId"
+              @view="openInvoiceSide(form.invoiceId, 'ltr')"
             >
-              <el-option
-                v-for="opt in invoiceSelectOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.invoiceId"
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('invoiceServiceDetail.fields.invoiceCode')"
+                :disabled="!!editing"
+                :remote-method="searchInvoicesRemote"
+                :loading="invoiceSelectLoading"
+                @visible-change="(open: boolean) => open && !editing && searchInvoicesRemote('')"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in invoiceSelectOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('invoiceServiceDetail.fields.description')" class="span-2">
             <el-input v-model="form.description" type="textarea" :rows="3" />

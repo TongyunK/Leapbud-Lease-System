@@ -3,11 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import type { InvoiceRecord } from '@/types/invoice'
+import { INVOICE_TYPE_I18N_KEY, isSystemGeneratedInvoice } from '@/types/invoice'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { invoiceStatusTone } from '@/constants/statusBadges'
+import { invoiceBillingKindTone, invoiceStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
 import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
 
@@ -62,13 +63,18 @@ function statusLabel(status: string) {
 }
 
 function typeLabel(type: string) {
-  const map: Record<string, string> = {
-    會議室短租: t('invoice.types.meetingRoomShort'),
-    Deposit: t('invoice.types.deposit'),
-    '1, Charging Period': t('invoice.types.chargingPeriod'),
-    '10, Other charges': t('invoice.types.otherCharges'),
-  }
-  return map[type] || type
+  const key = INVOICE_TYPE_I18N_KEY[type]
+  return key ? t(`invoice.types.${key}`) : type
+}
+
+function sourceLabel(source?: string | null) {
+  return source === 'short_term' ? t('invoice.source.short_term') : t('invoice.source.contract')
+}
+
+function billingKindLabel(kind?: string | null) {
+  return isSystemGeneratedInvoice(kind)
+    ? t('invoice.billingKind.auto')
+    : t('invoice.billingKind.manual')
 }
 
 async function onPrintInvoice() {
@@ -124,6 +130,24 @@ async function onPrintInvoice() {
               <StatusBadge
                 :tone="invoiceStatusTone(record.status)"
                 :label="statusLabel(record.status)"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('invoice.fields.source') }}</dt>
+            <dd>
+              <StatusBadge
+                :tone="record.source === 'short_term' ? 'signing' : 'idle'"
+                :label="sourceLabel(record.source)"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('invoice.fields.billingKind') }}</dt>
+            <dd>
+              <StatusBadge
+                :tone="invoiceBillingKindTone(record.billingKind)"
+                :label="billingKindLabel(record.billingKind)"
               />
             </dd>
           </div>
@@ -188,10 +212,6 @@ async function onPrintInvoice() {
           <div>
             <dt>{{ t('invoice.fields.paymentDueDate') }}</dt>
             <dd>{{ dash(record.paymentDueDate) }}</dd>
-          </div>
-          <div class="full">
-            <dt>{{ t('invoice.fields.description') }}</dt>
-            <dd>{{ dash(record.description) }}</dd>
           </div>
         </dl>
       </section>

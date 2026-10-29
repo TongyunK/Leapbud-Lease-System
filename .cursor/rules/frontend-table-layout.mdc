@@ -61,7 +61,9 @@ const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidt
 - **StatusBadge 状态列**必须用 `statusColW(表头, 全部状态文案)`，勿只写死 `contentMin`；无交互表头时传 `{ interactive: false }`。
 - 创建人 / 更新人列统一 `auditUserColWidth`。
 - `el-table` 必须 `:key="tableLayoutKey"`。
-- 时间戳列用 `datetimeColWidth`；操作列用 `useActionColWidth()`；序号列 `#` 可固定 `52`。
+- 时间戳列用 `datetimeColWidth`；操作列用 `useActionColWidth()` / `measureActionColWidth(实际按钮文案)`；序号列 `#` 可固定 `52`。
+- 操作列最右按钮与列右缘留白：全站统一——改 `.admin-page` 的 `--lb-action-pad-right`（大屏 10px / 小屏 6px）；`style.css` 与 `useActionColWidth` 都读此变量，禁止各写一套数字；禁止 `align="center"` 操作列。
+- 合约「…」等 `.action-pill--more` 测宽须用更窄 padding（勿按普通 pill 的 30px 边距估，否则右侧会空一大截）。
 
 ## 反例
 

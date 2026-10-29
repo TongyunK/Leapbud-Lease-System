@@ -82,6 +82,7 @@ import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vu
 import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ContractReceivePaymentDialog from '@/components/ContractReceivePaymentDialog.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -1260,11 +1261,12 @@ function seedCustomerOption(row: ContractRecord): CustomerRecord | null {
 
 function keepSelectedInOptions<T extends { id: string }>(
   items: T[],
-  selectedId: string,
+  selectedId: string | null | undefined,
   current: T[],
 ): T[] {
-  if (!selectedId || items.some((x) => x.id === selectedId)) return items
-  const keep = current.find((x) => x.id === selectedId)
+  const sid = String(selectedId ?? '').trim()
+  if (!sid || items.some((x) => x.id === sid)) return items
+  const keep = current.find((x) => x.id === sid)
   return keep ? [keep, ...items] : items
 }
 
@@ -1465,32 +1467,49 @@ async function onCustomerSelectVisible(open: boolean) {
   customerSelectScrollHandler = bound.handler
 }
 
+/**
+ * 清空后仍保留曾选过的需求（避免仅靠「当前选中」临时 seed，一点 × 选项就从列表消失）。
+ * EP clearable 默认 valueOnClear 为 undefined，须配合 value-on-clear=""。
+ */
+const pinnedRequirements = ref<CustomerRequirementRecord[]>([])
+
+function pinRequirementOption(row: CustomerRequirementRecord) {
+  if (!row?.id) return
+  if (pinnedRequirements.value.some((r) => r.id === row.id)) return
+  pinnedRequirements.value = [...pinnedRequirements.value, row]
+}
+
+function requirementSeedFromContract(
+  requirementId: string,
+  customerId: string,
+): CustomerRequirementRecord | null {
+  const hit =
+    editing.value?.requirementId === requirementId
+      ? editing.value
+      : list.value.find((c) => c.requirementId === requirementId)
+  if (!hit?.requirementCode) return null
+  return {
+    id: requirementId,
+    requirementCode: hit.requirementCode,
+    customerId,
+  } as CustomerRequirementRecord
+}
+
 const requirementSelectOptions = computed(() => {
-  const cid = form.customerId.trim()
+  const cid = String(form.customerId ?? '').trim()
   if (!cid) return []
-  const base = customerRequirements.value.filter((r) => r.customerId === cid)
-  const currentId = form.requirementId.trim()
-  if (currentId && !base.some((r) => r.id === currentId)) {
-    const hit =
-      editing.value?.requirementId === currentId
-        ? editing.value
-        : list.value.find((c) => c.requirementId === currentId)
-    if (hit?.requirementCode) {
-      return [
-        {
-          id: currentId,
-          requirementCode: hit.requirementCode,
-          customerId: cid,
-        } as CustomerRequirementRecord,
-        ...base,
-      ]
-    }
+  const map = new Map<string, CustomerRequirementRecord>()
+  for (const r of customerRequirements.value) {
+    if (r.customerId === cid) map.set(r.id, r)
   }
-  return base
+  for (const r of pinnedRequirements.value) {
+    if (r.customerId === cid) map.set(r.id, r)
+  }
+  return [...map.values()]
 })
 
 async function loadRequirementsForCustomer(customerId: string) {
-  if (!customerId.trim()) {
+  if (!String(customerId ?? '').trim()) {
     customerRequirements.value = []
     return
   }
@@ -1505,8 +1524,31 @@ async function loadRequirementsForCustomer(customerId: string) {
 watch(
   () => form.customerId,
   async (cid, prev) => {
-    if (cid !== prev) form.requirementId = ''
+    // 仅用户在弹窗内改客户时清空需求；openEdit 赋值时 dialog 尚未打开，勿冲掉 requirementId
+    if (cid !== prev && formVisible.value) {
+      form.requirementId = ''
+      pinnedRequirements.value = []
+    }
     await loadRequirementsForCustomer(cid)
+  },
+)
+
+watch(
+  () => form.requirementId,
+  (id) => {
+    const sid = String(id ?? '').trim()
+    if (!sid) return
+    const cid = String(form.customerId ?? '').trim()
+    const existing =
+      customerRequirements.value.find((r) => r.id === sid) ||
+      pinnedRequirements.value.find((r) => r.id === sid)
+    if (existing) {
+      pinRequirementOption(existing)
+      return
+    }
+    if (!cid) return
+    const seeded = requirementSeedFromContract(sid, cid)
+    if (seeded) pinRequirementOption(seeded)
   },
 )
 
@@ -1802,6 +1844,7 @@ function openCreate() {
   otherFees.value = []
   loanItemPage.value = 1
   customerRequirements.value = []
+  pinnedRequirements.value = []
   roomSelectOptions.value = []
   customerSelectOptions.value = []
   roomPickMode.value = 'all'
@@ -2392,7 +2435,15 @@ async function openEdit(row: ContractRecord) {
       /* keep seed */
     }
   }
+  pinnedRequirements.value = []
   await loadRequirementsForCustomer(row.customerId)
+  const reqId = String(row.requirementId || '').trim()
+  if (reqId) {
+    const existing =
+      customerRequirements.value.find((r) => r.id === reqId) ||
+      requirementSeedFromContract(reqId, row.customerId)
+    if (existing) pinRequirementOption(existing)
+  }
   formVisible.value = true
 }
 
@@ -2403,7 +2454,7 @@ function payloadFromForm(issueNow = false) {
     roomId: form.roomId.trim(),
     customerId: form.customerId.trim(),
     salesManagerId: form.salesManagerId.trim() || null,
-    requirementId: form.requirementId.trim() || null,
+    requirementId: String(form.requirementId ?? '').trim() || null,
     startDate: form.startDate || null,
     endDate: form.endDate || null,
     actualEndDate: form.actualEndDate || null,
@@ -3857,90 +3908,106 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           <h3>{{ t('contract.sections.basic') }}</h3>
           <div class="form-grid">
             <el-form-item v-if="editing" :label="t('contract.fields.contractCode')">
-              <el-input v-model="form.contractCode" disabled />
+              <SelectWithViewAction
+                control="input"
+                :disabled="!editing?.id"
+                @view="relationDrawers?.openContractSide(editing?.id)"
+              >
+                <el-input v-model="form.contractCode" disabled />
+              </SelectWithViewAction>
             </el-form-item>
             <el-form-item :label="t('contract.fields.roomCode')" required>
-              <el-select
-                v-model="form.roomId"
-                filterable
-                remote
-                reserve-keyword
-                fit-input-width
-                style="width: 100%"
-                popper-class="contract-room-select-popper"
-                :placeholder="t('contract.fields.roomCode')"
-                :remote-method="searchRoomsRemote"
-                :loading="roomSelectLoading"
-                @visible-change="onRoomSelectVisible"
-                @change="onRoomSelectChange"
+              <SelectWithViewAction
+                :disabled="!form.roomId"
+                @view="openRoomSide(form.roomId, 'ltr')"
               >
-                <template #header>
-                  <div
-                    class="contract-room-pick-modes"
-                    role="tablist"
-                    :aria-label="t('contract.roomPickModeAria')"
-                    @mousedown.stop.prevent
-                  >
-                    <button
-                      v-for="chip in roomPickModeChips"
-                      :key="chip.key"
-                      type="button"
-                      class="contract-room-pick-mode"
-                      role="tab"
-                      :class="{ 'is-active': roomPickMode === chip.key }"
-                      :aria-selected="roomPickMode === chip.key"
-                      @click="setRoomPickMode(chip.key)"
-                    >
-                      {{ chip.label }}
-                    </button>
-                  </div>
-                </template>
-                <el-option
-                  v-for="r in roomSelectOptions"
-                  :key="r.id"
-                  :label="roomOptionLabel(r)"
-                  :value="r.id"
-                  :title="roomOptionLabel(r)"
+                <el-select
+                  v-model="form.roomId"
+                  filterable
+                  remote
+                  reserve-keyword
+                  fit-input-width
+                  style="width: 100%"
+                  popper-class="contract-room-select-popper"
+                  :placeholder="t('contract.fields.roomCode')"
+                  :remote-method="searchRoomsRemote"
+                  :loading="roomSelectLoading"
+                  @visible-change="onRoomSelectVisible"
+                  @change="onRoomSelectChange"
                 >
-                  <div class="contract-room-option">
-                    <span class="select-option-ellipsis" :title="roomOptionLabel(r)">
-                      {{ roomOptionLabel(r) }}
-                    </span>
-                    <StatusBadge
-                      class="contract-room-option__badge"
-                      :tone="roomPickBadge(r).tone"
-                      :label="roomPickBadge(r).label"
-                    />
-                  </div>
-                </el-option>
-              </el-select>
+                  <template #header>
+                    <div
+                      class="contract-room-pick-modes"
+                      role="tablist"
+                      :aria-label="t('contract.roomPickModeAria')"
+                      @mousedown.stop.prevent
+                    >
+                      <button
+                        v-for="chip in roomPickModeChips"
+                        :key="chip.key"
+                        type="button"
+                        class="contract-room-pick-mode"
+                        role="tab"
+                        :class="{ 'is-active': roomPickMode === chip.key }"
+                        :aria-selected="roomPickMode === chip.key"
+                        @click="setRoomPickMode(chip.key)"
+                      >
+                        {{ chip.label }}
+                      </button>
+                    </div>
+                  </template>
+                  <el-option
+                    v-for="r in roomSelectOptions"
+                    :key="r.id"
+                    :label="roomOptionLabel(r)"
+                    :value="r.id"
+                    :title="roomOptionLabel(r)"
+                  >
+                    <div class="contract-room-option">
+                      <span class="select-option-ellipsis" :title="roomOptionLabel(r)">
+                        {{ roomOptionLabel(r) }}
+                      </span>
+                      <StatusBadge
+                        class="contract-room-option__badge"
+                        :tone="roomPickBadge(r).tone"
+                        :label="roomPickBadge(r).label"
+                      />
+                    </div>
+                  </el-option>
+                </el-select>
+              </SelectWithViewAction>
             </el-form-item>
             <el-form-item :label="t('contract.fields.customerName')" required>
-              <el-select
-                v-model="form.customerId"
-                filterable
-                remote
-                reserve-keyword
-                fit-input-width
-                style="width: 100%"
-                popper-class="contract-customer-select-popper"
-                :placeholder="t('contract.fields.customerName')"
-                :remote-method="searchCustomersRemote"
-                :loading="customerSelectLoading"
-                @visible-change="onCustomerSelectVisible"
+              <SelectWithViewAction
+                :disabled="!form.customerId"
+                @view="openCustomerSide(form.customerId, 'ltr')"
               >
-                <el-option
-                  v-for="c in customerSelectOptions"
-                  :key="c.id"
-                  :label="customerOptionLabel(c)"
-                  :value="c.id"
-                  :title="customerOptionLabel(c)"
+                <el-select
+                  v-model="form.customerId"
+                  filterable
+                  remote
+                  reserve-keyword
+                  fit-input-width
+                  style="width: 100%"
+                  popper-class="contract-customer-select-popper"
+                  :placeholder="t('contract.fields.customerName')"
+                  :remote-method="searchCustomersRemote"
+                  :loading="customerSelectLoading"
+                  @visible-change="onCustomerSelectVisible"
                 >
-                  <span class="select-option-ellipsis" :title="customerOptionLabel(c)">
-                    {{ customerOptionLabel(c) }}
-                  </span>
-                </el-option>
-              </el-select>
+                  <el-option
+                    v-for="c in customerSelectOptions"
+                    :key="c.id"
+                    :label="customerOptionLabel(c)"
+                    :value="c.id"
+                    :title="customerOptionLabel(c)"
+                  >
+                    <span class="select-option-ellipsis" :title="customerOptionLabel(c)">
+                      {{ customerOptionLabel(c) }}
+                    </span>
+                  </el-option>
+                </el-select>
+              </SelectWithViewAction>
             </el-form-item>
             <el-form-item :label="t('contract.fields.salesManager')">
               <el-select
@@ -3954,21 +4021,28 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               </el-select>
             </el-form-item>
             <el-form-item :label="t('contract.fields.requirementCode')">
-              <el-select
-                v-model="form.requirementId"
-                filterable
+              <SelectWithViewAction
                 clearable
-                style="width: 100%"
-                :disabled="!form.customerId"
-                :placeholder="t('contract.fields.requirementCode')"
+                :disabled="!form.requirementId"
+                @view="openRequirementSide(form.requirementId)"
               >
-                <el-option
-                  v-for="req in requirementSelectOptions"
-                  :key="req.id"
-                  :label="req.requirementCode"
-                  :value="req.id"
-                />
-              </el-select>
+                <el-select
+                  v-model="form.requirementId"
+                  filterable
+                  clearable
+                  value-on-clear=""
+                  style="width: 100%"
+                  :disabled="!form.customerId"
+                  :placeholder="t('contract.fields.requirementCode')"
+                >
+                  <el-option
+                    v-for="req in requirementSelectOptions"
+                    :key="req.id"
+                    :label="req.requirementCode"
+                    :value="req.id"
+                  />
+                </el-select>
+              </SelectWithViewAction>
             </el-form-item>
             <el-form-item :label="t('contract.fields.startDate')" required>
               <el-date-picker

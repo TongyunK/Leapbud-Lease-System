@@ -31,6 +31,7 @@ import CountListPill from '@/components/CountListPill.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import type { ReceivableRecord } from '@/types/receivable'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
@@ -1015,44 +1016,63 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
           <el-form-item :label="t('depositRefund.fields.contractCode')" required class="span-2">
-            <el-select
-              v-model="form.contractId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('depositRefund.fields.contractCode')"
-              :disabled="!!editing"
+            <SelectWithViewAction
+              :disabled="!form.contractId"
+              @view="openContractSide(form.contractId, 'ltr')"
             >
-              <el-option
-                v-for="opt in contractFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.contractId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('depositRefund.fields.contractCode')"
+                :disabled="!!editing"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in contractFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.customerName')">
-            <el-input
-              :model-value="selectedContract?.customerName || editing?.customerName || ''"
-              readonly
-              :placeholder="t('depositRefund.autoFromContract')"
-            />
+            <SelectWithViewAction
+              control="input"
+              :disabled="!(selectedContract?.customerId || editing?.customerId)"
+              @view="
+                openCustomerSide(selectedContract?.customerId || editing?.customerId, 'ltr')
+              "
+            >
+              <el-input
+                :model-value="selectedContract?.customerName || editing?.customerName || ''"
+                readonly
+                :placeholder="t('depositRefund.autoFromContract')"
+              />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.roomName')">
-            <el-input
-              :model-value="
-                selectedContract
-                  ? `${selectedContract.roomCode}${selectedContract.roomName ? ' · ' + selectedContract.roomName : ''}`
-                  : editing
-                    ? `${editing.roomCode}${editing.roomName ? ' · ' + editing.roomName : ''}`
-                    : ''
-              "
-              readonly
-              :placeholder="t('depositRefund.autoFromContract')"
-            />
+            <SelectWithViewAction
+              control="input"
+              :disabled="!(selectedContract?.roomId || editing?.roomId)"
+              @view="openRoomSide(selectedContract?.roomId || editing?.roomId, 'ltr')"
+            >
+              <el-input
+                :model-value="
+                  selectedContract
+                    ? `${selectedContract.roomCode}${selectedContract.roomName ? ' · ' + selectedContract.roomName : ''}`
+                    : editing
+                      ? `${editing.roomCode}${editing.roomName ? ' · ' + editing.roomName : ''}`
+                      : ''
+                "
+                readonly
+                :placeholder="t('depositRefund.autoFromContract')"
+              />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.refundCode')" class="span-2">
             <el-input

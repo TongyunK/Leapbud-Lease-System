@@ -620,6 +620,95 @@ export async function previewInvoicePdfApi(
   }
 }
 
+/** 新增／编辑弹窗未保存草稿 */
+export type InvoicePreviewDraft = {
+  contractId?: string
+  customerId?: string
+  roomId?: string
+  invoiceCode?: string
+  invoiceType?: string
+  description?: string
+  amount?: number | null
+  invoiceDate?: string | null
+  paymentDueDate?: string | null
+  status?: string
+  roomNameText?: string
+  notes?: string
+  remark?: string
+  whatsappNumber?: string
+  serviceDetails?: Array<{
+    description?: string
+    quantity?: number
+    unitAmount?: number
+    subtotal?: number
+    remark?: string
+  }>
+}
+
+async function fetchInvoiceDraftPreviewTicket(
+  draft: InvoicePreviewDraft,
+  invoiceId?: string | null,
+  opts?: { silentError?: boolean },
+): Promise<InvoicePreviewTicket> {
+  const res = await request.post<{ ticket: string; fileName: string }>(
+    '/document-templates/prints/invoice/preview-ticket',
+    {
+      invoiceId: invoiceId || undefined,
+      format: 'pdf',
+      draft,
+    },
+    { silentError: opts?.silentError },
+  )
+  const ticket = String(res.data?.ticket || '')
+  const fileName = String(res.data?.fileName || 'invoice.pdf')
+  if (!ticket) throw new Error('未能创建 PDF 预览')
+  return { ticket, fileName, at: Date.now() }
+}
+
+/**
+ * 按弹窗当前表单（含未保存修改）预览发票 PDF；新增可无 invoiceId。
+ */
+export async function previewInvoiceDraftPdfApi(
+  draft: InvoicePreviewDraft,
+  invoiceId?: string | null,
+  opts?: { silentError?: boolean; autoPrint?: boolean },
+) {
+  const autoPrint = opts?.autoPrint === true
+  const win = openPreviewWindow()
+
+  try {
+    const { ticket, fileName } = await fetchInvoiceDraftPreviewTicket(
+      draft,
+      invoiceId,
+      { silentError: opts?.silentError },
+    )
+    const url = invoicePreviewUrl(ticket, fileName)
+    try {
+      win.location.href = url
+    } catch {
+      win.close()
+      throw new Error('无法在预览窗口中打开 PDF，请重试')
+    }
+    if (autoPrint) {
+      window.setTimeout(() => {
+        try {
+          win.focus()
+          win.print()
+        } catch {
+          /* 用户可在预览页手动 Ctrl+P */
+        }
+      }, 800)
+    }
+  } catch (error) {
+    try {
+      if (!win.closed) win.close()
+    } catch {
+      /* ignore */
+    }
+    throw error
+  }
+}
+
 /** 下载收据样例 docx（旧系统键名占位符） */
 export async function downloadReceiptSampleApi() {
   try {

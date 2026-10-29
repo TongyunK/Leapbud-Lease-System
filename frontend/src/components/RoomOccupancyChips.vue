@@ -9,7 +9,7 @@ import type {
   RoomOccupancySlot,
   RoomStatus,
 } from '@/types/room'
-import { roomStatusTone, type StatusTone } from '@/constants/statusBadges'
+import { roomFillStatusTone, roomStatusTone, type StatusTone } from '@/constants/statusBadges'
 
 /** 全局仅保留一个份位汽包；点外关闭，但忽略汽包自身与左侧合约抽屉（避免抢焦点卡顿） */
 let dismissActiveSplitPopover: (() => void) | null = null
@@ -87,8 +87,9 @@ const slots = computed((): RoomOccupancySlot[] => {
   return (props.splitLabels || []).map((label) => ({ label, occupied: false }))
 })
 
-/** idle | whole | split */
-const kind = computed<'idle' | 'whole' | 'split'>(() => {
+/** idle | short | whole | split */
+const kind = computed<'idle' | 'short' | 'whole' | 'split'>(() => {
+  if (summary.value === 'short') return 'short'
   if (summary.value === 'whole') return 'whole'
   if (summary.value === 'idle') return 'idle'
   return 'split'
@@ -104,8 +105,11 @@ function contractToRoomStatus(raw?: string | null): RoomStatus {
   return 'leased'
 }
 
-/** 租用情况摘要：整租→四态；分租→分租中；闲置→闲置中 */
+/** 租用情况摘要：整租→四态；短租→短租中；分租→分租中；闲置→闲置中 */
 const badge = computed(() => {
+  if (kind.value === 'short') {
+    return { tone: roomFillStatusTone('short'), label: t('room.occupancy.short') }
+  }
   if (kind.value === 'split') {
     return { tone: 'leasing' as StatusTone, label: t('room.occupancy.split') }
   }
@@ -117,6 +121,20 @@ const badge = computed(() => {
 })
 
 const wholeContractId = computed(() => props.occupancy?.wholeContractId || '')
+
+const shortTitle = computed(() => {
+  if (kind.value !== 'short') return ''
+  const tip = [
+    props.occupancy?.shortTermRentalCode || props.occupancy?.shortInvoiceCode,
+    props.occupancy?.shortCustomerName,
+    [props.occupancy?.shortRentalStartDate, props.occupancy?.shortRentalEndDate]
+      .filter(Boolean)
+      .join(' ~ '),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return tip || t('room.occupancy.shortHint')
+})
 
 const wholeTitle = computed(() => {
   if (kind.value !== 'whole') return ''
@@ -198,7 +216,7 @@ function onSlotKeydown(slot: RoomOccupancySlot, e: KeyboardEvent) {
         v-else
         :tone="badge.tone"
         :label="badge.label"
-        :title="wholeTitle || undefined"
+        :title="(kind === 'short' ? shortTitle : wholeTitle) || undefined"
       />
     </template>
 

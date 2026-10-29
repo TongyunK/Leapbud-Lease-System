@@ -5,9 +5,12 @@ import type { InvoiceImportPayload } from '@/utils/invoiceExport'
 import type { PaginatedResult } from '@/types/pagination'
 
 export type InvoiceWritePayload = {
+  source?: 'contract' | 'short_term' | string
   contractId?: string
   contractCode?: string
   invoiceCode?: string
+  customerId?: string
+  roomId?: string
   invoiceType?: string
   description?: string
   amount?: number
@@ -21,6 +24,10 @@ export type InvoiceWritePayload = {
   notes?: string
   whatsappNumber?: string
   shortTermRentalCode?: string
+  rentalStartDate?: string
+  rentalEndDate?: string
+  rentalDurationText?: string
+  referredByCustomerId?: string | null
   remark?: string
   serviceDetails?: InvoiceServiceDetailRecord[]
 }
@@ -33,6 +40,9 @@ export type InvoiceListQuery = {
   roomId?: string
   customerNames?: string[]
   status?: string
+  source?: string
+  /** manual | auto */
+  billingKind?: string
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   invoiceDateFrom?: string
@@ -45,6 +55,16 @@ export type InvoiceListQuery = {
   pageSize?: number
 }
 
+export type InvoiceSourceCounts = {
+  all: number
+  contract: number
+  short_term: number
+}
+
+export function fetchInvoiceSourceCounts() {
+  return request.get<InvoiceSourceCounts>('/invoices/stats/source')
+}
+
 export function fetchInvoices(params?: InvoiceListQuery) {
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
@@ -54,6 +74,8 @@ export function fetchInvoices(params?: InvoiceListQuery) {
   if (params?.roomId) query.roomId = params.roomId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.status) query.status = params.status
+  if (params?.source) query.source = params.source
+  if (params?.billingKind) query.billingKind = params.billingKind
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.invoiceDateFrom) query.invoiceDateFrom = params.invoiceDateFrom
@@ -71,6 +93,13 @@ export function fetchInvoices(params?: InvoiceListQuery) {
 
 export function fetchInvoice(id: string) {
   return request.get<InvoiceRecord>(`/invoices/${id}`)
+}
+
+/** 预览下一个发票编号（不占用序号；可选 contractId 带房间后缀） */
+export function previewInvoiceCodeApi(contractId?: string) {
+  return request.get<{ code: string }>('/invoices/code-preview', {
+    params: contractId?.trim() ? { contractId: contractId.trim() } : undefined,
+  })
 }
 
 export function createInvoiceApi(payload: InvoiceWritePayload) {

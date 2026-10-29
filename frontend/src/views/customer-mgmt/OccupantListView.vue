@@ -28,6 +28,7 @@ import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentField from '@/components/AttachmentField.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -796,24 +797,31 @@ async function onImportFile(ev: Event) {
             <el-input v-model="form.name" />
           </el-form-item>
           <el-form-item :label="t('occupant.fields.customer')">
-            <el-select
-              v-model="form.customerId"
+            <SelectWithViewAction
               clearable
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('occupant.fields.customer')"
+              :disabled="!form.customerId"
+              @view="openCustomerSide(form.customerId)"
             >
-              <el-option
-                v-for="opt in customerFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.customerId"
+                clearable
+                value-on-clear=""
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('occupant.fields.customer')"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in customerFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('occupant.fields.whatsapp')" required>
             <el-input v-model="form.whatsapp" />

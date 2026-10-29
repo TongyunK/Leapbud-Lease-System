@@ -551,8 +551,6 @@ function triggerLabel(trigger: string) {
             :label="t('common.actions')"
             :width="actionColWidth"
             fixed="right"
-            align="center"
-            header-align="center"
             class-name="col-actions"
             label-class-name="col-actions"
           >
@@ -562,7 +560,7 @@ function triggerLabel(trigger: string) {
                   v-if="perms.update.value"
                   v-admin-glow="perms.codes.update"
                   type="button"
-                  class="action-pill action-pill--edit"
+                  class="action-pill action-pill--info"
                   :disabled="runningIds.has(row.id)"
                   @click="onRun(row)"
                 >

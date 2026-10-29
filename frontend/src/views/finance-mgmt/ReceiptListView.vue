@@ -39,6 +39,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -47,7 +48,7 @@ import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
-import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
+import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -66,24 +67,13 @@ const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('receipts')
-const { actionColWidth } = useActionColWidth()
-
 const receiptActionColWidth = computed(() => {
   void locale.value
-  if (perms.canEditOrDelete.value) {
-    return Math.max(
-      actionColWidth.value.three,
-      measureActionColWidth([
-        t('receipt.printReceipt'),
-        t('common.edit'),
-        t('common.delete'),
-      ]),
-    )
-  }
-  return Math.max(
-    actionColWidth.value.one,
-    measureActionColWidth([t('receipt.printReceipt')]),
-  )
+  // 按实际主列按钮测宽（与合约表同一套 CELL_PAD_RIGHT）
+  const labels = [t('receipt.printReceipt')]
+  if (perms.update.value) labels.push(t('common.edit'))
+  if (perms.delete.value) labels.push(t('common.delete'))
+  return measureActionColWidth(labels)
 })
 
 const printingReceiptId = ref<string | null>(null)
@@ -169,6 +159,11 @@ const receivableSelectHasMore = ref(true)
 const receivableSelectKeyword = ref('')
 let receivableSelectScrollEl: HTMLElement | null = null
 let receivableSelectScrollHandler: ((e: Event) => void) | null = null
+
+/** 清空后仍保留曾选项，避免 seed 项一点 × 就从下拉消失 */
+const stickyContractOption = ref<ReceiptContractOpt | null>(null)
+const stickyInvoiceOption = ref<ReceiptInvoiceOpt | null>(null)
+const stickyReceivableOption = ref<ReceiptReceivableOpt | null>(null)
 
 const drawerVisible = ref(false)
 const current = ref<ReceiptRecord | null>(null)
@@ -473,12 +468,22 @@ function attachmentIconClass(fileName: string) {
 
 function keepSelectedInOptions<T extends { id: string }>(
   items: T[],
-  selectedId: string,
+  selectedId: string | null | undefined,
   current: T[],
+  sticky?: T | null,
 ): T[] {
-  if (!selectedId || items.some((x) => x.id === selectedId)) return items
-  const keep = current.find((x) => x.id === selectedId)
-  return keep ? [keep, ...items] : items
+  const sid = String(selectedId ?? '').trim()
+  const out = [...items]
+  const seen = new Set(out.map((x) => x.id))
+  const keepers: T[] = []
+  if (sid && !seen.has(sid)) {
+    const keep = current.find((x) => x.id === sid) || (sticky?.id === sid ? sticky : null)
+    if (keep) keepers.push(keep)
+  }
+  if (sticky?.id && !seen.has(sticky.id) && sticky.id !== sid) {
+    keepers.push(sticky)
+  }
+  return keepers.length ? [...keepers, ...out] : out
 }
 
 function appendUniqueById<T extends { id: string }>(prev: T[], next: T[]): void {
@@ -580,7 +585,7 @@ async function loadCustomersPage(reset: boolean) {
     if (reset) {
       customerSelectOptions.value = keepSelectedInOptions(
         items,
-        form.customerId.trim(),
+        form.customerId,
         customerSelectOptions.value,
       )
     } else {
@@ -593,7 +598,7 @@ async function loadCustomersPage(reset: boolean) {
     if (reset) {
       customerSelectOptions.value = keepSelectedInOptions(
         [],
-        form.customerId.trim(),
+        form.customerId,
         customerSelectOptions.value,
       )
       customerSelectHasMore.value = false
@@ -636,8 +641,9 @@ async function loadContractsPage(reset: boolean) {
     if (reset) {
       contractSelectOptions.value = keepSelectedInOptions(
         items,
-        form.contractId.trim(),
+        form.contractId,
         contractSelectOptions.value,
+        stickyContractOption.value,
       )
     } else {
       appendUniqueById(contractSelectOptions.value, items)
@@ -649,8 +655,9 @@ async function loadContractsPage(reset: boolean) {
     if (reset) {
       contractSelectOptions.value = keepSelectedInOptions(
         [],
-        form.contractId.trim(),
+        form.contractId,
         contractSelectOptions.value,
+        stickyContractOption.value,
       )
       contractSelectHasMore.value = false
     }
@@ -693,8 +700,9 @@ async function loadInvoicesPage(reset: boolean) {
     if (reset) {
       invoiceSelectOptions.value = keepSelectedInOptions(
         items,
-        form.invoiceId.trim(),
+        form.invoiceId,
         invoiceSelectOptions.value,
+        stickyInvoiceOption.value,
       )
     } else {
       appendUniqueById(invoiceSelectOptions.value, items)
@@ -706,8 +714,9 @@ async function loadInvoicesPage(reset: boolean) {
     if (reset) {
       invoiceSelectOptions.value = keepSelectedInOptions(
         [],
-        form.invoiceId.trim(),
+        form.invoiceId,
         invoiceSelectOptions.value,
+        stickyInvoiceOption.value,
       )
       invoiceSelectHasMore.value = false
     }
@@ -752,8 +761,9 @@ async function loadReceivablesPage(reset: boolean) {
     if (reset) {
       receivableSelectOptions.value = keepSelectedInOptions(
         items,
-        form.receivableId.trim(),
+        form.receivableId,
         receivableSelectOptions.value,
+        stickyReceivableOption.value,
       )
     } else {
       appendUniqueById(receivableSelectOptions.value, items)
@@ -765,8 +775,9 @@ async function loadReceivablesPage(reset: boolean) {
     if (reset) {
       receivableSelectOptions.value = keepSelectedInOptions(
         [],
-        form.receivableId.trim(),
+        form.receivableId,
         receivableSelectOptions.value,
+        stickyReceivableOption.value,
       )
       receivableSelectHasMore.value = false
     }
@@ -775,6 +786,34 @@ async function loadReceivablesPage(reset: boolean) {
     else receivableSelectLoadingMore.value = false
   }
 }
+
+watch(
+  () => form.contractId,
+  (id) => {
+    const sid = String(id ?? '').trim()
+    if (!sid) return
+    const hit = contractSelectOptions.value.find((c) => c.id === sid)
+    if (hit) stickyContractOption.value = hit
+  },
+)
+watch(
+  () => form.invoiceId,
+  (id) => {
+    const sid = String(id ?? '').trim()
+    if (!sid) return
+    const hit = invoiceSelectOptions.value.find((c) => c.id === sid)
+    if (hit) stickyInvoiceOption.value = hit
+  },
+)
+watch(
+  () => form.receivableId,
+  (id) => {
+    const sid = String(id ?? '').trim()
+    if (!sid) return
+    const hit = receivableSelectOptions.value.find((c) => c.id === sid)
+    if (hit) stickyReceivableOption.value = hit
+  },
+)
 
 function searchCustomersRemote(query: string) {
   customerSelectKeyword.value = query.trim()
@@ -948,6 +987,9 @@ function resetFormSelectOptions() {
   contractSelectOptions.value = []
   invoiceSelectOptions.value = []
   receivableSelectOptions.value = []
+  stickyContractOption.value = null
+  stickyInvoiceOption.value = null
+  stickyReceivableOption.value = null
   customerSelectKeyword.value = ''
   contractSelectKeyword.value = ''
   invoiceSelectKeyword.value = ''
@@ -1746,7 +1788,7 @@ async function onImportFile(ev: Event) {
               <div class="action-pills" @click.stop>
                 <button
                   type="button"
-                  class="action-pill action-pill--edit"
+                  class="action-pill action-pill--leave"
                   :disabled="printingReceiptId === row.id"
                   @mouseenter="prefetchReceiptPdfApi(row.id)"
                   @focus="prefetchReceiptPdfApi(row.id)"
@@ -1827,121 +1869,147 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
           <el-form-item :label="t('receipt.fields.customerName')" required class="span-2">
-            <el-select
-              v-model="form.customerId"
-              filterable
-              remote
-              reserve-keyword
-              fit-input-width
-              style="width: 100%"
-              popper-class="receipt-customer-select-popper"
-              :placeholder="t('receipt.fields.customerName')"
-              :remote-method="searchCustomersRemote"
-              :loading="customerSelectLoading"
-              @visible-change="onCustomerSelectVisible"
+            <SelectWithViewAction
+              :disabled="!form.customerId"
+              @view="openCustomerSide(form.customerId, 'ltr')"
             >
-              <el-option
-                v-for="opt in customerSelectOptions"
-                :key="opt.id"
-                :label="customerOptionLabel(opt)"
-                :value="opt.id"
-                :title="customerOptionLabel(opt)"
+              <el-select
+                v-model="form.customerId"
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                popper-class="receipt-customer-select-popper"
+                :placeholder="t('receipt.fields.customerName')"
+                :remote-method="searchCustomersRemote"
+                :loading="customerSelectLoading"
+                @visible-change="onCustomerSelectVisible"
               >
-                <span class="select-option-ellipsis" :title="customerOptionLabel(opt)">
-                  {{ customerOptionLabel(opt) }}
-                </span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in customerSelectOptions"
+                  :key="opt.id"
+                  :label="customerOptionLabel(opt)"
+                  :value="opt.id"
+                  :title="customerOptionLabel(opt)"
+                >
+                  <span class="select-option-ellipsis" :title="customerOptionLabel(opt)">
+                    {{ customerOptionLabel(opt) }}
+                  </span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receipt.fields.receiptCode')" class="span-2">
             <el-input v-model="form.receiptCode" :placeholder="t('receipt.codeAutoHint')" />
           </el-form-item>
           <el-form-item :label="t('receipt.fields.receivableCode')" class="span-2">
-            <el-select
-              v-model="form.receivableId"
+            <SelectWithViewAction
               clearable
-              filterable
-              remote
-              reserve-keyword
-              fit-input-width
-              style="width: 100%"
-              popper-class="receipt-receivable-select-popper"
-              :placeholder="t('receipt.fields.receivableCode')"
-              :remote-method="searchReceivablesRemote"
-              :loading="receivableSelectLoading"
-              @visible-change="onReceivableSelectVisible"
-              @change="onReceivableSelected"
+              :disabled="!form.receivableId"
+              @view="openReceivableSide(form.receivableId, 'ltr')"
             >
-              <el-option
-                v-for="opt in receivableSelectOptions"
-                :key="opt.id"
-                :label="receivableOptionLabel(opt)"
-                :value="opt.id"
-                :title="receivableOptionLabel(opt)"
+              <el-select
+                v-model="form.receivableId"
+                clearable
+                value-on-clear=""
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                popper-class="receipt-receivable-select-popper"
+                :placeholder="t('receipt.fields.receivableCode')"
+                :remote-method="searchReceivablesRemote"
+                :loading="receivableSelectLoading"
+                @visible-change="onReceivableSelectVisible"
+                @change="onReceivableSelected"
               >
-                <span class="select-option-ellipsis" :title="receivableOptionLabel(opt)">
-                  {{ receivableOptionLabel(opt) }}
-                </span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in receivableSelectOptions"
+                  :key="opt.id"
+                  :label="receivableOptionLabel(opt)"
+                  :value="opt.id"
+                  :title="receivableOptionLabel(opt)"
+                >
+                  <span class="select-option-ellipsis" :title="receivableOptionLabel(opt)">
+                    {{ receivableOptionLabel(opt) }}
+                  </span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receipt.fields.invoiceCode')">
-            <el-select
-              v-model="form.invoiceId"
+            <SelectWithViewAction
               clearable
-              filterable
-              remote
-              reserve-keyword
-              fit-input-width
-              style="width: 100%"
-              popper-class="receipt-invoice-select-popper"
-              :placeholder="t('receipt.fields.invoiceCode')"
-              :remote-method="searchInvoicesRemote"
-              :loading="invoiceSelectLoading"
-              @visible-change="onInvoiceSelectVisible"
-              @change="onInvoiceSelected"
+              :disabled="!form.invoiceId"
+              @view="openInvoiceSide(form.invoiceId, 'ltr')"
             >
-              <el-option
-                v-for="opt in invoiceSelectOptions"
-                :key="opt.id"
-                :label="invoiceOptionLabel(opt)"
-                :value="opt.id"
-                :title="invoiceOptionLabel(opt)"
+              <el-select
+                v-model="form.invoiceId"
+                clearable
+                value-on-clear=""
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                popper-class="receipt-invoice-select-popper"
+                :placeholder="t('receipt.fields.invoiceCode')"
+                :remote-method="searchInvoicesRemote"
+                :loading="invoiceSelectLoading"
+                @visible-change="onInvoiceSelectVisible"
+                @change="onInvoiceSelected"
               >
-                <span class="select-option-ellipsis" :title="invoiceOptionLabel(opt)">
-                  {{ invoiceOptionLabel(opt) }}
-                </span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in invoiceSelectOptions"
+                  :key="opt.id"
+                  :label="invoiceOptionLabel(opt)"
+                  :value="opt.id"
+                  :title="invoiceOptionLabel(opt)"
+                >
+                  <span class="select-option-ellipsis" :title="invoiceOptionLabel(opt)">
+                    {{ invoiceOptionLabel(opt) }}
+                  </span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receipt.fields.contractCode')">
-            <el-select
-              v-model="form.contractId"
+            <SelectWithViewAction
               clearable
-              filterable
-              remote
-              reserve-keyword
-              fit-input-width
-              style="width: 100%"
-              popper-class="receipt-contract-select-popper"
-              :placeholder="t('receipt.fields.contractCode')"
-              :remote-method="searchContractsRemote"
-              :loading="contractSelectLoading"
-              @visible-change="onContractSelectVisible"
-              @change="onContractSelected"
+              :disabled="!form.contractId"
+              @view="openContractSide(form.contractId, 'ltr')"
             >
-              <el-option
-                v-for="opt in contractSelectOptions"
-                :key="opt.id"
-                :label="contractOptionLabel(opt)"
-                :value="opt.id"
-                :title="contractOptionLabel(opt)"
+              <el-select
+                v-model="form.contractId"
+                clearable
+                value-on-clear=""
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                popper-class="receipt-contract-select-popper"
+                :placeholder="t('receipt.fields.contractCode')"
+                :remote-method="searchContractsRemote"
+                :loading="contractSelectLoading"
+                @visible-change="onContractSelectVisible"
+                @change="onContractSelected"
               >
-                <span class="select-option-ellipsis" :title="contractOptionLabel(opt)">
-                  {{ contractOptionLabel(opt) }}
-                </span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in contractSelectOptions"
+                  :key="opt.id"
+                  :label="contractOptionLabel(opt)"
+                  :value="opt.id"
+                  :title="contractOptionLabel(opt)"
+                >
+                  <span class="select-option-ellipsis" :title="contractOptionLabel(opt)">
+                    {{ contractOptionLabel(opt) }}
+                  </span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('receipt.fields.paymentDate')">
             <el-date-picker

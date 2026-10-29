@@ -25,10 +25,21 @@ import {
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
-import { invoiceRoomSuffix } from '../common/room-lease'
+import {
+  dateRangesOverlap,
+  invoiceRoomSuffix,
+  OCCUPYING_CONTRACT_STATUSES,
+} from '../common/room-lease'
 
 function s(v?: string | null) {
   return (v ?? '').trim()
+}
+
+/** 合约类型旧值归一；短租等其它原样返回 */
+function normalizeInvoiceTypeStored(v?: string | null) {
+  const raw = s(v)
+  if (raw === '10, Other charges') return 'Others'
+  return raw
 }
 
 function parseDateOnly(v: string | null | undefined, field: string): Date | null {
@@ -70,6 +81,26 @@ export class InvoicesService {
     private readonly access: BuildingAccessService,
   ) {}
 
+  /** 当前大厦范围内按来源统计（页头芯片） */
+  async countBySource(): Promise<{ all: number; contract: number; short_term: number }> {
+    const where: Prisma.InvoiceWhereInput = {}
+    await this.access.constrain(where, 'viaRoom')
+    const rows = await this.prisma.invoice.groupBy({
+      by: ['source'],
+      where,
+      _count: { _all: true },
+    })
+    const counts = { all: 0, contract: 0, short_term: 0 }
+    for (const row of rows) {
+      const n = row._count._all
+      counts.all += n
+      const src = String(row.source || '').trim()
+      if (src === 'short_term') counts.short_term += n
+      else counts.contract += n
+    }
+    return counts
+  }
+
   async findAll(params: {
     keyword?: string
     contractId?: string
@@ -77,6 +108,9 @@ export class InvoicesService {
     roomId?: string
     customerNames?: string[]
     status?: string
+    source?: string
+    /** manual | auto */
+    billingKind?: string
     sortBy?: string
     sortDir?: 'asc' | 'desc'
     invoiceDateFrom?: string
@@ -119,6 +153,8 @@ export class InvoicesService {
     roomId?: string
     customerNames?: string[]
     status?: string
+    source?: string
+    billingKind?: string
     invoiceDateFrom?: string
     invoiceDateTo?: string
     paymentDueDateFrom?: string
@@ -131,6 +167,12 @@ export class InvoicesService {
     if (params.customerId?.trim()) where.customerId = params.customerId.trim()
     if (params.roomId?.trim()) where.roomId = params.roomId.trim()
     if (params.status?.trim()) where.status = params.status.trim()
+    const source = s(params.source)
+    if (source === 'contract' || source === 'short_term') where.source = source
+    const billingKind = s(params.billingKind)
+    if (billingKind === 'manual' || billingKind === 'auto') {
+      where.billingKind = billingKind
+    }
     const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
     if (customerNames.length) {
       where.customer = { name: { in: customerNames } }
@@ -178,6 +220,8 @@ export class InvoicesService {
     if (key === 'customerName') return [{ customer: { name: dir } }]
     if (key === 'roomName') return [{ room: { name: dir } }]
     if (key === 'invoiceType') return [{ invoiceType: dir }, { invoiceCode: 'desc' }]
+    if (key === 'source') return [{ source: dir }, { invoiceCode: 'desc' }]
+    if (key === 'billingKind') return [{ billingKind: dir }, { invoiceCode: 'desc' }]
     if (key === 'status') return [{ status: dir }, { invoiceCode: 'desc' }]
     if (key === 'amount') return [{ amount: dir }]
     if (key === 'invoiceDate') return [{ invoiceDate: dir }, { invoiceCode: 'desc' }]
@@ -282,7 +326,87 @@ export class InvoicesService {
     }
   }
 
+  private normalizeInvoiceSource(raw?: string | null): 'contract' | 'short_term' {
+    return s(raw) === 'short_term' ? 'short_term' : 'contract'
+  }
+
+  private async assertCustomerExists(customerId: string) {
+    const c = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true },
+    })
+    if (!c) throw new BadRequestException('Invalid customerId')
+  }
+
+  /** 短租：房间须允许短租，且租期不与占用中合约/其它短租重叠 */
+  private async assertShortTermRoomAvailable(opts: {
+    roomId: string
+    rentalStart: Date
+    rentalEnd: Date
+    excludeInvoiceId?: string
+  }) {
+    const room = await this.prisma.room.findUnique({
+      where: { id: opts.roomId },
+      select: {
+        id: true,
+        roomCode: true,
+        allowShortTerm: true,
+        name: true,
+        sizeSqft: true,
+        leaseCapability: true,
+      },
+    })
+    if (!room) throw new BadRequestException('Invalid roomId')
+    if (!room.allowShortTerm) {
+      throw new BadRequestException(`房间「${room.roomCode}」未开启允许短租`)
+    }
+    await this.access.assertRoomId(room.id)
+
+    const occupying = await this.prisma.contract.count({
+      where: {
+        roomId: room.id,
+        status: { in: [...OCCUPYING_CONTRACT_STATUSES] },
+      },
+    })
+    if (occupying > 0) {
+      throw new BadRequestException(`房间「${room.roomCode}」已有占用中的合约，无法短租`)
+    }
+
+    const others = await this.prisma.invoice.findMany({
+      where: {
+        roomId: room.id,
+        source: 'short_term',
+        status: { not: '已取消' },
+        rentalStartDate: { not: null },
+        rentalEndDate: { not: null },
+        ...(opts.excludeInvoiceId ? { id: { not: opts.excludeInvoiceId } } : {}),
+      },
+      select: {
+        invoiceCode: true,
+        shortTermRentalCode: true,
+        rentalStartDate: true,
+        rentalEndDate: true,
+      },
+    })
+    for (const inv of others) {
+      if (dateRangesOverlap(opts.rentalStart, opts.rentalEnd, inv.rentalStartDate, inv.rentalEndDate)) {
+        const code = inv.shortTermRentalCode || inv.invoiceCode || ''
+        throw new BadRequestException(
+          code
+            ? `该房间短租时段与发票「${code}」重叠`
+            : '该房间短租时段与其它短租发票重叠',
+        )
+      }
+    }
+    return room
+  }
+
   async create(dto: CreateInvoiceDto, actorId?: string | null) {
+    const source = this.normalizeInvoiceSource(dto.source)
+    if (source === 'short_term') {
+      return this.createShortTerm(dto, actorId)
+    }
+
     const contract = await this.resolveContract(dto)
     const customerId = s(dto.customerId) || contract.customerId
     const roomId = s(dto.roomId) || contract.roomId
@@ -309,10 +433,12 @@ export class InvoicesService {
         const created = await tx.invoice.create({
           data: {
             invoiceCode,
+            source: 'contract',
             contractId: contract.id,
             customerId,
             roomId,
-            invoiceType: s(dto.invoiceType),
+            invoiceType: normalizeInvoiceTypeStored(dto.invoiceType),
+            billingKind: 'manual',
             description: s(dto.description),
             amount: decimalField(dto.amount, 'amount'),
             status,
@@ -345,17 +471,156 @@ export class InvoicesService {
     }
   }
 
+  private async createShortTerm(dto: CreateInvoiceDto, actorId?: string | null) {
+    const customerId = s(dto.customerId)
+    const roomId = s(dto.roomId)
+    if (!customerId) throw new BadRequestException('短租发票须选择客户')
+    if (!roomId) throw new BadRequestException('短租发票须选择房间')
+    await this.assertCustomerExists(customerId)
+
+    const rentalStart = parseDateOnly(dto.rentalStartDate, 'rentalStartDate')
+    const rentalEnd = parseDateOnly(dto.rentalEndDate, 'rentalEndDate')
+    if (!rentalStart || !rentalEnd) {
+      throw new BadRequestException('短租发票须填写租赁开始与结束日期')
+    }
+    if (rentalStart > rentalEnd) {
+      throw new BadRequestException('租赁开始日期不能晚于结束日期')
+    }
+    if (!s(dto.invoiceDate)) throw new BadRequestException('发票日期必填')
+    if (!s(dto.paymentDueDate)) throw new BadRequestException('收款期限必填')
+
+    const referredByCustomerId = nullId(dto.referredByCustomerId)
+    if (referredByCustomerId) await this.assertCustomerExists(referredByCustomerId)
+
+    const room = await this.assertShortTermRoomAvailable({
+      roomId,
+      rentalStart,
+      rentalEnd,
+    })
+
+    const salesManagerId = nullId(dto.salesManagerId) || actorId || null
+    await this.assertSalesManager(salesManagerId)
+
+    const invoiceCode =
+      s(dto.invoiceCode) ||
+      (await this.nextInvoiceCode({
+        roomCode: room.roomCode || '',
+        leaseCapability: room.leaseCapability || 'flexible',
+        occupancyMode: 'whole',
+        partLabel: '',
+      }))
+    const shortTermRentalCode = s(dto.shortTermRentalCode) || invoiceCode
+    const status = s(dto.status) || '已開票'
+    const roomNameText =
+      dto.roomNameText !== undefined
+        ? s(dto.roomNameText)
+        : [room.roomCode, room.name].filter(Boolean).join(' · ')
+
+    try {
+      const row = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.invoice.create({
+          data: {
+            invoiceCode,
+            source: 'short_term',
+            contractId: null,
+            customerId,
+            roomId,
+            invoiceType: s(dto.invoiceType) || '會議室短租',
+            billingKind: 'manual',
+            description: s(dto.description) || s(dto.rentalDurationText),
+            amount: decimalField(dto.amount, 'amount'),
+            status,
+            invoiceDate: parseDateOnly(dto.invoiceDate, 'invoiceDate'),
+            paymentDueDate: parseDateOnly(dto.paymentDueDate, 'paymentDueDate'),
+            salesManagerId,
+            relatedReceivableRef: s(dto.relatedReceivableRef),
+            attachment: s(dto.attachment),
+            roomNameText,
+            notes: s(dto.notes),
+            whatsappNumber: s(dto.whatsappNumber),
+            shortTermRentalCode,
+            rentalStartDate: rentalStart,
+            rentalEndDate: rentalEnd,
+            rentalDurationText: s(dto.rentalDurationText),
+            referredByCustomerId,
+            remark: s(dto.remark),
+            createdById: actorId || null,
+            updatedById: actorId || null,
+          },
+        })
+        await this.replaceServiceDetails(tx, created.id, dto.serviceDetails, actorId)
+        return tx.invoice.findUniqueOrThrow({
+          where: { id: created.id },
+          include: invoiceInclude,
+        })
+      })
+      return toInvoiceDto(row)
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(`发票编号「${invoiceCode}」已存在`)
+      }
+      throw e
+    }
+  }
+
   async update(id: string, dto: UpdateInvoiceDto, actorId?: string | null) {
     const existing = await this.prisma.invoice.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException('Invoice not found')
 
+    const source = this.normalizeInvoiceSource(dto.source ?? existing.source)
     let contractId = existing.contractId
     let customerId = existing.customerId
     let roomId = existing.roomId
     let salesManagerId = existing.salesManagerId
     let roomNameText = existing.roomNameText
+    let rentalStartDate = existing.rentalStartDate
+    let rentalEndDate = existing.rentalEndDate
+    let rentalDurationText = existing.rentalDurationText
+    let referredByCustomerId = existing.referredByCustomerId
+    let shortTermRentalCode = existing.shortTermRentalCode
 
-    if (dto.contractId !== undefined || dto.contractCode !== undefined) {
+    if (source === 'short_term') {
+      if (dto.customerId !== undefined) {
+        customerId = s(dto.customerId) || existing.customerId
+        await this.assertCustomerExists(customerId)
+      }
+      if (dto.roomId !== undefined) {
+        roomId = s(dto.roomId) || existing.roomId
+      }
+      if (dto.rentalStartDate !== undefined) {
+        rentalStartDate = parseDateOnly(dto.rentalStartDate, 'rentalStartDate')
+      }
+      if (dto.rentalEndDate !== undefined) {
+        rentalEndDate = parseDateOnly(dto.rentalEndDate, 'rentalEndDate')
+      }
+      if (!rentalStartDate || !rentalEndDate) {
+        throw new BadRequestException('短租发票须填写租赁开始与结束日期')
+      }
+      if (rentalStartDate > rentalEndDate) {
+        throw new BadRequestException('租赁开始日期不能晚于结束日期')
+      }
+      if (dto.rentalDurationText !== undefined) {
+        rentalDurationText = s(dto.rentalDurationText)
+      }
+      if (dto.referredByCustomerId !== undefined) {
+        referredByCustomerId = nullId(dto.referredByCustomerId)
+        if (referredByCustomerId) await this.assertCustomerExists(referredByCustomerId)
+      }
+      if (dto.shortTermRentalCode !== undefined) {
+        shortTermRentalCode = s(dto.shortTermRentalCode)
+      }
+      const nextStatus =
+        dto.status !== undefined ? s(dto.status) || existing.status : existing.status
+      if (nextStatus !== '已取消') {
+        await this.assertShortTermRoomAvailable({
+          roomId,
+          rentalStart: rentalStartDate,
+          rentalEnd: rentalEndDate,
+          excludeInvoiceId: id,
+        })
+      }
+      contractId = null
+    } else if (dto.contractId !== undefined || dto.contractCode !== undefined) {
       const contract = await this.resolveContract(dto)
       contractId = contract.id
       customerId = s(dto.customerId) || contract.customerId
@@ -384,16 +649,25 @@ export class InvoicesService {
       dto.invoiceCode !== undefined ? s(dto.invoiceCode) || existing.invoiceCode : existing.invoiceCode
     if (!invoiceCode) throw new BadRequestException('invoiceCode is required')
 
+    if (dto.invoiceDate !== undefined && !s(dto.invoiceDate)) {
+      throw new BadRequestException('发票日期必填')
+    }
+    if (dto.paymentDueDate !== undefined && !s(dto.paymentDueDate)) {
+      throw new BadRequestException('收款期限必填')
+    }
+
     try {
       const row = await this.prisma.$transaction(async (tx) => {
         await tx.invoice.update({
           where: { id },
           data: {
             invoiceCode,
+            source,
             contractId,
             customerId,
             roomId,
-            invoiceType: dto.invoiceType !== undefined ? s(dto.invoiceType) : undefined,
+            invoiceType:
+              dto.invoiceType !== undefined ? normalizeInvoiceTypeStored(dto.invoiceType) : undefined,
             description: dto.description !== undefined ? s(dto.description) : undefined,
             amount: dto.amount !== undefined ? decimalField(dto.amount, 'amount') : undefined,
             status: dto.status !== undefined ? s(dto.status) || '待開票' : undefined,
@@ -413,7 +687,20 @@ export class InvoicesService {
             notes: dto.notes !== undefined ? s(dto.notes) : undefined,
             whatsappNumber: dto.whatsappNumber !== undefined ? s(dto.whatsappNumber) : undefined,
             shortTermRentalCode:
-              dto.shortTermRentalCode !== undefined ? s(dto.shortTermRentalCode) : undefined,
+              source === 'short_term'
+                ? shortTermRentalCode || invoiceCode
+                : dto.shortTermRentalCode !== undefined
+                  ? s(dto.shortTermRentalCode)
+                  : undefined,
+            rentalStartDate: source === 'short_term' ? rentalStartDate : undefined,
+            rentalEndDate: source === 'short_term' ? rentalEndDate : undefined,
+            rentalDurationText:
+              source === 'short_term'
+                ? rentalDurationText
+                : dto.rentalDurationText !== undefined
+                  ? s(dto.rentalDurationText)
+                  : undefined,
+            referredByCustomerId: source === 'short_term' ? referredByCustomerId : undefined,
             remark: dto.remark !== undefined ? s(dto.remark) : undefined,
             updatedById: actorId || null,
           },
@@ -510,18 +797,65 @@ export class InvoicesService {
     return { created, skipped, failed, issues }
   }
 
+  /** 预览下一个发票编号（不占用序号；保存时仍重新分配）。可选 contractId 以带上房间后缀。 */
+  async previewInvoiceCode(contractId?: string) {
+    const id = s(contractId)
+    if (id) {
+      const contract = await this.resolveContract({ contractId: id })
+      const code = await this.buildInvoiceCode(
+        {
+          roomCode: contract.room?.roomCode || '',
+          leaseCapability: contract.room?.leaseCapability || 'flexible',
+          occupancyMode: contract.occupancyMode || 'whole',
+          partLabel: contract.partLabel || '',
+        },
+        false,
+      )
+      return { code }
+    }
+    const code = await this.buildInvoiceCode(
+      { roomCode: '', leaseCapability: 'flexible', occupancyMode: 'whole', partLabel: '' },
+      false,
+    )
+    return { code }
+  }
+
   private async nextInvoiceCode(roomRef: {
     roomCode: string
     leaseCapability: string
     occupancyMode: string
     partLabel: string
   }): Promise<string> {
+    return this.buildInvoiceCode(roomRef, true)
+  }
+
+  private async buildInvoiceCode(
+    roomRef: {
+      roomCode: string
+      leaseCapability: string
+      occupancyMode: string
+      partLabel: string
+    },
+    consume: boolean,
+  ): Promise<string> {
     const suffix = invoiceRoomSuffix(roomRef)
-    const auto = await this.numberingRules.nextCode(NumberingBizKey.invoice, {
+    const allocate = consume
+      ? this.numberingRules.nextCode.bind(this.numberingRules)
+      : this.numberingRules.previewCode.bind(this.numberingRules)
+    const auto = await allocate(NumberingBizKey.invoice, {
       isTaken: async (code) => {
         const full = suffix ? `${code}-${suffix}` : code
+        if (suffix) {
+          return !!(await this.prisma.invoice.findFirst({
+            where: { invoiceCode: full },
+            select: { id: true },
+          }))
+        }
+        // 尚无房间后缀时：占用检测覆盖裸号及「号-后缀」形式
         return !!(await this.prisma.invoice.findFirst({
-          where: { invoiceCode: full },
+          where: {
+            OR: [{ invoiceCode: full }, { invoiceCode: { startsWith: `${full}-` } }],
+          },
           select: { id: true },
         }))
       },

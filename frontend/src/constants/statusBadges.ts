@@ -29,6 +29,7 @@ export function roomStatusTone(status: string | null | undefined): StatusTone {
 /** 房间状态列：占用填充态色 */
 const ROOM_FILL_STATUS_TONES = {
   idle: 'idle',
+  short: 'signing',
   whole: 'leased',
   partial: 'leasing',
   full: 'contracting',
@@ -158,4 +159,11 @@ const INVOICE_STATUS_TONES: Record<string, StatusTone> = {
 export function invoiceStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '').trim()
   return INVOICE_STATUS_TONES[key] || 'neutral'
+}
+
+/** 发票产生方式：用户手动橙 / 系统自动绿 */
+export function invoiceBillingKindTone(billingKind: string | null | undefined): StatusTone {
+  const key = (billingKind || 'manual').trim()
+  if (key === 'auto' || key === 'deposit' || key === 'rent') return 'idle'
+  return 'signing'
 }

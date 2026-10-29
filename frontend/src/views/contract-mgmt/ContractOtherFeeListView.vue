@@ -27,6 +27,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractOtherFeeDetailDrawer from '@/components/ContractOtherFeeDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -874,42 +875,54 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
           <el-form-item :label="t('contractOtherFee.fields.contractCode')" required class="span-2">
-            <el-select
-              v-model="form.contractId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('contractOtherFee.fields.contractCode')"
-              :disabled="!!editing"
+            <SelectWithViewAction
+              :disabled="!form.contractId"
+              @view="openContractSide(form.contractId, 'ltr')"
             >
-              <el-option
-                v-for="opt in contractFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.contractId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('contractOtherFee.fields.contractCode')"
+                :disabled="!!editing"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in contractFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('contractOtherFee.fields.terminationCode')" class="span-2">
-            <el-select
-              v-model="form.terminationId"
+            <SelectWithViewAction
               clearable
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('contractOtherFee.terminationOptional')"
-              :disabled="!form.contractId"
+              :disabled="!form.terminationId"
+              @view="relationDrawers?.openTerminationSide(form.terminationId)"
             >
-              <el-option
-                v-for="opt in terminationFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
+              <el-select
+                v-model="form.terminationId"
+                clearable
+                value-on-clear=""
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('contractOtherFee.terminationOptional')"
+                :disabled="!form.contractId"
+              >
+                <el-option
+                  v-for="opt in terminationFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('contractOtherFee.fields.description')" class="span-2">
             <el-input v-model="form.description" />

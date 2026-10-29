@@ -99,7 +99,7 @@ export function invoiceIoTemplateExampleRow(
     [h('roomName')]: '',
     [h('roomNameText')]: '',
     [h('invoiceType')]: 'Deposit',
-    [h('description')]: '月租發票',
+    [h('description')]: 'Deposit',
     [h('amount')]: 12000,
     [h('status')]: '待開票',
     [h('invoiceDate')]: '2026-09-16',
@@ -183,11 +183,14 @@ export function rowToInvoiceIoPayload(
   if (!contractCode) return null
 
   const amountRaw = pickInvoiceIoValue(row, 'amount', t)
+  const typeRaw = pickInvoiceIoValue(row, 'invoiceType', t)
+  const invoiceType =
+    typeRaw === '10, Other charges' ? 'Others' : typeRaw || undefined
 
   return {
     contractCode,
     invoiceCode: pickInvoiceIoValue(row, 'invoiceCode', t) || undefined,
-    invoiceType: pickInvoiceIoValue(row, 'invoiceType', t) || undefined,
+    invoiceType,
     description: pickInvoiceIoValue(row, 'description', t) || undefined,
     amount: amountRaw !== '' ? Number(amountRaw) || 0 : undefined,
     status: pickInvoiceIoValue(row, 'status', t) || undefined,

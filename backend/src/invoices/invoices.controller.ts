@@ -46,6 +46,12 @@ export class InvoicesController {
   @ApiQuery({ name: 'roomId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'source', required: false, description: 'contract | short_term' })
+  @ApiQuery({
+    name: 'billingKind',
+    required: false,
+    description: 'manual | auto',
+  })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'invoiceDateFrom', required: false })
@@ -64,6 +70,8 @@ export class InvoicesController {
     @Query('roomId') roomId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('status') status?: string,
+    @Query('source') source?: string,
+    @Query('billingKind') billingKind?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('invoiceDateFrom') invoiceDateFrom?: string,
@@ -82,6 +90,8 @@ export class InvoicesController {
       roomId,
       customerNames: splitCsv(customerNames),
       status,
+      source,
+      billingKind,
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
       invoiceDateFrom,
@@ -115,6 +125,19 @@ export class InvoicesController {
   @ApiOkResponse({ description: 'Run due rent invoice job (lead days from system settings)' })
   runDueRentJob() {
     return this.invoiceAuto.runDueRentInvoices()
+  }
+
+  @Get('code-preview')
+  @ApiQuery({ name: 'contractId', required: false })
+  @ApiOkResponse({ description: 'Preview next invoice code without consuming sequence' })
+  previewCode(@Query('contractId') contractId?: string) {
+    return this.invoicesService.previewInvoiceCode(contractId)
+  }
+
+  @Get('stats/source')
+  @ApiOkResponse({ description: 'Invoice counts by source (contract / short_term)' })
+  countBySource() {
+    return this.invoicesService.countBySource()
   }
 
   @Get(':id')

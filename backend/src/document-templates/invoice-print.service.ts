@@ -9,6 +9,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { fillDocxTemplate } from './docx-fill.util';
 import { convertDocxToPdf } from './pdf-convert.util';
+import type { InvoicePreviewDraftDto } from './dto/document-template.dto';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -56,9 +57,67 @@ function formatInvoiceDate(d: Date | null | undefined): string {
   return `${day}/${m}/${y}`;
 }
 
+function parseDateOnlyLoose(v?: string | null): Date | null {
+  const raw = s(v);
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  return new Date(`${raw}T00:00:00.000Z`);
+}
+
 function uploadsRoot() {
   return path.join(process.cwd(), 'uploads');
 }
+
+type PrintItem = {
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  unitAmount: string;
+  amount: string;
+  subtotal: string;
+  remark: string;
+};
+
+type ComposeInput = {
+  invoiceCode: string | null;
+  invoiceType: string | null;
+  description: string | null;
+  amount: number;
+  invoiceDate: Date | null;
+  paymentDueDate: Date | null;
+  status: string | null;
+  roomNameText: string | null;
+  notes: string | null;
+  remark: string | null;
+  whatsappNumber: string | null;
+  contractCode: string | null;
+  customer: {
+    name: string | null;
+    customerCode: string | null;
+    companyNameZh: string | null;
+    companyNameEn: string | null;
+  };
+  room: {
+    roomCode: string | null;
+    name: string | null;
+    building: {
+      name: string | null;
+      address: string | null;
+      addressEn: string | null;
+      fpsId: string | null;
+      bankAccountHolder: string | null;
+      bankAccount: string | null;
+      chequePaymentBy: string | null;
+      paymentAdvice: string | null;
+    } | null;
+  };
+  detailLines: Array<{
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    subtotal: number;
+    remark: string;
+  }>;
+};
 
 export type InvoicePrintResult = {
   buffer: Buffer;
@@ -71,30 +130,8 @@ export type InvoicePrintResult = {
 export class InvoicePrintService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * 聚合发票数据为模板填充对象。
-   * 兼容旧系统占位符键名（如 inv_No、FPSID）；新模板也可用 camelCase 别名。
-   * Word 模板请用 docxtemplater 语法 `{key}`（不是 `${key}`）。
-   */
-  async buildInvoiceData(invoiceId: string): Promise<Record<string, unknown>> {
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: {
-        customer: true,
-        room: { include: { building: true } },
-        contract: true,
-        serviceDetails: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
-    if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
-
-    const customer = invoice.customer;
-    const room = invoice.room;
-    const building = room.building;
-
-    let items = invoice.serviceDetails.map((row) => {
+  private composePrintData(input: ComposeInput): Record<string, unknown> {
+    let items: PrintItem[] = input.detailLines.map((row) => {
       const qty = formatQuantity(row.quantity);
       const unitPrice = formatAmountWithComma(row.unitAmount) || '0.00';
       const amount = formatAmountWithComma(row.subtotal) || '0.00';
@@ -109,14 +146,13 @@ export class InvoicePrintService {
       };
     });
 
-    // 无服务细节时，循环行会被 docxtemplater 整行删掉，表现为 description/quantity 无输出；
-    // 回退为一行：描述用发票描述/类型，金额用开票金额。
+    // 无服务细节时回退为一行，避免循环行被删空
     if (items.length === 0) {
-      const unitPrice = formatAmountWithComma(invoice.amount) || '0.00';
+      const unitPrice = formatAmountWithComma(input.amount) || '0.00';
       items = [
         {
           description:
-            s(invoice.description) || s(invoice.invoiceType) || s(invoice.invoiceCode),
+            s(input.description) || s(input.invoiceType) || s(input.invoiceCode),
           quantity: '1',
           unitPrice,
           unitAmount: unitPrice,
@@ -127,26 +163,26 @@ export class InvoicePrintService {
       ];
     }
 
-    const detailsSum = invoice.serviceDetails.reduce(
+    const detailsSum = input.detailLines.reduce(
       (acc, row) => acc + (Number(row.subtotal) || 0),
       0,
     );
-    // 有明细时小计取明细合计；否则回退发票金额
     const subtotalValue =
-      invoice.serviceDetails.length > 0 ? detailsSum : Number(invoice.amount) || 0;
-    const totalValue = Number(invoice.amount) || 0;
+      input.detailLines.length > 0 ? detailsSum : Number(input.amount) || 0;
+    const totalValue = Number(input.amount) || 0;
     const invSubtotal = formatAmountWithComma(subtotalValue) || '0.00';
     const invTotal = formatAmountWithComma(totalValue) || '0.00';
 
-    const customerName = s(customer.name);
-    const roomNameRaw = s(invoice.roomNameText) || s(room.name);
+    const customerName = s(input.customer.name);
+    const roomNameRaw = s(input.roomNameText) || s(input.room.name);
     const roomName = roomNameRaw.replace(/\s*室\s*$/u, '').trim();
-    const roomNo = s(room.roomCode) || roomName;
+    const roomNo = s(input.room.roomCode) || roomName;
+    const building = input.room.building;
     const address = s(building?.addressEn) || s(building?.address);
 
-    const invDate = formatInvoiceDate(invoice.invoiceDate);
-    const invDueDate = formatInvoiceDate(invoice.paymentDueDate);
-    const invNo = s(invoice.invoiceCode);
+    const invDate = formatInvoiceDate(input.invoiceDate);
+    const invDueDate = formatInvoiceDate(input.paymentDueDate);
+    const invNo = s(input.invoiceCode);
 
     const fpsId = s(building?.fpsId);
     const accountName = s(building?.bankAccountHolder);
@@ -155,7 +191,6 @@ export class InvoicePrintService {
     const paymentAdvice = s(building?.paymentAdvice);
 
     return {
-      // —— 旧系统键名（模板迁移时把 ${x} 改成 {x} 即可）——
       inv_date: invDate,
       inv_No: invNo,
       customerName,
@@ -173,21 +208,20 @@ export class InvoicePrintService {
       clientname: customerName,
       inv_amountDue: invTotal,
 
-      // —— camelCase / 语义别名（字段字典推荐）——
       invoiceCode: invNo,
       invoiceDate: invDate,
       paymentDueDate: invDueDate,
-      invoiceType: s(invoice.invoiceType),
-      description: s(invoice.description),
+      invoiceType: s(input.invoiceType),
+      description: s(input.description),
       amount: invTotal,
-      amountRaw: decimalToFixed(invoice.amount) || '0.00',
+      amountRaw: decimalToFixed(input.amount) || '0.00',
       subtotal: invSubtotal,
-      status: s(invoice.status),
-      contractCode: s(invoice.contract?.contractCode),
-      customerCode: s(customer.customerCode),
-      companyNameZh: s(customer.companyNameZh),
-      companyNameEn: s(customer.companyNameEn),
-      roomCode: s(room.roomCode),
+      status: s(input.status),
+      contractCode: s(input.contractCode),
+      customerCode: s(input.customer.customerCode),
+      companyNameZh: s(input.customer.companyNameZh),
+      companyNameEn: s(input.customer.companyNameEn),
+      roomCode: s(input.room.roomCode),
       buildingName: s(building?.name),
       buildingAddress: s(building?.address),
       buildingAddressEn: s(building?.addressEn),
@@ -198,10 +232,174 @@ export class InvoicePrintService {
       paymentAdvice,
       items,
       itemCount: items.length,
-      notes: s(invoice.notes),
-      remark: s(invoice.remark),
-      whatsappNumber: s(invoice.whatsappNumber),
+      notes: s(input.notes),
+      remark: s(input.remark),
+      whatsappNumber: s(input.whatsappNumber),
     };
+  }
+
+  /**
+   * 聚合发票数据为模板填充对象。
+   * 兼容旧系统占位符键名（如 inv_No、FPSID）；新模板也可用 camelCase 别名。
+   */
+  async buildInvoiceData(invoiceId: string): Promise<Record<string, unknown>> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        customer: true,
+        room: { include: { building: true } },
+        contract: true,
+        serviceDetails: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
+
+    return this.composePrintData({
+      invoiceCode: invoice.invoiceCode,
+      invoiceType: invoice.invoiceType,
+      description: invoice.description,
+      amount: Number(invoice.amount) || 0,
+      invoiceDate: invoice.invoiceDate,
+      paymentDueDate: invoice.paymentDueDate,
+      status: invoice.status,
+      roomNameText: invoice.roomNameText,
+      notes: invoice.notes,
+      remark: invoice.remark,
+      whatsappNumber: invoice.whatsappNumber,
+      contractCode: invoice.contract?.contractCode || '',
+      customer: invoice.customer,
+      room: invoice.room,
+      detailLines: invoice.serviceDetails.map((row) => ({
+        description: row.description,
+        quantity: Number(row.quantity) || 0,
+        unitAmount: Number(row.unitAmount) || 0,
+        subtotal: Number(row.subtotal) || 0,
+        remark: row.remark,
+      })),
+    });
+  }
+
+  /** 按表单草稿（可叠加已存发票）聚合打印数据 */
+  async buildInvoiceDataWithDraft(
+    invoiceId: string | null | undefined,
+    draft: InvoicePreviewDraftDto,
+  ): Promise<Record<string, unknown>> {
+    const id = s(invoiceId);
+    const base = id
+      ? await this.prisma.invoice.findUnique({
+          where: { id },
+          include: {
+            customer: true,
+            room: { include: { building: true } },
+            contract: true,
+            serviceDetails: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        })
+      : null;
+    if (id && !base) throw new NotFoundException(`Invoice ${id} not found`);
+
+    const customerId = s(draft.customerId) || base?.customerId || '';
+    const roomId = s(draft.roomId) || base?.roomId || '';
+    if (!customerId) throw new BadRequestException('预览须选择客户');
+    if (!roomId) throw new BadRequestException('预览须选择房间');
+
+    const [customer, room, contract] = await Promise.all([
+      this.prisma.customer.findUnique({ where: { id: customerId } }),
+      this.prisma.room.findUnique({
+        where: { id: roomId },
+        include: { building: true },
+      }),
+      (async () => {
+        const contractId = s(draft.contractId) || base?.contractId || '';
+        if (!contractId) return null;
+        return this.prisma.contract.findUnique({
+          where: { id: contractId },
+          select: { contractCode: true, roomNameText: true },
+        });
+      })(),
+    ]);
+    if (!customer) throw new BadRequestException('客户不存在');
+    if (!room) throw new BadRequestException('房间不存在');
+
+    const useDetails = Array.isArray(draft.serviceDetails);
+    const detailLines = useDetails
+      ? (draft.serviceDetails || [])
+          .map((row) => {
+            const quantity = Number(row.quantity) || 0;
+            const unitAmount = Number(row.unitAmount) || 0;
+            const subtotal =
+              row.subtotal != null && Number.isFinite(Number(row.subtotal))
+                ? Number(row.subtotal)
+                : Math.round(quantity * unitAmount * 100) / 100;
+            return {
+              description: s(row.description),
+              quantity,
+              unitAmount,
+              subtotal,
+              remark: s(row.remark),
+            };
+          })
+          .filter((row) => row.description || row.subtotal > 0)
+      : (base?.serviceDetails || []).map((row) => ({
+          description: row.description,
+          quantity: Number(row.quantity) || 0,
+          unitAmount: Number(row.unitAmount) || 0,
+          subtotal: Number(row.subtotal) || 0,
+          remark: row.remark,
+        }));
+
+    const amount =
+      draft.amount !== undefined && draft.amount !== null
+        ? Number(draft.amount) || 0
+        : Number(base?.amount) || 0;
+
+    const invoiceDate =
+      draft.invoiceDate !== undefined
+        ? parseDateOnlyLoose(draft.invoiceDate)
+        : base?.invoiceDate || null;
+    const paymentDueDate =
+      draft.paymentDueDate !== undefined
+        ? parseDateOnlyLoose(draft.paymentDueDate)
+        : base?.paymentDueDate || null;
+
+    const roomNameText =
+      draft.roomNameText !== undefined
+        ? s(draft.roomNameText)
+        : s(base?.roomNameText) || s(contract?.roomNameText) || s(room.name);
+
+    return this.composePrintData({
+      invoiceCode:
+        draft.invoiceCode !== undefined
+          ? s(draft.invoiceCode)
+          : s(base?.invoiceCode),
+      invoiceType:
+        draft.invoiceType !== undefined
+          ? s(draft.invoiceType)
+          : s(base?.invoiceType),
+      description:
+        draft.description !== undefined
+          ? s(draft.description)
+          : s(base?.description),
+      amount,
+      invoiceDate,
+      paymentDueDate,
+      status: draft.status !== undefined ? s(draft.status) : s(base?.status) || '已開票',
+      roomNameText,
+      notes: draft.notes !== undefined ? s(draft.notes) : s(base?.notes),
+      remark: draft.remark !== undefined ? s(draft.remark) : s(base?.remark),
+      whatsappNumber:
+        draft.whatsappNumber !== undefined
+          ? s(draft.whatsappNumber)
+          : s(base?.whatsappNumber),
+      contractCode: s(contract?.contractCode) || '',
+      customer,
+      room,
+      detailLines,
+    });
   }
 
   /** 解析发票模板：房间所属大厦绑定的 invoice 模板 */
@@ -221,30 +419,83 @@ export class InvoicePrintService {
       },
     });
     if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
+    return this.templateFromBuilding(invoice.room.building?.invoiceTemplateRef);
+  }
 
-    const buildingTpl = invoice.room.building?.invoiceTemplateRef;
+  async resolveInvoiceTemplateByRoomId(roomId: string) {
+    const room = await this.prisma.room.findUnique({
+      where: { id: roomId },
+      include: {
+        building: {
+          include: {
+            invoiceTemplateRef: true,
+          },
+        },
+      },
+    });
+    if (!room) throw new BadRequestException('房间不存在');
+    return this.templateFromBuilding(room.building?.invoiceTemplateRef);
+  }
+
+  private templateFromBuilding(
+    buildingTpl:
+      | {
+          id: string;
+          enabled: boolean;
+          storageKey: string;
+          updatedAt: Date;
+        }
+      | null
+      | undefined,
+  ) {
     if (buildingTpl) {
       if (!buildingTpl.enabled) {
         throw new BadRequestException('所属大厦绑定的发票模板已停用');
       }
       return buildingTpl;
     }
-
     throw new BadRequestException(
       '未配置发票模板：请在所属大厦中绑定启用的发票模板',
     );
   }
 
   async print(params: {
-    invoiceId: string;
+    invoiceId?: string;
+    draft?: InvoicePreviewDraftDto;
     format?: 'docx' | 'pdf';
   }): Promise<InvoicePrintResult> {
     const invoiceId = s(params.invoiceId);
-    if (!invoiceId) throw new BadRequestException('invoiceId is required');
+    const draft = params.draft;
+    if (!invoiceId && !draft) {
+      throw new BadRequestException('invoiceId 或 draft 至少提供一个');
+    }
 
-    const template = await this.resolveInvoiceTemplate(invoiceId);
+    let template: { id: string; storageKey: string; updatedAt: Date };
+    let data: Record<string, unknown>;
+    let cacheKeyId: string;
+
+    if (draft) {
+      const roomId =
+        s(draft.roomId) ||
+        (invoiceId
+          ? (
+              await this.prisma.invoice.findUnique({
+                where: { id: invoiceId },
+                select: { roomId: true },
+              })
+            )?.roomId || ''
+          : '');
+      if (!roomId) throw new BadRequestException('预览须选择房间');
+      template = await this.resolveInvoiceTemplateByRoomId(roomId);
+      data = await this.buildInvoiceDataWithDraft(invoiceId || null, draft);
+      cacheKeyId = invoiceId || `draft:${roomId}`;
+    } else {
+      template = await this.resolveInvoiceTemplate(invoiceId);
+      data = await this.buildInvoiceData(invoiceId);
+      cacheKeyId = invoiceId;
+    }
+
     const absPath = path.join(uploadsRoot(), template.storageKey);
-    const data = await this.buildInvoiceData(invoiceId);
     const docxBuffer = fillDocxTemplate(absPath, data, { clearItemsRowBorders: true });
 
     const code = s(String(data.invoiceCode ?? data.inv_No ?? '')) || 'invoice';
@@ -261,7 +512,7 @@ export class InvoicePrintService {
         .slice(0, 16);
       const pdfBuffer = await convertDocxToPdf(
         docxBuffer,
-        `print-inv:${invoiceId}:${template.id}:${template.updatedAt.getTime()}:${dataHash}`,
+        `print-inv:${cacheKeyId}:${template.id}:${template.updatedAt.getTime()}:${dataHash}`,
       );
       if (pdfBuffer) {
         return {

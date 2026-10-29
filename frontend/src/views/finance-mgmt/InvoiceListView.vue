@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search, Download, Upload, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, Delete, Rank } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import {
@@ -10,15 +10,29 @@ import {
   batchDeleteInvoicesApi,
   fetchInvoice,
   fetchInvoices,
+  fetchInvoiceSourceCounts,
   importInvoicesApi,
+  previewInvoiceCodeApi,
   updateInvoiceApi,
 } from '@/api/invoices'
-import type { InvoiceWritePayload, InvoiceListQuery } from '@/api/invoices'
+import type { InvoiceWritePayload, InvoiceListQuery, InvoiceSourceCounts } from '@/api/invoices'
 import { fetchContracts } from '@/api/contracts'
+import { fetchCustomers } from '@/api/customers'
+import { fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import type { InvoiceRecord, InvoiceServiceDetailRecord } from '@/types/invoice'
-import { INVOICE_STATUSES, INVOICE_TYPES } from '@/types/invoice'
+import {
+  CONTRACT_INVOICE_TYPES,
+  DEFAULT_CONTRACT_INVOICE_TYPE,
+  INVOICE_STATUSES,
+  INVOICE_TYPE_I18N_KEY,
+  SHORT_TERM_INVOICE_TYPE,
+  isSystemGeneratedInvoice,
+  normalizeContractInvoiceType,
+} from '@/types/invoice'
 import type { ContractRecord } from '@/types/contract'
+import type { CustomerRecord } from '@/types/customer'
+import type { RoomRecord } from '@/types/room'
 import type { UserRecord } from '@/types/user'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useServerPagedList } from '@/composables/useServerPagedList'
@@ -35,16 +49,17 @@ import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { invoiceStatusTone } from '@/constants/statusBadges'
+import { invoiceBillingKindTone, invoiceStatusTone } from '@/constants/statusBadges'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
-import { useActionColWidth, measureActionColWidth } from '@/composables/useActionColWidth'
+import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   invoiceIoTemplateExampleRow,
@@ -56,7 +71,12 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
-import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
+import {
+  previewInvoicePdfApi,
+  prefetchInvoicePdfApi,
+  previewInvoiceDraftPdfApi,
+} from '@/api/document-templates'
+import type { InvoicePreviewDraft } from '@/api/document-templates'
 
 type FeeFormRow = {
   uid: string
@@ -72,7 +92,6 @@ const { t, locale } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('invoices')
-const { actionColWidth } = useActionColWidth()
 const {
   colW,
   textColW,
@@ -85,23 +104,20 @@ const {
 
 const invoiceActionColWidth = computed(() => {
   void locale.value
-  if (perms.canEditOrDelete.value) {
-    return Math.max(
-      actionColWidth.value.three,
-      measureActionColWidth([
-        t('invoice.printInvoice'),
-        t('common.edit'),
-        t('common.delete'),
-      ]),
-    )
-  }
-  return Math.max(
-    actionColWidth.value.one,
-    measureActionColWidth([t('invoice.printInvoice')]),
-  )
+  // 按实际主列按钮测宽（与合约表同一套 CELL_PAD_RIGHT），勿再 Math.max 无关文案
+  const labels = [t('invoice.printInvoice'), t('invoice.resendInvoice')]
+  if (perms.update.value) labels.push(t('common.edit'))
+  if (perms.delete.value) labels.push(t('common.delete'))
+  return measureActionColWidth(labels)
 })
 
 const printingInvoiceId = ref<string | null>(null)
+const previewingDraft = ref(false)
+
+/** 占位：后续接入 WhatsApp／Email 手动重发 */
+function onResendInvoice(_row: InvoiceRecord) {
+  ElMessage.info(t('invoice.resendInvoiceSoon'))
+}
 
 async function onPrintInvoice(row: InvoiceRecord) {
   if (!row?.id || printingInvoiceId.value) return
@@ -146,6 +162,37 @@ const {
   sortOrder,
 } = useTableSortFilter<InvoiceRecord>()
 
+/** 页头快捷筛选：null=全部 */
+const sourceFilter = ref<'contract' | 'short_term' | null>(null)
+const sourceCounts = ref<InvoiceSourceCounts>({ all: 0, contract: 0, short_term: 0 })
+
+const sourceFilterChips = computed(() => [
+  {
+    key: null as 'contract' | 'short_term' | null,
+    label: t('invoice.sourceFilterAll'),
+    count: sourceCounts.value.all,
+  },
+  {
+    key: 'contract' as const,
+    label: t('invoice.sourceFilterContract'),
+    count: sourceCounts.value.contract,
+  },
+  {
+    key: 'short_term' as const,
+    label: t('invoice.sourceFilterShortTerm'),
+    count: sourceCounts.value.short_term,
+  },
+])
+
+async function loadSourceCounts() {
+  try {
+    const { data } = await fetchInvoiceSourceCounts()
+    sourceCounts.value = data
+  } catch {
+    /* interceptor */
+  }
+}
+
 const {
   loading,
   exporting,
@@ -155,6 +202,7 @@ const {
   pageSize,
   pageSizes,
   rowIndex,
+  resetPage,
   loadList,
   fetchExportRows,
   onClearFilters,
@@ -169,6 +217,8 @@ const {
       keyword: kw,
       customerNames: f.customerName?.length ? [...f.customerName] : undefined,
       status: f.status?.[0],
+      billingKind: f.billingKind?.[0],
+      source: sourceFilter.value || undefined,
       sortBy,
       sortDir,
       invoiceDateFrom: invoice.from,
@@ -183,6 +233,17 @@ const {
   },
   fetchPage: fetchInvoices,
 })
+
+function setSourceFilter(key: 'contract' | 'short_term' | null) {
+  if (sourceFilter.value === key) return
+  sourceFilter.value = key
+  resetPage()
+  void loadList()
+}
+
+async function reloadListAndCounts() {
+  await Promise.all([loadList(), loadSourceCounts()])
+}
 
 const codeLayoutKey = computed(() =>
   [
@@ -253,7 +314,7 @@ async function onBatchDelete() {
     )
     finishBatch(ok, fail)
     clearSelection()
-    await loadList()
+    await reloadListAndCounts()
   } catch {
     finishBatch(0, ids.length)
   } finally {
@@ -267,6 +328,19 @@ const statusFilterOptions = computed(() =>
     label: statusLabel(s),
   })),
 )
+
+/** 类型列宽：按当前语言全部类型文案测宽（勿用 textColW name 下限过宽） */
+const invoiceTypeWidthLabels = computed(() => [
+  t('invoice.types.meetingRoomShort'),
+  t('invoice.types.deposit'),
+  t('invoice.types.others'),
+  t('invoice.types.chargingPeriod'),
+])
+
+const billingKindFilterOptions = computed(() => [
+  { value: 'manual', label: t('invoice.billingKind.manual') },
+  { value: 'auto', label: t('invoice.billingKind.auto') },
+])
 
 const customerNameFilterOptions = computed(() => {
   const seen = new Set<string>()
@@ -302,7 +376,7 @@ const dialogWidth = computed(() => (isMobile.value ? '94%' : '920px'))
 
 function defaultFeeRow(): FeeFormRow {
   return {
-    uid: crypto.randomUUID(),
+    uid: newFeeUid(),
     description: '',
     quantity: 1,
     unitAmount: 0,
@@ -314,24 +388,49 @@ function defaultFeeRow(): FeeFormRow {
 const emptyForm = () => ({
   contractId: '' as string,
   invoiceCode: '',
-  invoiceType: INVOICE_TYPES[0] as string,
+  invoiceType: DEFAULT_CONTRACT_INVOICE_TYPE as string,
   description: '',
-  amount: null as number | null,
+  amount: 0 as number | null,
   status: INVOICE_STATUSES[0] as string,
   invoiceDate: '',
   paymentDueDate: '',
   salesManagerId: '' as string,
-  relatedReceivableRef: '',
-  attachment: '',
-  roomNameText: '',
-  notes: '',
-  whatsappNumber: '',
-  shortTermRentalCode: '',
   remark: '',
+  customerId: '' as string,
+  roomId: '' as string,
+  rentalStartDate: '' as string,
+  rentalEndDate: '' as string,
+  rentalDurationText: '' as string,
+  referredByCustomerId: '' as string,
+  roomInfoText: '' as string,
+  roomSizeText: '' as string,
 })
 
 const form = reactive(emptyForm())
+/** 表单来源：合约发票 / 短租发票 */
+const formSource = ref<'contract' | 'short_term'>('contract')
+const isShortTermForm = computed(() => formSource.value === 'short_term')
+const shortCustomers = ref<CustomerRecord[]>([])
+const shortRooms = ref<RoomRecord[]>([])
+const shortCustomerLoading = ref(false)
+const shortRoomLoading = ref(false)
 const feeRows = ref<FeeFormRow[]>([])
+const FEE_PAGE_SIZE = 5
+const feePage = ref(1)
+const feeTotalPages = computed(() =>
+  Math.max(1, Math.ceil(feeRows.value.length / FEE_PAGE_SIZE) || 1),
+)
+const pagedFeeRows = computed(() => {
+  const start = (feePage.value - 1) * FEE_PAGE_SIZE
+  return feeRows.value.slice(start, start + FEE_PAGE_SIZE).map((row, i) => ({
+    row,
+    index: start + i,
+  }))
+})
+
+function clampFeePage() {
+  feePage.value = Math.min(Math.max(1, feePage.value), feeTotalPages.value)
+}
 
 function feeSubtotal(row: Pick<FeeFormRow, 'quantity' | 'unitAmount'>): number {
   return (Number(row.quantity) || 0) * (Number(row.unitAmount) || 0)
@@ -339,10 +438,141 @@ function feeSubtotal(row: Pick<FeeFormRow, 'quantity' | 'unitAmount'>): number {
 
 function addFeeRow() {
   feeRows.value.push(defaultFeeRow())
+  feePage.value = Math.ceil(feeRows.value.length / FEE_PAGE_SIZE)
 }
 
 function removeFeeRow(idx: number) {
   feeRows.value.splice(idx, 1)
+  clampFeePage()
+}
+
+function goToFeeIndex(absoluteIdx: number) {
+  feePage.value = Math.floor(absoluteIdx / FEE_PAGE_SIZE) + 1
+}
+
+const editingFeeIndexUid = ref<string | null>(null)
+const editingFeeIndexFrom = ref(-1)
+const editingFeeIndexDraft = ref('')
+const feeIndexInputRef = ref<HTMLInputElement | null>(null)
+let feeIndexCommitLock = false
+const dragFeeUid = ref<string | null>(null)
+const dragOverFeeUid = ref<string | null>(null)
+
+async function startEditFeeIndex(uid: string, currentIndex: number) {
+  if (feeRows.value.length <= 1) return
+  feeIndexCommitLock = false
+  editingFeeIndexUid.value = uid
+  editingFeeIndexFrom.value = currentIndex
+  editingFeeIndexDraft.value = String(currentIndex + 1)
+  await nextTick()
+  const el = feeIndexInputRef.value
+  if (!el) return
+  el.focus()
+  el.select()
+}
+
+function cancelEditFeeIndex() {
+  editingFeeIndexUid.value = null
+  editingFeeIndexFrom.value = -1
+  editingFeeIndexDraft.value = ''
+}
+
+function commitEditFeeIndex() {
+  if (feeIndexCommitLock) return
+  feeIndexCommitLock = true
+  const uid = editingFeeIndexUid.value
+  const fromIdx = editingFeeIndexFrom.value
+  const draft = String(editingFeeIndexDraft.value ?? '').trim()
+  cancelEditFeeIndex()
+  if (!uid || fromIdx < 0) {
+    feeIndexCommitLock = false
+    return
+  }
+  const total = feeRows.value.length
+  const raw = Number.parseInt(draft, 10)
+  if (!Number.isFinite(raw)) {
+    feeIndexCommitLock = false
+    return
+  }
+  const toIdx = Math.min(total, Math.max(1, raw)) - 1
+  const list = feeRows.value
+  if (list[fromIdx]?.uid !== uid) {
+    feeIndexCommitLock = false
+    return
+  }
+  if (toIdx !== fromIdx) {
+    const [item] = list.splice(fromIdx, 1)
+    list.splice(toIdx, 0, item)
+  }
+  goToFeeIndex(toIdx)
+  feeIndexCommitLock = false
+}
+
+function onFeeIndexDraftInput(e: Event) {
+  const el = e.target as HTMLInputElement | null
+  editingFeeIndexDraft.value = String(el?.value ?? '').replace(/\D/g, '')
+}
+
+function onFeeIndexKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    e.stopPropagation()
+    commitEditFeeIndex()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    cancelEditFeeIndex()
+  }
+}
+
+function onFeeDragStart(uid: string, e: DragEvent) {
+  dragFeeUid.value = uid
+  e.dataTransfer?.setData('text/plain', uid)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+function onFeeDragOver(uid: string, e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  if (dragFeeUid.value && dragFeeUid.value !== uid) {
+    dragOverFeeUid.value = uid
+  }
+}
+
+function onFeeDrop(targetUid: string, e: DragEvent) {
+  e.preventDefault()
+  const fromUid = dragFeeUid.value || e.dataTransfer?.getData('text/plain')
+  dragFeeUid.value = null
+  dragOverFeeUid.value = null
+  if (!fromUid || fromUid === targetUid) return
+  const list = feeRows.value
+  const fromIdx = list.findIndex((r) => r.uid === fromUid)
+  const toIdx = list.findIndex((r) => r.uid === targetUid)
+  if (fromIdx < 0 || toIdx < 0) return
+  const [item] = list.splice(fromIdx, 1)
+  list.splice(toIdx, 0, item)
+}
+
+function onFeeDragEnd() {
+  dragFeeUid.value = null
+  dragOverFeeUid.value = null
+}
+
+function ensureContractOption(inv: InvoiceRecord) {
+  if (!inv.contractId) return
+  if (contracts.value.some((c) => c.id === inv.contractId)) return
+  contracts.value = [
+    {
+      id: inv.contractId,
+      contractCode: inv.contractCode || '',
+      customerName: inv.customerName || '',
+      roomCode: inv.roomCode || '',
+      roomName: inv.roomName || '',
+      roomNameText: inv.roomNameText || '',
+      salesManagerId: inv.salesManagerId || '',
+    } as ContractRecord,
+    ...contracts.value,
+  ]
 }
 
 function userOptionLabel(u: UserRecord) {
@@ -356,13 +586,14 @@ function statusLabel(status: string) {
 }
 
 function typeLabel(type: string) {
-  const map: Record<string, string> = {
-    會議室短租: t('invoice.types.meetingRoomShort'),
-    Deposit: t('invoice.types.deposit'),
-    '1, Charging Period': t('invoice.types.chargingPeriod'),
-    '10, Other charges': t('invoice.types.otherCharges'),
-  }
-  return map[type] || type
+  const key = INVOICE_TYPE_I18N_KEY[type]
+  return key ? t(`invoice.types.${key}`) : type
+}
+
+function billingKindLabel(kind?: string | null) {
+  return isSystemGeneratedInvoice(kind)
+    ? t('invoice.billingKind.auto')
+    : t('invoice.billingKind.manual')
 }
 
 async function loadContracts() {
@@ -376,49 +607,254 @@ async function loadUsers() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadContracts(), loadUsers(), loadList()])
+  await Promise.all([loadContracts(), loadUsers(), loadList(), loadSourceCounts()])
 })
 
 watch(
   () => form.contractId,
   (id) => {
     if (!id || editing.value) return
+    // 销售经理跟随合约；合约未指定时回退当前登录用户
     const c = contracts.value.find((x) => x.id === id)
-    if (!c) return
-    form.salesManagerId = c.salesManagerId || ''
-    form.roomNameText = c.roomNameText || c.roomName || ''
+    const fromContract = c?.salesManagerId?.trim() || ''
+    const meId = userStore.user?.id?.trim() || ''
+    form.salesManagerId = fromContract || meId
+    if (form.salesManagerId) ensureSalesManagerOption(form.salesManagerId)
+    // 选合约后刷新带房间后缀的编号预览
+    void refreshInvoiceCodePreview(id)
   },
 )
 
-function openCreate() {
-  editing.value = null
-  Object.assign(form, emptyForm())
-  feeRows.value = []
-  formVisible.value = true
+async function refreshInvoiceCodePreview(contractId?: string) {
+  if (editing.value) return
+  try {
+    const { data } = await previewInvoiceCodeApi(contractId)
+    if (formVisible.value && !editing.value) {
+      form.invoiceCode = data?.code?.trim() || ''
+    }
+  } catch {
+    /* 预览失败时保留占位提示 */
+  }
 }
 
-function openEdit(row: InvoiceRecord) {
+function todayYmd() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function ensureSalesManagerOption(userId: string) {
+  const id = userId.trim()
+  if (!id || users.value.some((u) => u.id === id)) return
+  const me = userStore.user
+  if (!me || me.id !== id) return
+  users.value = [
+    {
+      id: me.id,
+      account: me.account,
+      displayName: me.displayName || '',
+    } as UserRecord,
+    ...users.value,
+  ]
+}
+
+function resetCreateFormDefaults(source: 'contract' | 'short_term') {
+  formSource.value = source
+  Object.assign(form, emptyForm())
+  form.invoiceType =
+    source === 'short_term' ? SHORT_TERM_INVOICE_TYPE : DEFAULT_CONTRACT_INVOICE_TYPE
+  const meId = userStore.user?.id?.trim() || ''
+  form.salesManagerId = meId
+  form.invoiceDate = todayYmd()
+  ensureSalesManagerOption(meId)
+  feeRows.value = []
+  feePage.value = 1
+  stickyShortCustomers.value = []
+}
+
+function openCreate() {
+  editing.value = null
+  resetCreateFormDefaults('contract')
+  formVisible.value = true
+  void refreshInvoiceCodePreview()
+}
+
+/** 新增弹窗内切换合约 / 短租标签页（编辑时不可切换） */
+function onCreateSourceTabChange(name: string | number) {
+  if (editing.value) return
+  const next = name === 'short_term' ? 'short_term' : 'contract'
+  if (next === formSource.value) return
+  resetCreateFormDefaults(next)
+  if (next === 'short_term') {
+    void loadShortCustomerOptions()
+    void loadShortRoomOptions()
+  } else {
+    void refreshInvoiceCodePreview()
+  }
+}
+
+/** 清空后仍保留曾选客户，避免 seed 项从下拉消失 */
+const stickyShortCustomers = ref<CustomerRecord[]>([])
+
+function pinShortCustomer(row: CustomerRecord) {
+  if (!row?.id) return
+  if (stickyShortCustomers.value.some((c) => c.id === row.id)) return
+  stickyShortCustomers.value = [...stickyShortCustomers.value, row]
+}
+
+function mergeStickyShortCustomers(items: CustomerRecord[]) {
+  const seen = new Set(items.map((c) => c.id))
+  const extra = stickyShortCustomers.value.filter((c) => !seen.has(c.id))
+  return extra.length ? [...extra, ...items] : items
+}
+
+async function loadShortCustomerOptions(keyword = '') {
+  shortCustomerLoading.value = true
+  try {
+    const { data } = await fetchCustomers({
+      keyword: keyword.trim() || undefined,
+      page: 1,
+      pageSize: 30,
+    })
+    shortCustomers.value = mergeStickyShortCustomers(data.items || [])
+  } catch {
+    shortCustomers.value = mergeStickyShortCustomers([])
+  } finally {
+    shortCustomerLoading.value = false
+  }
+}
+
+watch(
+  () => [form.customerId, form.referredByCustomerId] as const,
+  ([customerId, referredId]) => {
+    for (const id of [customerId, referredId]) {
+      const sid = String(id ?? '').trim()
+      if (!sid) continue
+      const hit = shortCustomers.value.find((c) => c.id === sid)
+      if (hit) pinShortCustomer(hit)
+    }
+  },
+)
+
+async function loadShortRoomOptions(keyword = '') {
+  shortRoomLoading.value = true
+  try {
+    const { data } = await fetchRooms({
+      keyword: keyword.trim() || undefined,
+      page: 1,
+      pageSize: 50,
+    })
+    shortRooms.value = (data.items || []).filter((r) => r.allowShortTerm === true)
+  } catch {
+    shortRooms.value = []
+  } finally {
+    shortRoomLoading.value = false
+  }
+}
+
+function onShortRoomChange(roomId: string) {
+  const room = shortRooms.value.find((r) => r.id === roomId)
+  if (!room) {
+    form.roomInfoText = ''
+    form.roomSizeText = ''
+    return
+  }
+  form.roomInfoText = [room.roomCode, room.name].filter(Boolean).join(' · ')
+  form.roomSizeText =
+    room.sizeSqft != null && Number.isFinite(Number(room.sizeSqft))
+      ? String(room.sizeSqft)
+      : ''
+}
+
+watch(
+  () => form.roomId,
+  (id) => {
+    if (!isShortTermForm.value) return
+    onShortRoomChange(id)
+  },
+)
+
+function newFeeUid() {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `fee-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  }
+}
+
+function applyInvoiceToForm(row: InvoiceRecord) {
   editing.value = row
+  formSource.value = row.source === 'short_term' ? 'short_term' : 'contract'
+  if (formSource.value === 'contract') ensureContractOption(row)
   Object.assign(form, {
     contractId: row.contractId || '',
     invoiceCode: row.invoiceCode || '',
-    invoiceType: row.invoiceType || INVOICE_TYPES[0],
-    description: row.description || '',
+    invoiceType:
+      row.source === 'short_term'
+        ? row.invoiceType || SHORT_TERM_INVOICE_TYPE
+        : normalizeContractInvoiceType(row.invoiceType),
     amount: row.amount,
     status: row.status || INVOICE_STATUSES[0],
     invoiceDate: row.invoiceDate || '',
     paymentDueDate: row.paymentDueDate || '',
     salesManagerId: row.salesManagerId || '',
-    relatedReceivableRef: row.relatedReceivableRef || '',
-    attachment: row.attachment || '',
-    roomNameText: row.roomNameText || '',
-    notes: row.notes || '',
-    whatsappNumber: row.whatsappNumber || '',
-    shortTermRentalCode: row.shortTermRentalCode || '',
     remark: row.remark || '',
+    customerId: row.customerId || '',
+    roomId: row.roomId || '',
+    rentalStartDate: row.rentalStartDate || '',
+    rentalEndDate: row.rentalEndDate || '',
+    rentalDurationText: row.rentalDurationText || '',
+    referredByCustomerId: row.referredByCustomerId || '',
+    roomInfoText: [row.roomCode, row.roomName].filter(Boolean).join(' · '),
+    roomSizeText:
+      row.roomSizeSqft != null && Number.isFinite(Number(row.roomSizeSqft))
+        ? String(row.roomSizeSqft)
+        : '',
   })
-  feeRows.value = (row.serviceDetails ?? []).map((f) => ({
-    uid: crypto.randomUUID(),
+  if (formSource.value === 'short_term') {
+    stickyShortCustomers.value = []
+    if (row.customerId) {
+      let hit = shortCustomers.value.find((c) => c.id === row.customerId)
+      if (!hit) {
+        hit = {
+          id: row.customerId,
+          customerCode: row.customerCode || '',
+          name: row.customerName || '',
+        } as CustomerRecord
+        shortCustomers.value = [hit, ...shortCustomers.value]
+      }
+      pinShortCustomer(hit)
+    }
+    if (row.referredByCustomerId) {
+      let hit = shortCustomers.value.find((c) => c.id === row.referredByCustomerId)
+      if (!hit) {
+        hit = {
+          id: row.referredByCustomerId,
+          customerCode: row.referredByCustomerCode || '',
+          name: row.referredByCustomerName || '',
+        } as CustomerRecord
+        shortCustomers.value = [hit, ...shortCustomers.value]
+      }
+      pinShortCustomer(hit)
+    }
+    if (row.roomId && !shortRooms.value.some((r) => r.id === row.roomId)) {
+      shortRooms.value = [
+        {
+          id: row.roomId,
+          roomCode: row.roomCode || '',
+          name: row.roomName || '',
+          sizeSqft: row.roomSizeSqft ?? 0,
+          allowShortTerm: true,
+        } as RoomRecord,
+        ...shortRooms.value,
+      ]
+    }
+  }
+  const details = Array.isArray(row.serviceDetails) ? row.serviceDetails : []
+  feeRows.value = details.map((f) => ({
+    uid: newFeeUid(),
     id: f.id,
     description: f.description || '',
     quantity: f.quantity ?? 0,
@@ -426,7 +862,30 @@ function openEdit(row: InvoiceRecord) {
     remark: f.remark || '',
     sortOrder: f.sortOrder ?? 0,
   }))
+  feePage.value = 1
+}
+
+async function openEdit(row: InvoiceRecord) {
+  // 先用列表行立刻打开，避免详情请求失败/偏慢时「点了没反应」
+  try {
+    applyInvoiceToForm(row)
+  } catch (e) {
+    console.error('[invoice openEdit] apply list row failed', e)
+    ElMessage.error(t('invoice.edit') + ' failed')
+    return
+  }
   formVisible.value = true
+  if (formSource.value === 'short_term') {
+    void loadShortCustomerOptions()
+    void loadShortRoomOptions()
+  }
+  try {
+    const { data } = await fetchInvoice(row.id)
+    if (!formVisible.value || editing.value?.id !== row.id || !data?.id) return
+    applyInvoiceToForm(data)
+  } catch {
+    /* 保留列表回填；错误由 interceptor 提示 */
+  }
 }
 
 function serviceDetailsPayload(): InvoiceServiceDetailRecord[] {
@@ -442,31 +901,154 @@ function serviceDetailsPayload(): InvoiceServiceDetailRecord[] {
     }))
 }
 
-function payloadFromForm(): InvoiceWritePayload {
+function draftFromForm(): InvoicePreviewDraft {
+  const details = serviceDetailsPayload()
+  const contract = selectedContract.value
+  const customerId = isShortTermForm.value
+    ? form.customerId.trim()
+    : form.customerId.trim() || contract?.customerId || editing.value?.customerId || ''
+  const roomId = isShortTermForm.value
+    ? form.roomId.trim()
+    : form.roomId.trim() || contract?.roomId || editing.value?.roomId || ''
+  const roomNameText =
+    form.roomInfoText.trim() ||
+    (contract
+      ? [contract.roomCode, contract.roomName].filter(Boolean).join(' · ')
+      : '') ||
+    editing.value?.roomNameText ||
+    undefined
   return {
-    contractId: form.contractId.trim(),
+    contractId: isShortTermForm.value
+      ? undefined
+      : form.contractId.trim() || editing.value?.contractId || undefined,
+    customerId: customerId || undefined,
+    roomId: roomId || undefined,
     invoiceCode: form.invoiceCode.trim() || undefined,
     invoiceType: form.invoiceType || undefined,
-    description: form.description.trim() || undefined,
+    description: isShortTermForm.value
+      ? form.rentalDurationText.trim() || undefined
+      : form.invoiceType || undefined,
+    amount: form.amount == null ? 0 : Number(form.amount) || 0,
+    invoiceDate: form.invoiceDate || null,
+    paymentDueDate: form.paymentDueDate || null,
+    status: editing.value ? form.status || undefined : '已開票',
+    roomNameText,
+    remark: form.remark.trim() || undefined,
+    serviceDetails: details,
+  }
+}
+
+async function onPreviewInvoiceDraft() {
+  if (previewingDraft.value) return
+  if (isShortTermForm.value) {
+    if (!form.customerId.trim()) {
+      ElMessage.warning(t('invoice.customerRequired'))
+      return
+    }
+    if (!form.roomId.trim()) {
+      ElMessage.warning(t('invoice.roomRequired'))
+      return
+    }
+  } else if (!form.contractId.trim()) {
+    ElMessage.warning(t('invoice.contractRequired'))
+    return
+  }
+  if (!String(form.invoiceDate || '').trim()) {
+    ElMessage.warning(t('invoice.invoiceDateRequired'))
+    return
+  }
+  if (!String(form.paymentDueDate || '').trim()) {
+    ElMessage.warning(t('invoice.paymentDueDateRequired'))
+    return
+  }
+  const draft = draftFromForm()
+  if (!draft.customerId || !draft.roomId) {
+    ElMessage.warning(t('invoice.previewNeedCustomerRoom'))
+    return
+  }
+  previewingDraft.value = true
+  try {
+    await previewInvoiceDraftPdfApi(draft, editing.value?.id || null)
+    ElMessage.success(t('invoice.printInvoicePreviewReady'))
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('invoice.printInvoiceFailed')
+    ElMessage.error(msg)
+  } finally {
+    previewingDraft.value = false
+  }
+}
+
+function payloadFromForm(): InvoiceWritePayload {
+  if (isShortTermForm.value) {
+    return {
+      source: 'short_term',
+      customerId: form.customerId.trim(),
+      roomId: form.roomId.trim(),
+      invoiceCode: editing.value ? form.invoiceCode.trim() || undefined : undefined,
+      invoiceType: SHORT_TERM_INVOICE_TYPE,
+      // 界面已隐藏发票描述；新增时用租期描述作打印回退，编辑不传以免清空
+      description: editing.value
+        ? undefined
+        : form.rentalDurationText.trim() || undefined,
+      amount: form.amount == null ? undefined : Number(form.amount) || 0,
+      status: editing.value ? form.status || undefined : '已開票',
+      invoiceDate: form.invoiceDate || undefined,
+      paymentDueDate: form.paymentDueDate || undefined,
+      salesManagerId: form.salesManagerId.trim() || null,
+      rentalStartDate: form.rentalStartDate || undefined,
+      rentalEndDate: form.rentalEndDate || undefined,
+      rentalDurationText: form.rentalDurationText.trim() || undefined,
+      referredByCustomerId: form.referredByCustomerId.trim() || null,
+      roomNameText: form.roomInfoText.trim() || undefined,
+      remark: form.remark.trim() || undefined,
+      serviceDetails: serviceDetailsPayload(),
+    }
+  }
+  // 房间名称文本 / WhatsApp / 短租编号 / 应收帐引用 / 开票附件 / notes：
+  // 旧系统兼容或打印快照字段，表单不再编辑；新增由后端从合约带出，编辑不传以免清空库内旧值
+  return {
+    source: 'contract',
+    contractId: form.contractId.trim(),
+    // 新增不传编号，由后端自动编号；编辑才带表单值
+    invoiceCode: editing.value ? form.invoiceCode.trim() || undefined : undefined,
+    invoiceType: form.invoiceType || undefined,
+    // 界面已隐藏发票描述；新增写英文类型作打印回退，编辑不传以免覆盖系统自动周期文案
+    description: editing.value ? undefined : form.invoiceType || undefined,
     amount: form.amount == null ? undefined : Number(form.amount) || 0,
-    status: form.status || undefined,
+    // 新增提交即为已开票；编辑用表单状态
+    status: editing.value ? form.status || undefined : '已開票',
     invoiceDate: form.invoiceDate || undefined,
     paymentDueDate: form.paymentDueDate || undefined,
     salesManagerId: form.salesManagerId.trim() || null,
-    relatedReceivableRef: form.relatedReceivableRef.trim() || undefined,
-    attachment: form.attachment.trim() || undefined,
-    roomNameText: form.roomNameText.trim() || undefined,
-    notes: form.notes.trim() || undefined,
-    whatsappNumber: form.whatsappNumber.trim() || undefined,
-    shortTermRentalCode: form.shortTermRentalCode.trim() || undefined,
     remark: form.remark.trim() || undefined,
     serviceDetails: serviceDetailsPayload(),
   }
 }
 
 async function saveForm() {
-  if (!form.contractId.trim()) {
+  if (isShortTermForm.value) {
+    if (!form.customerId.trim()) {
+      ElMessage.warning(t('invoice.customerRequired'))
+      return
+    }
+    if (!form.roomId.trim()) {
+      ElMessage.warning(t('invoice.roomRequired'))
+      return
+    }
+    if (!form.rentalStartDate?.trim() || !form.rentalEndDate?.trim()) {
+      ElMessage.warning(t('invoice.rentalDatesRequired'))
+      return
+    }
+  } else if (!form.contractId.trim()) {
     ElMessage.warning(t('invoice.contractRequired'))
+    return
+  }
+  if (!String(form.invoiceDate || '').trim()) {
+    ElMessage.warning(t('invoice.invoiceDateRequired'))
+    return
+  }
+  if (!String(form.paymentDueDate || '').trim()) {
+    ElMessage.warning(t('invoice.paymentDueDateRequired'))
     return
   }
   try {
@@ -479,10 +1061,16 @@ async function saveForm() {
       ElMessage.success(t('invoice.created'))
     }
     formVisible.value = false
-    await loadList()
+    await reloadListAndCounts()
   } catch {
     /* interceptor */
   }
+}
+
+function invoiceSourceLabel(row: InvoiceRecord) {
+  return row.source === 'short_term'
+    ? t('invoice.source.short_term')
+    : t('invoice.source.contract')
 }
 
 async function onDelete(row: InvoiceRecord) {
@@ -494,7 +1082,7 @@ async function onDelete(row: InvoiceRecord) {
     )
     await deleteInvoiceApi(row.id)
     ElMessage.success(t('invoice.deleted'))
-    await loadList()
+    await reloadListAndCounts()
   } catch {
     /* cancel */
   }
@@ -699,7 +1287,7 @@ async function onImportFile(ev: Event) {
       }
     }
 
-    await loadList()
+    await reloadListAndCounts()
     finishImport()
   } catch {
     failImport(t('invoice.importFailed'))
@@ -709,8 +1297,25 @@ async function onImportFile(ev: Event) {
 
 <template>
   <div class="admin-page">
-    <div class="admin-page-head">
+    <div class="admin-page-head admin-page-head--with-chips">
       <h2>{{ t('menu.invoices') }}</h2>
+      <div class="building-chips-rail">
+        <div class="building-chips" role="tablist" :aria-label="t('invoice.sourceFilterAria')">
+          <button
+            v-for="chip in sourceFilterChips"
+            :key="chip.key ?? 'all'"
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': sourceFilter === chip.key }"
+            :aria-selected="sourceFilter === chip.key"
+            @click="setSourceFilter(chip.key)"
+          >
+            <span class="building-chip__name">{{ chip.label }}</span>
+            <span class="building-chip__count">({{ chip.count }})</span>
+          </button>
+        </div>
+      </div>
       <div class="head-actions">
         <el-input
           v-model="keyword"
@@ -721,7 +1326,8 @@ async function onImportFile(ev: Event) {
         />
         <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
         <el-button
-          v-if="perms.create" v-admin-glow="perms.codes.create"
+          v-if="perms.create"
+          v-admin-glow="perms.codes.create"
           type="primary"
           :icon="Plus"
           class="lb-btn-primary"
@@ -822,7 +1428,7 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.invoiceCode || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :width="codeColW(t('invoice.fields.contractCode'), { interactive: true, samples: list.map((r) => r.contractCode) })"
+            :width="codeColW(t('invoice.fields.contractCode'), { interactive: true, samples: list.map((r) => r.contractCode || r.shortTermRentalCode || '') })"
             class-name="col-code"
             label-class-name="col-code"
           >
@@ -844,6 +1450,9 @@ async function onImportFile(ev: Event) {
               >
                 {{ row.contractCode || '—' }}
               </button>
+              <span v-else-if="row.source === 'short_term'">
+                {{ row.shortTermRentalCode || t('invoice.source.short_term') }}
+              </span>
               <span v-else>{{ row.contractCode || '—' }}</span>
             </template>
           </el-table-column>
@@ -902,8 +1511,11 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
-            :min-width="textColW(t('invoice.fields.invoiceType'), { interactive: true, kind: 'name' })"
-            show-overflow-tooltip
+            :min-width="
+              statusColW(t('invoice.fields.invoiceType'), invoiceTypeWidthLabels, {
+                interactive: true,
+              })
+            "
           >
             <template #header>
               <TableColumnHeader
@@ -914,33 +1526,6 @@ async function onImportFile(ev: Event) {
               />
             </template>
             <template #default="{ row }">{{ typeLabel(row.invoiceType) || '—' }}</template>
-          </el-table-column>
-          <el-table-column
-            :min-width="
-              statusColW(
-                t('invoice.fields.status'),
-                statusFilterOptions.map((o) => o.label),
-              )
-            "
-          >
-            <template #header>
-              <TableColumnHeader
-                :label="t('invoice.fields.status')"
-                filterable
-                sortable
-                :options="statusFilterOptions"
-                :model-value="filters.status || []"
-                :sort-order="sortOrderOf('status')"
-                @update:model-value="(v) => setFilter('status', v)"
-                @update:sort-order="(v) => setSort('status', v)"
-              />
-            </template>
-            <template #default="{ row }">
-              <StatusBadge
-                :tone="invoiceStatusTone(row.status)"
-                :label="statusLabel(row.status)"
-              />
-            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('invoice.fields.amount'), { interactive: true, contentMin: 100 })"
@@ -990,6 +1575,33 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.paymentDueDate || '—' }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="
+              statusColW(
+                t('invoice.fields.status'),
+                statusFilterOptions.map((o) => o.label),
+              )
+            "
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.status')"
+                filterable
+                sortable
+                :options="statusFilterOptions"
+                :model-value="filters.status || []"
+                :sort-order="sortOrderOf('status')"
+                @update:model-value="(v) => setFilter('status', v)"
+                @update:sort-order="(v) => setSort('status', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="invoiceStatusTone(row.status)"
+                :label="statusLabel(row.status)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="colW(t('invoice.fields.salesManager'), { interactive: true, contentMin: 100 })"
             show-overflow-tooltip
           >
@@ -1004,18 +1616,29 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.salesManager || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('invoice.fields.description')"
-            :min-width="textColW(t('invoice.fields.description'), { kind: 'long' })"
-            show-overflow-tooltip
-          >
-            <template #default="{ row }">{{ row.description || '—' }}</template>
-          </el-table-column>
-          <el-table-column
             :label="t('invoice.fields.remark')"
             :min-width="textColW(t('invoice.fields.remark'), { kind: 'long' })"
             show-overflow-tooltip
           >
             <template #default="{ row }">{{ row.remark || '—' }}</template>
+          </el-table-column>
+          <el-table-column
+            :min-width="statusColW(t('invoice.fields.source'), [t('invoice.source.contract'), t('invoice.source.short_term')])"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.source')"
+                sortable
+                :sort-order="sortOrderOf('source')"
+                @update:sort-order="(v) => setSort('source', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="row.source === 'short_term' ? 'signing' : 'idle'"
+                :label="invoiceSourceLabel(row)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('invoice.fields.serviceDetailCount'), { interactive: true, contentMin: 96 })"
@@ -1069,6 +1692,33 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            :min-width="
+              statusColW(
+                t('invoice.fields.billingKind'),
+                billingKindFilterOptions.map((o) => o.label),
+              )
+            "
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.billingKind')"
+                filterable
+                sortable
+                :sort-order="sortOrderOf('billingKind')"
+                :options="billingKindFilterOptions"
+                :model-value="filters.billingKind || []"
+                @update:sort-order="(v) => setSort('billingKind', v)"
+                @update:model-value="(v) => setFilter('billingKind', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="invoiceBillingKindTone(row.billingKind)"
+                :label="billingKindLabel(row.billingKind)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="auditUserColWidth"
             show-overflow-tooltip
           >
@@ -1111,13 +1761,21 @@ async function onImportFile(ev: Event) {
               <div class="action-pills" @click.stop>
                 <button
                   type="button"
-                  class="action-pill action-pill--edit"
+                  class="action-pill action-pill--leave"
                   :disabled="printingInvoiceId === row.id"
                   @mouseenter="prefetchInvoicePdfApi(row.id)"
                   @focus="prefetchInvoicePdfApi(row.id)"
                   @click.stop="onPrintInvoice(row)"
                 >
                   {{ t('invoice.printInvoice') }}
+                </button>
+                <button
+                  type="button"
+                  class="action-pill action-pill--info"
+                  :title="t('invoice.resendInvoiceSoon')"
+                  @click.stop="onResendInvoice(row)"
+                >
+                  {{ t('invoice.resendInvoice') }}
                 </button>
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
@@ -1193,7 +1851,7 @@ async function onImportFile(ev: Event) {
       @open-receivable="onOpenReceivableFromRelated"
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
-      @changed="loadList"
+      @changed="reloadListAndCounts"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawer"
@@ -1204,77 +1862,267 @@ async function onImportFile(ev: Event) {
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
-      @changed="loadList"
+      @changed="reloadListAndCounts"
     />
-    <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
+    <RelatedEntityDrawers ref="relationDrawers" @changed="reloadListAndCounts" />
 
     <el-dialog
       v-model="formVisible"
-      :title="editing ? t('invoice.edit') : t('invoice.create')"
+      :title="
+        editing
+          ? isShortTermForm
+            ? t('invoice.editShortTerm')
+            : t('invoice.edit')
+          : t('invoice.create')
+      "
       :width="dialogWidth"
       :fullscreen="isMobile"
       destroy-on-close
       class="lb-dialog"
     >
+      <div v-if="!editing" class="invoice-source-switch">
+        <el-radio-group
+          :model-value="formSource"
+          class="lb-yesno-seg invoice-source-seg"
+          @change="onCreateSourceTabChange"
+        >
+          <el-radio-button value="contract">{{ t('invoice.createContract') }}</el-radio-button>
+          <el-radio-button value="short_term">{{ t('invoice.createShortTerm') }}</el-radio-button>
+        </el-radio-group>
+      </div>
       <el-form label-position="top" class="invoice-form">
-        <div class="form-grid">
-          <el-form-item :label="t('invoice.fields.contractCode')" required class="span-2">
-            <el-select
-              v-model="form.contractId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('invoice.fields.contractCode')"
-              :disabled="!!editing"
-            >
-              <el-option
-                v-for="opt in contractFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
-              >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.customerName')">
-            <el-input
-              :model-value="selectedContract?.customerName || editing?.customerName || ''"
-              readonly
-              :placeholder="t('invoice.autoFromContract')"
-            />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.roomName')">
-            <el-input
-              :model-value="
-                selectedContract
-                  ? `${selectedContract.roomCode}${selectedContract.roomName ? ' · ' + selectedContract.roomName : ''}`
-                  : editing
-                    ? `${editing.roomCode}${editing.roomName ? ' · ' + editing.roomName : ''}`
-                    : ''
-              "
-              readonly
-              :placeholder="t('invoice.autoFromContract')"
-            />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.invoiceCode')" class="span-2">
+        <div v-if="isShortTermForm" class="form-grid">
+          <el-form-item :label="t('invoice.fields.invoiceCode')">
             <el-input
               v-model="form.invoiceCode"
-              :placeholder="t('invoice.codeAutoHint')"
+              readonly
+              :placeholder="editing ? undefined : t('invoice.codeAutoHint')"
             />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.customerName')" required>
+            <SelectWithViewAction
+              :disabled="!form.customerId"
+              @view="openCustomerSide(form.customerId, 'ltr')"
+            >
+              <el-select
+                v-model="form.customerId"
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                :remote-method="loadShortCustomerOptions"
+                :loading="shortCustomerLoading"
+                :placeholder="t('invoice.fields.customerName')"
+                @visible-change="(open: boolean) => open && loadShortCustomerOptions()"
+              >
+                <el-option
+                  v-for="c in shortCustomers"
+                  :key="c.id"
+                  :label="`${c.customerCode || ''} ${c.name || ''}`.trim()"
+                  :value="c.id"
+                />
+              </el-select>
+            </SelectWithViewAction>
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.referredByCustomer')">
+            <SelectWithViewAction
+              clearable
+              :disabled="!form.referredByCustomerId"
+              @view="openCustomerSide(form.referredByCustomerId, 'ltr')"
+            >
+              <el-select
+                v-model="form.referredByCustomerId"
+                clearable
+                value-on-clear=""
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                :remote-method="loadShortCustomerOptions"
+                :loading="shortCustomerLoading"
+                :placeholder="t('invoice.fields.referredByCustomer')"
+                @visible-change="(open: boolean) => open && loadShortCustomerOptions()"
+              >
+                <el-option
+                  v-for="c in shortCustomers"
+                  :key="c.id"
+                  :label="`${c.customerCode || ''} ${c.name || ''}`.trim()"
+                  :value="c.id"
+                />
+              </el-select>
+            </SelectWithViewAction>
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.rentalDurationText')">
+            <el-input v-model="form.rentalDurationText" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.roomName')" required>
+            <SelectWithViewAction
+              :disabled="!form.roomId"
+              @view="openRoomSide(form.roomId, 'ltr')"
+            >
+              <el-select
+                v-model="form.roomId"
+                filterable
+                remote
+                reserve-keyword
+                fit-input-width
+                style="width: 100%"
+                :remote-method="loadShortRoomOptions"
+                :loading="shortRoomLoading"
+                :placeholder="t('invoice.fields.roomName')"
+                :disabled="!!editing"
+                @visible-change="(open: boolean) => open && loadShortRoomOptions()"
+              >
+                <el-option
+                  v-for="r in shortRooms"
+                  :key="r.id"
+                  :label="`${r.roomCode || ''} ${r.name || ''}`.trim()"
+                  :value="r.id"
+                />
+              </el-select>
+            </SelectWithViewAction>
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.roomInfo')">
+            <el-input v-model="form.roomInfoText" readonly />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.roomSize')">
+            <el-input v-model="form.roomSizeText" readonly />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.invoiceDate')" required>
+            <el-date-picker
+              v-model="form.invoiceDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.paymentDueDate')" required>
+            <el-date-picker
+              v-model="form.paymentDueDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.rentalStartDate')" required>
+            <el-date-picker
+              v-model="form.rentalStartDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.rentalEndDate')" required>
+            <el-date-picker
+              v-model="form.rentalEndDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.amount')">
+            <el-input-number
+              v-model="form.amount"
+              :min="0"
+              :precision="2"
+              :controls="false"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item v-if="editing" :label="t('invoice.fields.status')">
+            <el-select v-model="form.status" style="width: 100%">
+              <el-option
+                v-for="s in INVOICE_STATUSES"
+                :key="s"
+                :label="statusLabel(s)"
+                :value="s"
+              />
+            </el-select>
+          </el-form-item>
+        </div>
+
+        <div v-else class="form-grid">
+          <!-- 发票编号在合约左侧：新增预览自动编号（只读）；选合约后带房间后缀；编辑只读原号 -->
+          <el-form-item :label="t('invoice.fields.invoiceCode')">
+            <el-input
+              v-model="form.invoiceCode"
+              readonly
+              :placeholder="editing ? undefined : t('invoice.codeAutoHint')"
+            />
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.contractCode')" required>
+            <SelectWithViewAction
+              :disabled="!form.contractId"
+              @view="openContractSide(form.contractId, 'ltr')"
+            >
+              <el-select
+                v-model="form.contractId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('invoice.fields.contractCode')"
+                :disabled="!!editing"
+              >
+                <el-option
+                  v-for="opt in contractFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.customerName')">
+            <SelectWithViewAction
+              control="input"
+              :disabled="!(selectedContract?.customerId || editing?.customerId)"
+              @view="
+                openCustomerSide(selectedContract?.customerId || editing?.customerId, 'ltr')
+              "
+            >
+              <el-input
+                :model-value="selectedContract?.customerName || editing?.customerName || ''"
+                readonly
+                :placeholder="t('invoice.autoFromContract')"
+              />
+            </SelectWithViewAction>
+          </el-form-item>
+          <el-form-item :label="t('invoice.fields.roomName')">
+            <SelectWithViewAction
+              control="input"
+              :disabled="!(selectedContract?.roomId || editing?.roomId)"
+              @view="openRoomSide(selectedContract?.roomId || editing?.roomId, 'ltr')"
+            >
+              <el-input
+                :model-value="
+                  selectedContract
+                    ? `${selectedContract.roomCode}${selectedContract.roomName ? ' · ' + selectedContract.roomName : ''}`
+                    : editing
+                      ? `${editing.roomCode}${editing.roomName ? ' · ' + editing.roomName : ''}`
+                      : ''
+                "
+                readonly
+                :placeholder="t('invoice.autoFromContract')"
+              />
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('invoice.fields.invoiceType')">
             <el-select v-model="form.invoiceType" style="width: 100%">
               <el-option
-                v-for="s in INVOICE_TYPES"
+                v-for="s in CONTRACT_INVOICE_TYPES"
                 :key="s"
                 :label="typeLabel(s)"
                 :value="s"
               />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.status')">
+          <!-- 新增固定已开票，不展示；编辑可改状态 -->
+          <el-form-item v-if="editing" :label="t('invoice.fields.status')">
             <el-select v-model="form.status" style="width: 100%">
               <el-option
                 v-for="s in INVOICE_STATUSES"
@@ -1293,24 +2141,7 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.salesManager')">
-            <el-select
-              v-model="form.salesManagerId"
-              clearable
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('invoice.fields.salesManager')"
-            >
-              <el-option
-                v-for="opt in userFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.invoiceDate')">
+          <el-form-item :label="t('invoice.fields.invoiceDate')" required>
             <el-date-picker
               v-model="form.invoiceDate"
               type="date"
@@ -1318,7 +2149,7 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.paymentDueDate')">
+          <el-form-item :label="t('invoice.fields.paymentDueDate')" required>
             <el-date-picker
               v-model="form.paymentDueDate"
               type="date"
@@ -1326,107 +2157,189 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.description')" class="span-2">
-            <el-input v-model="form.description" type="textarea" :rows="2" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.roomNameText')">
-            <el-input v-model="form.roomNameText" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.whatsappNumber')">
-            <el-input v-model="form.whatsappNumber" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.shortTermRentalCode')">
-            <el-input v-model="form.shortTermRentalCode" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.relatedReceivableRef')">
-            <el-input v-model="form.relatedReceivableRef" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.attachment')" class="span-2">
-            <el-input v-model="form.attachment" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.notes')" class="span-2">
-            <el-input v-model="form.notes" type="textarea" :rows="2" />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.remark')" class="span-2">
-            <el-input v-model="form.remark" type="textarea" :rows="2" />
-          </el-form-item>
         </div>
 
         <section class="form-section form-section--fees">
-          <div class="fee-section-head">
-            <h3>{{ t('invoice.sections.serviceDetails') }}</h3>
-            <el-button type="primary" plain class="fee-add-btn" :icon="Plus" @click="addFeeRow">
-              {{ t('invoice.addServiceDetailRow') }}
-            </el-button>
+          <div class="period-section-head">
+            <div class="period-section-head__left">
+              <h3>{{ t('invoice.sections.serviceDetails') }}</h3>
+              <el-button
+                type="primary"
+                size="small"
+                plain
+                :icon="Plus"
+                class="period-add-btn"
+                @click="addFeeRow"
+              >
+                {{ t('invoice.addServiceDetailRow') }}
+              </el-button>
+            </div>
+            <div v-if="feeRows.length > FEE_PAGE_SIZE" class="period-table-pager">
+              <el-pagination
+                v-model:current-page="feePage"
+                :page-size="FEE_PAGE_SIZE"
+                :total="feeRows.length"
+                layout="total, prev, pager, next"
+                small
+                background
+                class="period-pager"
+              />
+            </div>
           </div>
-          <div v-if="feeRows.length" class="fee-table-wrap">
-            <div class="fee-table" role="table">
-              <div class="fee-table__head" role="row">
-                <div class="fee-table__cell fee-table__cell--index" role="columnheader">#</div>
-                <div class="fee-table__cell fee-table__cell--desc" role="columnheader">
+          <div class="period-table-wrap">
+            <div
+              class="period-table fee-table"
+              role="table"
+              :style="{ '--period-page-size': FEE_PAGE_SIZE }"
+            >
+              <div class="period-table__head" role="row">
+                <div class="period-table__cell period-table__cell--index" role="columnheader">#</div>
+                <div class="period-table__cell fee-table__cell--desc" role="columnheader">
                   <span class="req">*</span>{{ t('invoice.fields.feeDescription') }}
                 </div>
-                <div class="fee-table__cell fee-table__cell--qty" role="columnheader">
-                  {{ t('invoice.fields.feeQuantity') }}
+                <div class="period-table__cell fee-table__cell--qty" role="columnheader">
+                  <span class="req">*</span>{{ t('invoice.fields.feeQuantity') }}
                 </div>
-                <div class="fee-table__cell fee-table__cell--unit" role="columnheader">
-                  {{ t('invoice.fields.feeUnitAmount') }}
+                <div class="period-table__cell fee-table__cell--unit" role="columnheader">
+                  <span class="req">*</span>{{ t('invoice.fields.feeUnitAmount') }}
                 </div>
-                <div class="fee-table__cell fee-table__cell--subtotal" role="columnheader">
+                <div class="period-table__cell fee-table__cell--sub" role="columnheader">
                   {{ t('invoice.fields.feeSubtotal') }}
                 </div>
-                <div class="fee-table__cell fee-table__cell--remark" role="columnheader">
+                <div class="period-table__cell fee-table__cell--remark" role="columnheader">
                   {{ t('invoice.fields.feeRemark') }}
                 </div>
-                <div class="fee-table__cell fee-table__cell--actions" role="columnheader"></div>
+                <div class="period-table__cell fee-table__cell--actions" role="columnheader"></div>
               </div>
               <div
-                v-for="(fee, idx) in feeRows"
-                :key="fee.uid"
-                class="fee-table__row"
-                role="row"
+                class="period-table__body"
+                :class="{ 'period-table__body--fixed': feeRows.length > FEE_PAGE_SIZE }"
               >
-                <div class="fee-table__cell fee-table__cell--index" role="cell">{{ idx + 1 }}</div>
-                <div class="fee-table__cell fee-table__cell--desc" role="cell">
-                  <el-input v-model="fee.description" type="textarea" :rows="2" />
+                <div
+                  v-for="{ row: fee, index: idx } in pagedFeeRows"
+                  :key="fee.uid"
+                  class="period-table__row"
+                  role="row"
+                  :class="{
+                    'is-dragging': dragFeeUid === fee.uid,
+                    'is-drag-over': dragOverFeeUid === fee.uid,
+                    'is-editing-index': editingFeeIndexUid === fee.uid,
+                  }"
+                  @dragover="onFeeDragOver(fee.uid, $event)"
+                  @drop="onFeeDrop(fee.uid, $event)"
+                  @dragleave="dragOverFeeUid === fee.uid && (dragOverFeeUid = null)"
+                >
+                  <div
+                    class="period-table__cell period-table__cell--index"
+                    :class="{ 'is-editing-index': editingFeeIndexUid === fee.uid }"
+                    role="cell"
+                  >
+                    <button
+                      type="button"
+                      class="period-row__handle"
+                      draggable="true"
+                      :title="t('invoice.dragServiceDetail')"
+                      aria-label="drag"
+                      @dragstart="onFeeDragStart(fee.uid, $event)"
+                      @dragend="onFeeDragEnd"
+                    >
+                      <el-icon :size="14"><Rank /></el-icon>
+                    </button>
+                    <input
+                      v-if="editingFeeIndexUid === fee.uid"
+                      ref="feeIndexInputRef"
+                      :value="editingFeeIndexDraft"
+                      class="period-row__index-input"
+                      type="text"
+                      inputmode="numeric"
+                      pattern="[0-9]*"
+                      maxlength="4"
+                      :aria-label="t('invoice.editServiceDetailIndex')"
+                      @input="onFeeIndexDraftInput"
+                      @keydown="onFeeIndexKeydown"
+                      @blur="commitEditFeeIndex"
+                    />
+                    <button
+                      v-else
+                      type="button"
+                      class="period-row__index"
+                      :title="t('invoice.editServiceDetailIndexHint')"
+                      @dblclick.stop="startEditFeeIndex(fee.uid, idx)"
+                    >
+                      {{ idx + 1 }}
+                    </button>
+                  </div>
+                  <div class="period-table__cell fee-table__cell--desc" role="cell">
+                    <el-input
+                      v-model="fee.description"
+                      type="textarea"
+                      :rows="2"
+                      resize="none"
+                      class="fee-table__textarea"
+                      :placeholder="t('invoice.fields.feeDescription')"
+                    />
+                  </div>
+                  <div class="period-table__cell fee-table__cell--qty" role="cell">
+                    <el-input-number
+                      v-model="fee.quantity"
+                      :min="0"
+                      :precision="2"
+                      controls-position="right"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div class="period-table__cell fee-table__cell--unit" role="cell">
+                    <el-input-number
+                      v-model="fee.unitAmount"
+                      :min="0"
+                      :precision="2"
+                      controls-position="right"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div class="period-table__cell fee-table__cell--sub" role="cell">
+                    {{ formatMoney(feeSubtotal(fee)) }}
+                  </div>
+                  <div class="period-table__cell fee-table__cell--remark" role="cell">
+                    <el-input
+                      v-model="fee.remark"
+                      type="textarea"
+                      :rows="2"
+                      resize="none"
+                      class="fee-table__textarea"
+                      :placeholder="t('invoice.fields.feeRemark')"
+                    />
+                  </div>
+                  <div class="period-table__cell fee-table__cell--actions" role="cell">
+                    <el-button type="danger" link :icon="Delete" @click="removeFeeRow(idx)" />
+                  </div>
                 </div>
-                <div class="fee-table__cell fee-table__cell--qty" role="cell">
-                  <el-input-number
-                    v-model="fee.quantity"
-                    :min="0"
-                    :precision="2"
-                    :controls="false"
-                    style="width: 100%"
-                  />
-                </div>
-                <div class="fee-table__cell fee-table__cell--unit" role="cell">
-                  <el-input-number
-                    v-model="fee.unitAmount"
-                    :min="0"
-                    :precision="2"
-                    :controls="false"
-                    style="width: 100%"
-                  />
-                </div>
-                <div class="fee-table__cell fee-table__cell--subtotal" role="cell">
-                  <span class="fee-subtotal">{{ formatMoney(feeSubtotal(fee)) }}</span>
-                </div>
-                <div class="fee-table__cell fee-table__cell--remark" role="cell">
-                  <el-input v-model="fee.remark" />
-                </div>
-                <div class="fee-table__cell fee-table__cell--actions" role="cell">
-                  <el-button type="danger" link :icon="Delete" @click="removeFeeRow(idx)" />
+                <div v-if="!feeRows.length" class="fee-table__empty">
+                  {{ t('invoice.noServiceDetailRows') }}
                 </div>
               </div>
             </div>
           </div>
-          <p v-else class="fee-empty">{{ t('invoice.noServiceDetailRows') }}</p>
         </section>
+
+        <el-form-item :label="t('invoice.fields.remark')" class="invoice-form__remark">
+          <el-input v-model="form.remark" type="textarea" :rows="2" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" class="lb-btn-primary" @click="saveForm">
+          <el-button :loading="previewingDraft" @click="onPreviewInvoiceDraft">
+            {{ t('invoice.previewInvoice') }}
+          </el-button>
+          <el-button :disabled="previewingDraft" @click="formVisible = false">
+            {{ t('common.cancel') }}
+          </el-button>
+          <el-button
+            type="primary"
+            class="lb-btn-primary"
+            :disabled="previewingDraft"
+            @click="saveForm"
+          >
             {{ t('common.save') }}
           </el-button>
         </div>
@@ -1485,6 +2398,32 @@ async function onImportFile(ev: Event) {
   white-space: nowrap;
 }
 
+.invoice-source-switch {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
+  border: 1px solid #e4ebe6;
+}
+
+.invoice-source-seg.lb-yesno-seg {
+  width: 100%;
+  max-width: 420px;
+}
+
+.invoice-source-seg :deep(.el-radio-button) {
+  flex: 1 1 0;
+}
+
+.invoice-source-seg :deep(.el-radio-button__inner) {
+  width: 100%;
+  padding: 8px 14px;
+  font-weight: 650;
+  font-size: 0.88rem;
+}
+
 .invoice-form :deep(.el-form-item) {
   margin-bottom: 10px;
 }
@@ -1496,91 +2435,345 @@ async function onImportFile(ev: Event) {
 
 .form-section--fees {
   margin-top: 12px;
+  margin-bottom: 10px;
   padding-top: 8px;
+  padding-bottom: 6px;
   border-top: 1px solid #edf2ef;
 }
 
-.fee-section-head {
+.invoice-form__remark {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.period-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  min-height: 28px;
 }
 
-.fee-section-head h3 {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.fee-add-btn {
-  flex-shrink: 0;
-}
-
-.fee-table-wrap {
-  overflow-x: auto;
-}
-
-.fee-table {
-  min-width: 720px;
-  border: 1px solid #edf2ef;
-  border-radius: 8px;
-}
-
-.fee-table__head,
-.fee-table__row {
-  display: grid;
-  grid-template-columns: 36px minmax(140px, 1.4fr) 88px 100px 100px minmax(100px, 1fr) 40px;
-  gap: 8px;
+.period-section-head__left {
+  display: flex;
   align-items: center;
-  padding: 8px 10px;
-}
-
-.fee-table__head {
-  background: #f7faf8;
-  font-size: 12px;
-  font-weight: 600;
-  color: #5a6b63;
-  border-bottom: 1px solid #edf2ef;
-}
-
-.fee-table__row {
-  border-bottom: 1px solid #f0f4f2;
-}
-
-.fee-table__row:last-child {
-  border-bottom: none;
-}
-
-.fee-table__cell {
+  gap: 10px;
   min-width: 0;
 }
 
-.fee-table__cell--index,
-.fee-table__cell--subtotal,
-.fee-table__cell--actions {
-  text-align: center;
+.period-section-head h3 {
+  margin: 0;
 }
 
-.fee-table__head .req {
-  color: #e14b4b;
+.period-add-btn {
+  --el-button-bg-color: color-mix(in srgb, var(--lb-brand) 10%, #fff);
+  --el-button-border-color: color-mix(in srgb, var(--lb-brand) 35%, #fff);
+  --el-button-text-color: var(--lb-brand);
+  --el-button-hover-bg-color: color-mix(in srgb, var(--lb-brand) 18%, #fff);
+  --el-button-hover-border-color: var(--lb-brand);
+  --el-button-hover-text-color: var(--lb-brand);
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 12px;
+  height: 26px;
+}
+
+.period-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e4ebe6;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.period-table-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
+  border: 1px solid #e4ebe6;
+}
+
+.period-pager.el-pagination {
+  --el-pagination-button-bg-color: #fff;
+  --el-pagination-hover-color: var(--lb-brand, #0f4a32);
+  --el-pagination-button-color: #4a5c54;
+  font-weight: 600;
+  gap: 2px;
+}
+
+.period-pager :deep(.el-pagination__total) {
+  margin-right: 4px;
+  color: #4a5c54;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.period-pager :deep(.btn-prev),
+.period-pager :deep(.btn-next),
+.period-pager :deep(.el-pager li) {
+  min-width: 26px !important;
+  height: 26px !important;
+  line-height: 26px !important;
+  border-radius: 7px !important;
+  margin: 0 2px !important;
+}
+
+.period-pager :deep(.el-pager li.is-active) {
+  background: var(--lb-brand, #0f4a32) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.period-pager :deep(.btn-prev:hover:not(:disabled)),
+.period-pager :deep(.btn-next:hover:not(:disabled)),
+.period-pager :deep(.el-pager li:hover:not(.is-active)) {
+  color: var(--lb-brand, #0f4a32);
+}
+
+.period-table {
+  --period-row-h: 44px;
+  --period-page-size: 5;
+  display: grid;
+  min-width: 720px;
+}
+
+/* 服务细节：描述/备注固定两行高度，可换行，超出框内纵向滚动 */
+.fee-table.period-table {
+  --period-row-h: 72px;
+  --fee-textarea-h: 48px;
+}
+
+.fee-table.period-table .period-table__head,
+.fee-table.period-table .period-table__row {
+  display: grid;
+  grid-template-columns:
+    52px
+    minmax(140px, 1.6fr)
+    120px
+    120px
+    88px
+    minmax(120px, 1.2fr)
+    40px;
+  align-items: center;
+  column-gap: 6px;
+  padding: 0 8px;
+}
+
+.fee-table.period-table .period-table__row {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.period-table__head {
+  min-height: 34px;
+  background: #f4f7f5;
+  border-bottom: 1px solid #e4ebe6;
+  color: #3d4f45;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.period-table__body {
+  background: #fff;
+}
+
+.period-table__body--fixed {
+  box-sizing: border-box;
+  height: calc(var(--period-row-h) * var(--period-page-size));
+  min-height: calc(var(--period-row-h) * var(--period-page-size));
+  overflow: hidden;
+}
+
+.period-table__row {
+  box-sizing: border-box;
+  min-height: var(--period-row-h);
+  height: var(--period-row-h);
+  border-bottom: 1px solid #edf2ef;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+  background: #fff;
+}
+
+.period-table__body:not(.period-table__body--fixed) .period-table__row:last-child {
+  border-bottom: none;
+}
+
+.period-table__row.is-dragging {
+  opacity: 0.45;
+}
+
+.period-table__row.is-editing-index {
+  position: relative;
+  z-index: 4;
+  overflow: visible;
+}
+
+.period-table__row.is-drag-over {
+  background: color-mix(in srgb, var(--lb-brand) 6%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand) 35%, #fff);
+}
+
+.period-table__cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.period-table__cell--index {
+  gap: 1px;
+  justify-content: flex-start;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.period-table__cell--index.is-editing-index {
+  z-index: 5;
+}
+
+.fee-table__cell--actions {
+  justify-content: center;
+}
+
+.fee-table .period-table__row .fee-table__cell--sub {
+  justify-content: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: #3d4f45;
+}
+
+.period-table__head .req {
+  color: #e35d5d;
   margin-right: 2px;
 }
 
-.fee-subtotal {
-  font-variant-numeric: tabular-nums;
+.period-row__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a9590;
+  cursor: grab;
+  flex: 0 0 auto;
 }
 
-.fee-empty {
+.period-row__handle:hover {
+  background: color-mix(in srgb, var(--lb-brand) 10%, #fff);
+  color: var(--lb-brand);
+}
+
+.period-row__handle:active {
+  cursor: grabbing;
+}
+
+.period-row__index {
+  appearance: none;
+  flex: 0 0 auto;
+  min-width: 1rem;
   margin: 0;
-  color: #8a9a93;
-  font-size: 0.875rem;
+  padding: 0 1px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  text-align: center;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #5a6b62;
+  cursor: text;
+  line-height: 1.4;
 }
 
-.fee-table__row :deep(.el-input__wrapper),
-.fee-table__row :deep(.el-input-number) {
+.period-row__index:hover {
+  background: color-mix(in srgb, var(--lb-brand) 10%, #fff);
+  color: var(--lb-brand);
+}
+
+.period-row__index-input {
+  box-sizing: border-box;
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  z-index: 6;
+  width: 2.4rem;
+  min-width: 2.4rem;
+  height: 24px;
+  margin: 0;
+  padding: 0 3px;
+  border: 1px solid var(--lb-brand, #0f4a32);
+  border-radius: 5px;
+  background: #fff;
+  color: #0f4a32;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 22px;
+  outline: none;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, transparent);
+}
+
+.fee-table__empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--lb-muted, #6a7a70);
+  font-size: 0.84rem;
+}
+
+.fee-table__cell--desc,
+.fee-table__cell--remark {
+  align-self: stretch;
+}
+
+.fee-table__textarea {
   width: 100%;
+}
+
+.fee-table__textarea :deep(.el-textarea__inner) {
+  box-sizing: border-box;
+  height: var(--fee-textarea-h) !important;
+  min-height: var(--fee-textarea-h) !important;
+  max-height: var(--fee-textarea-h) !important;
+  line-height: 1.35;
+  padding: 4px 8px;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 0 0 1px #dbe4df inset;
+}
+
+.period-table__row :deep(.el-input__wrapper),
+.period-table__row :deep(.el-select__wrapper) {
+  min-height: 30px;
+  box-shadow: 0 0 0 1px #dbe4df inset;
+}
+
+.period-table__row :deep(.el-input-number) {
+  width: 100%;
+}
+
+.period-table__row :deep(.el-input-number .el-input__wrapper) {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.period-table__row :deep(.el-input-number.is-controls-right .el-input__wrapper) {
+  padding-right: 36px;
 }
 
 .room-io-file {

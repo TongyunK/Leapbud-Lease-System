@@ -480,6 +480,8 @@ model Room {
   leaseCapability RoomLeaseCapability @default(flexible) @map("lease_capability")
   /// 可分租份位标签（如 A、B、C）；仅 flexible；whole_only / part_only 为空
   splitLabels     String[]   @default([]) @map("split_labels")
+  /// 是否允许短租开票（无合约；开启后可选入短租发票）
+  allowShortTerm  Boolean    @default(false) @map("allow_short_term")
   /// 创建时间
   createdAt       DateTime   @default(now()) @map("created_at")
   /// 更新时间
@@ -605,6 +607,8 @@ model Customer {
   depositRefunds    DepositRefund[]      @relation("DepositRefundBelongsToCustomer")
   /// 下属发票
   invoices          Invoice[]            @relation("InvoiceBelongsToCustomer")
+  /// 作为介绍人被短租发票引用
+  referredShortTermInvoices Invoice[]    @relation("InvoiceReferredByCustomer")
   /// 下属应收帐
   receivables       Receivable[]         @relation("ReceivableBelongsToCustomer")
   /// 下属收据
@@ -1051,7 +1055,7 @@ model DepositRefund {
   @@map("deposit_refunds")
 }
 
-/// 发票（财务：合约开票记录）
+/// 发票（财务：合约开票或短租开票记录）
 model Invoice {
   /// 主键
   id                    String                 @id @default(cuid())
@@ -1059,25 +1063,27 @@ model Invoice {
   invoiceCode           String?                @unique @map("invoice_code")
   /// 旧系统记录 ID（简道云 _id；服务细节 JSON 按此关联所属发票）
   legacyId              String?                @unique @map("legacy_id")
-  /// 所属合约 ID
-  contractId            String                 @map("contract_id")
+  /// 开票来源：contract=合约发票；short_term=短租发票（无合约）
+  source                String                 @default("contract")
+  /// 所属合约 ID（短租发票可空）
+  contractId            String?                @map("contract_id")
   /// 所属合约
-  contract              Contract               @relation("InvoiceBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
-  /// 所属客户 ID（通常与合约客户一致）
+  contract              Contract?              @relation("InvoiceBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
+  /// 所属客户 ID（通常与合约客户一致；短租必填）
   customerId            String                 @map("customer_id")
   /// 所属客户
   customer              Customer               @relation("InvoiceBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
-  /// 所属房间 ID（通常与合约房间一致）
+  /// 所属房间 ID（通常与合约房间一致；短租必填）
   roomId                String                 @map("room_id")
   /// 所属房间
   room                  Room                   @relation("InvoiceBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
-  /// 发票类型（會議室短租 / Deposit / 1, Charging Period / 10, Other charges）
+  /// 发票类型（會議室短租 / Deposit / Others / 1, Charging Period；存储英文，短租除外）
   invoiceType           String                 @default("") @map("invoice_type")
-  /// 自动开票种类：manual=手工；deposit=房间按金发票；rent=缴费周期租金发票
+  /// 产生方式：manual=用户手动；auto=系统自动（按金／租金等由 invoiceType 区分）
   billingKind           String                 @default("manual") @map("billing_kind")
-  /// 租金账单周期起（仅 billingKind=rent；UTC 日期）
+  /// 租金账单周期起（缴费期租金发票；UTC 日期）
   periodStart           DateTime?              @map("period_start") @db.Date
-  /// 租金账单周期止（仅 billingKind=rent；UTC 日期，含当日）
+  /// 租金账单周期止（缴费期租金发票；UTC 日期，含当日）
   periodEnd             DateTime?              @map("period_end") @db.Date
   /// 发票描述
   description           String                 @default("")
@@ -1109,8 +1115,18 @@ model Invoice {
   notes                 String                 @default("")
   /// WhatsApp 号码
   whatsappNumber        String                 @default("") @map("whatsapp_number")
-  /// 短租编号（文本；会议室短租实体尚未建立）
+  /// 短租编号（短租发票自动生成；可与 invoiceCode 相同）
   shortTermRentalCode   String                 @default("") @map("short_term_rental_code")
+  /// 短租：租赁开始日期
+  rentalStartDate       DateTime?              @map("rental_start_date") @db.Date
+  /// 短租：租赁结束日期
+  rentalEndDate         DateTime?              @map("rental_end_date") @db.Date
+  /// 短租：描述租赁时长（文本）
+  rentalDurationText    String                 @default("") @map("rental_duration_text")
+  /// 短租：经此客户介绍（介绍人客户 ID）
+  referredByCustomerId  String?                @map("referred_by_customer_id")
+  /// 短租：介绍人客户
+  referredByCustomer    Customer?              @relation("InvoiceReferredByCustomer", fields: [referredByCustomerId], references: [id], onDelete: SetNull)
   /// 备注
   remark                String                 @default("")
   /// 创建人用户 ID
@@ -1131,14 +1147,19 @@ model Invoice {
   @@index([roomId])
   @@index([salesManagerId])
   @@index([status])
+  @@index([source])
   @@index([invoiceType])
   @@index([billingKind])
   @@index([periodStart])
   @@index([invoiceDate])
   @@index([paymentDueDate])
+  @@index([rentalStartDate])
+  @@index([rentalEndDate])
+  @@index([referredByCustomerId])
   @@index([createdById])
   @@index([updatedById])
   @@index([contractId, billingKind, periodStart])
+  @@index([roomId, source, rentalStartDate, rentalEndDate])
   @@map("invoices")
 }
 
@@ -1195,10 +1216,10 @@ model Receivable {
   invoiceId          String         @map("invoice_id")
   /// 所属发票
   invoice            Invoice        @relation("ReceivableBelongsToInvoice", fields: [invoiceId], references: [id], onDelete: Restrict)
-  /// 所属合约 ID（通常与发票合约一致）
-  contractId         String         @map("contract_id")
+  /// 所属合约 ID（通常与发票合约一致；短租应收可空）
+  contractId         String?        @map("contract_id")
   /// 所属合约
-  contract           Contract       @relation("ReceivableBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
+  contract           Contract?      @relation("ReceivableBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
   /// 所属客户 ID（通常与发票客户一致）
   customerId         String         @map("customer_id")
   /// 所属客户

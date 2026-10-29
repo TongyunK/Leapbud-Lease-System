@@ -174,5 +174,6 @@ export function toRoomDto(row: RoomWithBuilding) {
     splitLabels: Array.isArray((row as { splitLabels?: string[] }).splitLabels)
       ? [...((row as { splitLabels: string[] }).splitLabels)]
       : [],
+    allowShortTerm: Boolean((row as { allowShortTerm?: boolean }).allowShortTerm),
   };
 }

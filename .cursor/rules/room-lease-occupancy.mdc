@@ -14,12 +14,14 @@ alwaysApply: true
 - 合约 `occupancyMode`：`whole` | `part`；`partLabel`：分租份位（仅 `flexible` 选 part 时）
 - `whole_only` / `part_only`：签约时均按整间占用该房间（`occupancyMode=whole`）
 - 同一房间：要么 1 份整租占用，要么（仅 flexible）各份位最多 1 份占用中合约
+- 房间 `allowShortTerm`：开启后可开**短租发票**（无合约）；短租租期内占房，与占用中合约及其它短租互斥
+- 短租占用真相：`Invoice.source=short_term` 且未取消，且今日落在 `[rentalStartDate, rentalEndDate]`（不另建短租单）
 
 ## 展示
 
-- **状态列**（占用填充）：`闲置中` / `整租中` / `分租中` / `满租`（对应 `occupancy.summary`：idle/whole/partial/full）
-- **租用情况**（`RoomOccupancyChips`）：整间占用显示生命周期四态；flexible 分租显示 `分租中`（可点开份位）
-- 新增合约：仅 flexible 可选整租/份位；已占用份位禁用
+- **状态列**（占用填充）：`闲置中` / `短租中` / `整租中` / `分租中` / `满租`（对应 `occupancy.summary`：idle/short/whole/partial/full）
+- **租用情况**（`RoomOccupancyChips`）：整间占用显示生命周期四态；短租显示 `短租中`；flexible 分租显示 `分租中`（可点开份位）
+- 新增合约：仅 flexible 可选整租/份位；已占用份位禁用；有未结束短租租期时不可签约占用
 
 ## 编号
 

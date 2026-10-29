@@ -43,6 +43,7 @@ import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
 import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
@@ -1649,19 +1650,24 @@ async function onImportFile(ev: Event) {
               </el-select>
             </el-form-item>
             <el-form-item :label="t('customer.fields.buildingName')" required>
-              <el-select
-                v-model="form.buildingId"
-                filterable
-                style="width: 100%"
-                :placeholder="t('customer.fields.buildingName')"
+              <SelectWithViewAction
+                :disabled="!form.buildingId"
+                @view="openBuildingSide(form.buildingId)"
               >
-                <el-option
-                  v-for="b in buildings"
-                  :key="b.id"
-                  :label="b.name"
-                  :value="b.id"
-                />
-              </el-select>
+                <el-select
+                  v-model="form.buildingId"
+                  filterable
+                  style="width: 100%"
+                  :placeholder="t('customer.fields.buildingName')"
+                >
+                  <el-option
+                    v-for="b in buildings"
+                    :key="b.id"
+                    :label="b.name"
+                    :value="b.id"
+                  />
+                </el-select>
+              </SelectWithViewAction>
             </el-form-item>
           </div>
         </section>

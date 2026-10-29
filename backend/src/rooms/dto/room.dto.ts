@@ -1,6 +1,8 @@
 import {
   ArrayMaxSize,
+  ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -119,6 +121,11 @@ export class CreateRoomDto {
   @Type(() => Number)
   @IsNumber()
   splitCount?: number;
+
+  @ApiPropertyOptional({ description: '是否允许短租开票（无合约）' })
+  @IsOptional()
+  @IsBoolean()
+  allowShortTerm?: boolean;
 }
 
 export class UpdateRoomDto {
@@ -230,6 +237,11 @@ export class UpdateRoomDto {
   @Type(() => Number)
   @IsNumber()
   splitCount?: number;
+
+  @ApiPropertyOptional({ description: '是否允许短租开票（无合约）' })
+  @IsOptional()
+  @IsBoolean()
+  allowShortTerm?: boolean;
 }
 
 export class ImportRoomsDto {
@@ -239,4 +251,85 @@ export class ImportRoomsDto {
   @ValidateNested({ each: true })
   @Type(() => CreateRoomDto)
   items!: CreateRoomDto[];
+}
+
+/** 批量修改房间字段（仅 SuperAdmin；仅提交的字段会被更新） */
+export class BatchUpdateRoomsDto {
+  @ApiProperty({ type: [String], description: '要修改的房间 ID 列表' })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @Type(() => String)
+  ids!: string[];
+
+  @ApiPropertyOptional({ description: '是否允许短租开票（无合约）' })
+  @IsOptional()
+  @IsBoolean()
+  allowShortTerm?: boolean;
+
+  @ApiPropertyOptional({ description: '房间类型' })
+  @IsOptional()
+  @IsString()
+  roomType?: string;
+
+  @ApiPropertyOptional({ description: '所属大厦 ID' })
+  @IsOptional()
+  @IsString()
+  buildingId?: string;
+
+  @ApiPropertyOptional({ description: '窗配置' })
+  @IsOptional()
+  @IsString()
+  windowConfig?: string;
+
+  @ApiPropertyOptional({ description: '空调配置' })
+  @IsOptional()
+  @IsString()
+  acConfig?: string;
+
+  @ApiPropertyOptional({ description: 'whole_only / flexible / part_only' })
+  @IsOptional()
+  @IsString()
+  leaseCapability?: string;
+
+  @ApiPropertyOptional({ description: '分租份数（仅 leaseCapability=flexible 时生效）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  splitCount?: number;
+
+  @ApiPropertyOptional({ description: '月租' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  monthlyRent?: number;
+
+  @ApiPropertyOptional({ description: '日租' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  dailyRent?: number;
+
+  @ApiPropertyOptional({ description: '时租' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  hourlyRent?: number;
+
+  @ApiPropertyOptional({ description: '房间呎寸' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  sizeSqft?: number;
+
+  @ApiPropertyOptional({ description: '房间描述' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ description: '备注' })
+  @IsOptional()
+  @IsString()
+  remark?: string;
 }

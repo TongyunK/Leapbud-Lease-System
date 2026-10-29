@@ -21,17 +21,101 @@ export type OccupancySlotDto = {
   status?: string;
 };
 
+export type ShortTermOccupancyHit = {
+  invoiceId: string;
+  invoiceCode: string;
+  shortTermRentalCode?: string;
+  customerName?: string;
+  rentalStartDate: string;
+  rentalEndDate: string;
+};
+
 export type RoomOccupancyDto = {
-  /** idle=闲置；whole=整租中；partial=分租中；full=满租 */
-  summary: 'idle' | 'whole' | 'partial' | 'full';
+  /** idle=闲置；whole=整租中；partial=分租中；full=满租；short=短租中 */
+  summary: 'idle' | 'whole' | 'partial' | 'full' | 'short';
   wholeOccupied: boolean;
   wholeContractId?: string;
   wholeContractCode?: string;
   wholeCustomerName?: string;
   /** 整租合约业务状态（用于租用情况四态） */
   wholeStatus?: string;
+  /** 短租占用（无合约占用时） */
+  shortInvoiceId?: string;
+  shortInvoiceCode?: string;
+  shortTermRentalCode?: string;
+  shortCustomerName?: string;
+  shortRentalStartDate?: string;
+  shortRentalEndDate?: string;
   slots: OccupancySlotDto[];
 };
+
+/** 短租发票是否视为有效占用（未取消且有租期） */
+export function isActiveShortTermInvoiceStatus(status?: string | null): boolean {
+  const v = s(status);
+  return !!v && v !== '已取消';
+}
+
+/** 两段闭区间日期是否重叠（YYYY-MM-DD 或 Date） */
+export function dateRangesOverlap(
+  aStart: string | Date | null | undefined,
+  aEnd: string | Date | null | undefined,
+  bStart: string | Date | null | undefined,
+  bEnd: string | Date | null | undefined,
+): boolean {
+  const as = toYmd(aStart);
+  const ae = toYmd(aEnd);
+  const bs = toYmd(bStart);
+  const be = toYmd(bEnd);
+  if (!as || !ae || !bs || !be) return false;
+  return as <= be && bs <= ae;
+}
+
+/** 查询日是否落在闭区间内 */
+export function dateInRange(
+  asOf: string | Date | null | undefined,
+  start: string | Date | null | undefined,
+  end: string | Date | null | undefined,
+): boolean {
+  const d = toYmd(asOf);
+  const s0 = toYmd(start);
+  const e0 = toYmd(end);
+  if (!d || !s0 || !e0) return false;
+  return s0 <= d && d <= e0;
+}
+
+function toYmd(v: string | Date | null | undefined): string {
+  if (!v) return '';
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return '';
+    const y = v.getUTCFullYear();
+    const m = String(v.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(v.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  const raw = s(String(v));
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return '';
+}
+
+/** 在合约占用结果上叠加当日有效短租（仅闲置时显示短租中） */
+export function applyShortTermOccupancy(
+  base: RoomOccupancyDto,
+  hit?: ShortTermOccupancyHit | null,
+): RoomOccupancyDto {
+  if (!hit || base.summary !== 'idle') return base;
+  return {
+    ...base,
+    summary: 'short',
+    wholeOccupied: true,
+    shortInvoiceId: hit.invoiceId,
+    shortInvoiceCode: hit.invoiceCode,
+    shortTermRentalCode: hit.shortTermRentalCode || hit.invoiceCode,
+    shortCustomerName: hit.customerName,
+    shortRentalStartDate: hit.rentalStartDate,
+    shortRentalEndDate: hit.rentalEndDate,
+    slots: base.slots.map((x) => ({ ...x, occupied: true })),
+  };
+}
 
 /** 从房间编号末尾识别固定份位字母 */
 export function detectFixedPartLabel(roomCode: string): string | null {
@@ -260,3 +344,5 @@ const ROOM_STATUS_BY_CONTRACT: Record<string, RoomStatus> = {
 function s(v?: string | null) {
   return (v ?? '').trim();
 }
+
+export { toYmd as dateOnlyYmd };

@@ -49,6 +49,7 @@ import {
 } from '@/constants/statusBadges'
 import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import type { ContractRecord } from '@/types/contract'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
@@ -1312,25 +1313,30 @@ async function onImportFile(ev: Event) {
             </el-select>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.customerName')" required>
-            <el-select
-              v-model="form.customerId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('customerRequirement.fields.customerName')"
+            <SelectWithViewAction
+              :disabled="!form.customerId"
+              @view="openCustomerSide(form.customerId, 'ltr')"
             >
-              <el-option
-                v-for="c in customers"
-                :key="c.id"
-                :label="`${c.customerCode} · ${c.name}`"
-                :value="c.id"
-                :title="`${c.customerCode} · ${c.name}`"
+              <el-select
+                v-model="form.customerId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('customerRequirement.fields.customerName')"
               >
-                <span class="select-option-ellipsis" :title="`${c.customerCode} · ${c.name}`">
-                  {{ c.customerCode }} · {{ c.name }}
-                </span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="c in customers"
+                  :key="c.id"
+                  :label="`${c.customerCode} · ${c.name}`"
+                  :value="c.id"
+                  :title="`${c.customerCode} · ${c.name}`"
+                >
+                  <span class="select-option-ellipsis" :title="`${c.customerCode} · ${c.name}`">
+                    {{ c.customerCode }} · {{ c.name }}
+                  </span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.customerStatus')">
             <div class="customer-status-ro">

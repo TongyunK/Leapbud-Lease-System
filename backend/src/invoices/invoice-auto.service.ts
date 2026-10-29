@@ -16,8 +16,7 @@ import {
 export const INVOICE_TYPE_DEPOSIT = 'Deposit'
 export const INVOICE_TYPE_CHARGING_PERIOD = '1, Charging Period'
 export const BILLING_KIND_MANUAL = 'manual'
-export const BILLING_KIND_DEPOSIT = 'deposit'
-export const BILLING_KIND_RENT = 'rent'
+export const BILLING_KIND_AUTO = 'auto'
 
 type DbClient = Prisma.TransactionClient | PrismaService
 
@@ -146,7 +145,8 @@ export class InvoiceAutoService {
         const before = await this.prisma.invoice.findFirst({
           where: {
             contractId: c.id,
-            billingKind: BILLING_KIND_RENT,
+            billingKind: BILLING_KIND_AUTO,
+            invoiceType: INVOICE_TYPE_CHARGING_PERIOD,
             periodStart: p.start,
             status: { not: '已取消' },
           },
@@ -171,7 +171,8 @@ export class InvoiceAutoService {
     const existing = await db.invoice.findFirst({
       where: {
         contractId,
-        billingKind: BILLING_KIND_DEPOSIT,
+        billingKind: BILLING_KIND_AUTO,
+        invoiceType: INVOICE_TYPE_DEPOSIT,
         status: { not: '已取消' },
       },
       select: { id: true },
@@ -233,7 +234,7 @@ export class InvoiceAutoService {
       {
         contract,
         invoiceType: INVOICE_TYPE_DEPOSIT,
-        billingKind: BILLING_KIND_DEPOSIT,
+        billingKind: BILLING_KIND_AUTO,
         description: INVOICE_TYPE_DEPOSIT,
         amount,
         invoiceDate: today,
@@ -274,7 +275,8 @@ export class InvoiceAutoService {
     const existing = await db.invoice.findFirst({
       where: {
         contractId,
-        billingKind: BILLING_KIND_RENT,
+        billingKind: BILLING_KIND_AUTO,
+        invoiceType: INVOICE_TYPE_CHARGING_PERIOD,
         periodStart,
         status: { not: '已取消' },
       },
@@ -299,7 +301,7 @@ export class InvoiceAutoService {
       {
         contract,
         invoiceType: INVOICE_TYPE_CHARGING_PERIOD,
-        billingKind: BILLING_KIND_RENT,
+        billingKind: BILLING_KIND_AUTO,
         description: detailDesc,
         amount,
         invoiceDate: today,

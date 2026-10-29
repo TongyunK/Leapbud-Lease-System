@@ -245,7 +245,7 @@ async function onToolbarDelete() {
         <div class="related-list__actions">
           <button
             type="button"
-            class="action-pill action-pill--edit"
+            class="action-pill action-pill--leave"
             :disabled="printing"
             @mouseenter="onToolbarPrintHover"
             @focus="onToolbarPrintHover"

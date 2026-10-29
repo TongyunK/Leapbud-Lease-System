@@ -50,7 +50,15 @@ export class InvoiceServiceDetailDto {
 }
 
 export class CreateInvoiceDto {
-  @ApiPropertyOptional({ description: '所属合约 ID（与 contractCode 二选一）' })
+  @ApiPropertyOptional({
+    description: '开票来源：contract=合约发票（默认）；short_term=短租发票（无合约）',
+    example: 'contract',
+  })
+  @IsOptional()
+  @IsString()
+  source?: string
+
+  @ApiPropertyOptional({ description: '所属合约 ID（与 contractCode 二选一；短租可省略）' })
   @IsOptional()
   @IsString()
   contractId?: string
@@ -65,15 +73,35 @@ export class CreateInvoiceDto {
   @IsString()
   invoiceCode?: string
 
-  @ApiPropertyOptional({ description: '所属客户 ID（省略则从合约复制）' })
+  @ApiPropertyOptional({ description: '所属客户 ID（合约票可省略从合约复制；短租必填）' })
   @IsOptional()
   @IsString()
   customerId?: string
 
-  @ApiPropertyOptional({ description: '所属房间 ID（省略则从合约复制）' })
+  @ApiPropertyOptional({ description: '所属房间 ID（合约票可省略从合约复制；短租必填）' })
   @IsOptional()
   @IsString()
   roomId?: string
+
+  @ApiPropertyOptional({ description: '短租：租赁开始日期 YYYY-MM-DD' })
+  @IsOptional()
+  @IsString()
+  rentalStartDate?: string
+
+  @ApiPropertyOptional({ description: '短租：租赁结束日期 YYYY-MM-DD' })
+  @IsOptional()
+  @IsString()
+  rentalEndDate?: string
+
+  @ApiPropertyOptional({ description: '短租：描述租赁时长' })
+  @IsOptional()
+  @IsString()
+  rentalDurationText?: string
+
+  @ApiPropertyOptional({ description: '短租：经此客户介绍（客户 ID）' })
+  @IsOptional()
+  @IsString()
+  referredByCustomerId?: string | null
 
   @ApiPropertyOptional({ description: '发票类型' })
   @IsOptional()
@@ -159,6 +187,11 @@ export class CreateInvoiceDto {
 }
 
 export class UpdateInvoiceDto {
+  @ApiPropertyOptional({ description: '开票来源（一般不改；短租/合约）' })
+  @IsOptional()
+  @IsString()
+  source?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -183,6 +216,26 @@ export class UpdateInvoiceDto {
   @IsOptional()
   @IsString()
   roomId?: string
+
+  @ApiPropertyOptional({ description: '短租：租赁开始日期 YYYY-MM-DD' })
+  @IsOptional()
+  @IsString()
+  rentalStartDate?: string
+
+  @ApiPropertyOptional({ description: '短租：租赁结束日期 YYYY-MM-DD' })
+  @IsOptional()
+  @IsString()
+  rentalEndDate?: string
+
+  @ApiPropertyOptional({ description: '短租：描述租赁时长' })
+  @IsOptional()
+  @IsString()
+  rentalDurationText?: string
+
+  @ApiPropertyOptional({ description: '短租：经此客户介绍（客户 ID）' })
+  @IsOptional()
+  @IsString()
+  referredByCustomerId?: string | null
 
   @ApiPropertyOptional()
   @IsOptional()

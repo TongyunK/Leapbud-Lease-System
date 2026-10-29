@@ -41,7 +41,8 @@ export type InvoiceWithRelations = Invoice & {
   }
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
-  room?: Pick<Room, 'id' | 'roomCode' | 'name'> | null
+  room?: Pick<Room, 'id' | 'roomCode' | 'name' | 'sizeSqft'> | null
+  referredByCustomer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
   salesManagerUser?: SalesManagerLite | null
   serviceDetails?: InvoiceServiceDetailRow[]
   createdByUser?: AuditUserRef | null
@@ -58,7 +59,8 @@ export const invoiceInclude = {
   },
   contract: { select: { id: true, contractCode: true } },
   customer: { select: { id: true, customerCode: true, name: true } },
-  room: { select: { id: true, roomCode: true, name: true } },
+  room: { select: { id: true, roomCode: true, name: true, sizeSqft: true } },
+  referredByCustomer: { select: { id: true, customerCode: true, name: true } },
   salesManagerUser: { select: { id: true, account: true, displayName: true } },
   serviceDetails: {
     orderBy: [
@@ -97,6 +99,7 @@ export function toInvoiceDto(row: InvoiceWithRelations) {
   return {
     id: row.id,
     invoiceCode: row.invoiceCode ?? '',
+    source: row.source || 'contract',
     contractId: row.contractId,
     contractCode: row.contract?.contractCode ?? '',
     customerId: row.customerId,
@@ -105,6 +108,7 @@ export function toInvoiceDto(row: InvoiceWithRelations) {
     roomId: row.roomId,
     roomCode: row.room?.roomCode ?? '',
     roomName: row.room?.name ?? '',
+    roomSizeSqft: decimalToNumber(row.room?.sizeSqft),
     invoiceType: row.invoiceType,
     billingKind: row.billingKind,
     periodStart: dateOnly(row.periodStart),
@@ -122,6 +126,12 @@ export function toInvoiceDto(row: InvoiceWithRelations) {
     notes: row.notes,
     whatsappNumber: row.whatsappNumber,
     shortTermRentalCode: row.shortTermRentalCode,
+    rentalStartDate: dateOnly(row.rentalStartDate),
+    rentalEndDate: dateOnly(row.rentalEndDate),
+    rentalDurationText: row.rentalDurationText || '',
+    referredByCustomerId: row.referredByCustomerId,
+    referredByCustomerCode: row.referredByCustomer?.customerCode ?? '',
+    referredByCustomerName: row.referredByCustomer?.name ?? '',
     remark: row.remark,
     serviceDetails: (row.serviceDetails ?? []).map(toInvoiceServiceDetailDto),
     receivableCount: row._count?.receivables ?? 0,

@@ -30,6 +30,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ContractPeriodDetailDrawer from '@/components/ContractPeriodDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -1023,24 +1024,29 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="period-form">
         <div class="form-grid">
           <el-form-item :label="t('contractPeriod.fields.contractCode')" required class="span-2">
-            <el-select
-              v-model="form.contractId"
-              filterable
-              fit-input-width
-              style="width: 100%"
-              :placeholder="t('contractPeriod.fields.contractCode')"
-              :disabled="!!editing"
+            <SelectWithViewAction
+              :disabled="!form.contractId"
+              @view="openContractSide(form.contractId, 'ltr')"
             >
-              <el-option
-                v-for="opt in contractFilterOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-                :title="opt.label"
+              <el-select
+                v-model="form.contractId"
+                filterable
+                fit-input-width
+                style="width: 100%"
+                :placeholder="t('contractPeriod.fields.contractCode')"
+                :disabled="!!editing"
               >
-                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
-              </el-option>
-            </el-select>
+                <el-option
+                  v-for="opt in contractFilterOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                  :title="opt.label"
+                >
+                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                </el-option>
+              </el-select>
+            </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.dateType')" required>
             <el-select v-model="form.dateType" filterable style="width: 100%">

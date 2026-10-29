@@ -3,21 +3,22 @@ import { useI18n } from 'vue-i18n'
 
 /** 与 .action-pill 一致：左右 14 + border 1*2 */
 const PILL_PAD_BORDER = 30
+/** 与 .action-pill--more 一致：左右 8 + border 1*2（勿用普通 pill 的 30，否则合约「…」右侧会空一大截） */
+const MORE_PILL_PAD_BORDER = 18
 const PILL_GAP = 6
-/** 与 td.col-actions > .cell 左侧 10px 一致 */
+/** 与 td.col-actions > .cell 左侧 10px 一致（合约表基准） */
 const CELL_PAD_LEFT = 10
-/** 常规右侧留白，与 style.css col-actions padding-right 一致 */
-const CELL_PAD_RIGHT = 4
 /**
- * 14 寸及更窄（≤1439px，含 1366 与 150% 缩放下的 1280）。
- * 与 style.css 中 col-actions 的 padding-right 同步。
+ * 小屏断点（约 14 寸 / 窄视口）。大屏右侧留白见 `.admin-page { --lb-action-pad-right }`。
+ * 样式与测宽都读该 CSS 变量，避免 HMR/首帧时「先变宽再被列宽旧值吃掉」。
  */
 const COMPACT_ACTION_QUERY = '(max-width: 1439.98px)'
-const CELL_PAD_RIGHT_COMPACT = 2
-/** 余量：字体回退与 canvas 实测偏差；测宽已贴近 650 字重，不宜再大 */
-const WIDTH_SLACK = 2
-/** 窄屏按钮更靠近列右缘，仅留测量误差 */
-const WIDTH_SLACK_COMPACT = 1
+/** 无 DOM / 变量未就绪时的回退（须与 style.css 默认一致） */
+const CELL_PAD_RIGHT_FALLBACK = 10
+const CELL_PAD_RIGHT_COMPACT_FALLBACK = 6
+/** 余量：字体回退与 canvas 实测偏差，避免 overflow:visible 的 pill 吃掉右侧留白 */
+const WIDTH_SLACK = 6
+const WIDTH_SLACK_COMPACT = 4
 /** 字号档位变化时重测（与 .admin-page 的 --lb-table-action 断点一致） */
 const ACTION_FONT_QUERIES = [
   '(max-width: 1279.98px)',
@@ -42,14 +43,29 @@ function ensureActionLayoutWatch() {
   for (const query of ACTION_FONT_QUERIES) {
     window.matchMedia(query).addEventListener('change', bump)
   }
-  // setup 阶段 .admin-page 可能尚未挂载，首帧后再按真实字号测一次
+  // setup 阶段 .admin-page / CSS 变量可能尚未就绪：首帧 + 下一帧各测一次，避免「闪一下又回去」
   queueMicrotask(() => {
-    requestAnimationFrame(bump)
+    requestAnimationFrame(() => {
+      bump()
+      requestAnimationFrame(bump)
+    })
   })
 }
 
 function isCompactActionViewport(): boolean {
   return typeof window !== 'undefined' && window.matchMedia(COMPACT_ACTION_QUERY).matches
+}
+
+/** 与 style.css `--lb-action-pad-right` 同源，避免样式与列宽各写一套数字 */
+function resolveActionPadRightPx(): number {
+  if (typeof document === 'undefined') {
+    return isCompactActionViewport() ? CELL_PAD_RIGHT_COMPACT_FALLBACK : CELL_PAD_RIGHT_FALLBACK
+  }
+  const host = document.querySelector('.admin-page') ?? document.documentElement
+  const raw = getComputedStyle(host).getPropertyValue('--lb-action-pad-right').trim()
+  const n = parseFloat(raw)
+  if (Number.isFinite(n) && n >= 0) return n
+  return isCompactActionViewport() ? CELL_PAD_RIGHT_COMPACT_FALLBACK : CELL_PAD_RIGHT_FALLBACK
 }
 
 function getMeasureCtx(): CanvasRenderingContext2D | null {
@@ -100,7 +116,17 @@ function estimateTextWidth(text: string): number {
   return units * FALLBACK_FONT_PX
 }
 
+function isMorePillLabel(label: string): boolean {
+  const s = label.trim()
+  return s === '…' || s === '...' || s === '⋯'
+}
+
 function estimatePillWidth(label: string): number {
+  if (isMorePillLabel(label)) {
+    // 对齐 .action-pill--more：padding 8/8 + border，且 min-width: 2.2em
+    const minW = 2.2 * resolveActionFontSizePx()
+    return Math.max(estimateTextWidth(label) + MORE_PILL_PAD_BORDER, minW)
+  }
   return estimateTextWidth(label) + PILL_PAD_BORDER
 }
 
@@ -108,7 +134,7 @@ function estimatePillWidth(label: string): number {
 export function measureActionColWidth(labels: string[]): number {
   ensureActionLayoutWatch()
   void actionLayoutEpoch.value
-  const rightPad = isCompactActionViewport() ? CELL_PAD_RIGHT_COMPACT : CELL_PAD_RIGHT
+  const rightPad = resolveActionPadRightPx()
   const slack = isCompactActionViewport() ? WIDTH_SLACK_COMPACT : WIDTH_SLACK
   if (!labels.length) return CELL_PAD_LEFT + rightPad + slack
   const pills = labels.reduce(
