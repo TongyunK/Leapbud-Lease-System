@@ -35,12 +35,24 @@ export type RoomListQuery = {
   statuses?: string[]
   leaseCapability?: 'whole_only' | 'flexible' | 'part_only' | ''
   leaseCapabilities?: string[]
+  roomCodes?: string[]
+  names?: string[]
+  monthlyRents?: string[]
+  dailyRents?: string[]
+  hourlyRents?: string[]
   /** 状态列：idle | short | whole | partial | full */
   occupancySummaries?: string[]
   roomTypes?: string[]
   sizeRangeIds?: string[]
   windowConfigs?: string[]
   acConfigs?: string[]
+  /** 仅短租可选房间 */
+  allowShortTerm?: boolean
+  createdBys?: string[]
+  updatedBys?: string[]
+  /** 创建/更新时间为空 */
+  createdAtEmpty?: boolean
+  updatedAtEmpty?: boolean
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   createdAtFrom?: string
@@ -71,6 +83,11 @@ export function fetchRooms(params?: RoomListQuery) {
   if (params?.leaseCapabilities?.length) {
     query.leaseCapabilities = params.leaseCapabilities.join(',')
   }
+  if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
+  if (params?.names?.length) query.names = params.names.join(',')
+  if (params?.monthlyRents?.length) query.monthlyRents = params.monthlyRents.join(',')
+  if (params?.dailyRents?.length) query.dailyRents = params.dailyRents.join(',')
+  if (params?.hourlyRents?.length) query.hourlyRents = params.hourlyRents.join(',')
   if (params?.occupancySummaries?.length) {
     query.occupancySummaries = params.occupancySummaries.join(',')
   }
@@ -78,6 +95,12 @@ export function fetchRooms(params?: RoomListQuery) {
   if (params?.sizeRangeIds?.length) query.sizeRangeIds = params.sizeRangeIds.join(',')
   if (params?.windowConfigs?.length) query.windowConfigs = params.windowConfigs.join(',')
   if (params?.acConfigs?.length) query.acConfigs = params.acConfigs.join(',')
+  if (params?.allowShortTerm === true) query.allowShortTerm = 'true'
+  else if (params?.allowShortTerm === false) query.allowShortTerm = 'false'
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
+  if (params?.updatedBys?.length) query.updatedBys = params.updatedBys.join(',')
+  if (params?.createdAtEmpty) query.createdAtEmpty = 'true'
+  if (params?.updatedAtEmpty) query.updatedAtEmpty = 'true'
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom

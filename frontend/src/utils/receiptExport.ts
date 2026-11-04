@@ -75,7 +75,7 @@ export function receiptIoTemplateExampleRow(
     [h('invoiceCode')]: '',
     [h('receivableCode')]: '',
     [h('paymentDate')]: '2026-09-16',
-    [h('paymentMethod')]: '銀行轉帳',
+    [h('paymentMethod')]: '轉數快',
     [h('amount')]: 10000,
     [h('remark')]: '',
     [h('changeLog')]: '',

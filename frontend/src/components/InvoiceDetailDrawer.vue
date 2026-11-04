@@ -7,6 +7,7 @@ import { INVOICE_TYPE_I18N_KEY, isSystemGeneratedInvoice } from '@/types/invoice
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { invoiceBillingKindTone, invoiceStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -101,8 +102,12 @@ async function onPrintInvoice() {
     class="responsive-drawer"
   >
     <template #header="{ titleId, titleClass }">
-      <div class="drawer-header-with-action">
-        <h4 :id="titleId" :class="titleClass">{{ t('invoice.detailTitle') }}</h4>
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('invoice.detailTitle')"
+        :code="record?.invoiceCode"
+      >
         <el-button
           v-if="record"
           type="primary"
@@ -114,7 +119,7 @@ async function onPrintInvoice() {
         >
           {{ t('invoice.printInvoice') }}
         </el-button>
-      </div>
+      </DrawerDetailHeader>
     </template>
     <template v-if="record">
       <section class="detail-section">

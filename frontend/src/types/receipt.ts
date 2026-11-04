@@ -1,11 +1,5 @@
-export const RECEIPT_PAYMENT_METHODS = [
-  '銀行轉帳',
-  '支票',
-  '現金',
-  'FPS',
-  '信用卡',
-  '其他',
-] as const
+/** 收款方式（与合约一致） */
+export const RECEIPT_PAYMENT_METHODS = ['轉數快', '銀行過數', '支票', '現金'] as const
 
 export type ReceiptPaymentMethod = (typeof RECEIPT_PAYMENT_METHODS)[number]
 

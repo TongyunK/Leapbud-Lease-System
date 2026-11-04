@@ -38,8 +38,15 @@ export class ContractOtherFeesController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'contractCodes', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'terminationId', required: false })
+  @ApiQuery({ name: 'terminationCodes', required: false })
+  @ApiQuery({ name: 'quantities', required: false })
+  @ApiQuery({ name: 'unitAmounts', required: false })
+  @ApiQuery({ name: 'subtotals', required: false })
+  @ApiQuery({ name: 'roomCodes', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({
     name: 'linkedToTermination',
     required: false,
@@ -55,8 +62,15 @@ export class ContractOtherFeesController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('contractId') contractId?: string,
+    @Query('contractCodes') contractCodes?: string,
     @Query('customerNames') customerNames?: string,
     @Query('terminationId') terminationId?: string,
+    @Query('terminationCodes') terminationCodes?: string,
+    @Query('quantities') quantities?: string,
+    @Query('unitAmounts') unitAmounts?: string,
+    @Query('subtotals') subtotals?: string,
+    @Query('roomCodes') roomCodes?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('linkedToTermination') linkedToTermination?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
@@ -68,8 +82,15 @@ export class ContractOtherFeesController {
     return this.contractOtherFeesService.findAll({
       keyword,
       contractId,
+      contractCodes: splitCsv(contractCodes),
       customerNames: splitCsv(customerNames),
       terminationId,
+      terminationCodes: splitCsv(terminationCodes),
+      quantities: splitCsv(quantities),
+      unitAmounts: splitCsv(unitAmounts),
+      subtotals: splitCsv(subtotals),
+      roomCodes: splitCsv(roomCodes),
+      createdBys: splitCsv(createdBys),
       linkedToTermination:
         linkedToTermination === '1' ||
         linkedToTermination === 'true' ||

@@ -27,6 +27,7 @@ import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import WorkingHoursField from '@/components/WorkingHoursField.vue'
@@ -41,6 +42,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
+import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
@@ -60,7 +62,10 @@ const perms = useResourcePermissions('buildings')
 function refreshHeaderBuildingOptions() {
   void buildingScope.load()
 }
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([t('common.detail'), perms.update && t('common.edit')]),
+)
 const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
@@ -102,12 +107,14 @@ const {
   sortKey,
   sortOrder,
   dateRanges,
+  uniqueOptions,
 } = useTableSortFilter<BuildingRecord>()
 
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
 ])
+const nameFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.name))
 
 const {
   loading,
@@ -138,8 +145,13 @@ const {
     return {
       keyword: kw,
       activeOnly: false,
-      managers: f.manager?.length ? [...f.manager] : undefined,
-      active: f.active?.length ? [...f.active] : undefined,
+      names: packFilterValues(f.name),
+      managers: packFilterValues(f.manager),
+      active: packFilterValues(f.active),
+      createdBys: packFilterValues(f.createdBy),
+      updatedBys: packFilterValues(f.updatedBy),
+      createdAtEmpty: (f.createdAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
+      updatedAtEmpty: (f.updatedAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
       sortBy,
       sortDir,
       createdAtFrom: created.from,
@@ -152,6 +164,9 @@ const {
   },
   fetchPage: fetchBuildings,
 })
+
+const createdByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.createdBy))
+const updatedByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.updatedBy))
 
 const {
   tableRef,
@@ -188,7 +203,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -374,7 +389,7 @@ async function runImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('building.importAdminOnly'))
     return
   }
@@ -513,7 +528,7 @@ async function toggleActive(row: BuildingRecord) {
 
 async function saveForm() {
   if (!form.name.trim()) return
-  if (!editing.value && !perms.create.value) {
+  if (!editing.value && !perms.create) {
     ElMessage.warning(t('building.importAdminOnly'))
     return
   }
@@ -542,6 +557,7 @@ async function saveForm() {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="() => void loadList()" />
       <h2>{{ t('menu.buildings') }}</h2>
       <div class="head-actions">
         <el-input
@@ -595,6 +611,7 @@ async function saveForm() {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -605,11 +622,15 @@ async function saveForm() {
       </div>
     </div>
 
-    <div v-if="!useCards" class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div v-if="!useCards" class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -636,8 +657,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('building.fields.name')"
+                filterable
                 sortable
+                :options="nameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -725,46 +750,74 @@ async function saveForm() {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column prop="updatedAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -814,7 +867,7 @@ async function saveForm() {
       </div>
     </div>
 
-    <div v-else class="data-cards">
+    <div v-else class="data-cards" v-loading="loading">
       <article v-for="row in list" :key="row.id" class="data-card">
         <div class="data-card__head">
           <div>

@@ -20,8 +20,15 @@ export type ContractOtherFeeWritePayload = {
 export type ContractOtherFeeListQuery = {
   keyword?: string
   contractId?: string
+  contractCodes?: string[]
   customerNames?: string[]
   terminationId?: string
+  terminationCodes?: string[]
+  quantities?: string[]
+  unitAmounts?: string[]
+  subtotals?: string[]
+  roomCodes?: string[]
+  createdBys?: string[]
   linkedToTermination?: boolean
   sortBy?: string
   sortDir?: 'asc' | 'desc'
@@ -35,8 +42,15 @@ export function fetchContractOtherFees(params?: ContractOtherFeeListQuery) {
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.contractId) query.contractId = params.contractId
+  if (params?.contractCodes?.length) query.contractCodes = params.contractCodes.join(',')
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.terminationId) query.terminationId = params.terminationId
+  if (params?.terminationCodes?.length) query.terminationCodes = params.terminationCodes.join(',')
+  if (params?.quantities?.length) query.quantities = params.quantities.join(',')
+  if (params?.unitAmounts?.length) query.unitAmounts = params.unitAmounts.join(',')
+  if (params?.subtotals?.length) query.subtotals = params.subtotals.join(',')
+  if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
   if (params?.linkedToTermination) query.linkedToTermination = 'true'
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir

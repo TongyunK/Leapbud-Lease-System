@@ -7,6 +7,8 @@ export type OccupantListQuery = {
   keyword?: string
   customerId?: string
   customerNames?: string[]
+  names?: string[]
+  mobilePhones?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   createdAtFrom?: string
@@ -25,6 +27,8 @@ export function fetchOccupants(params?: OccupantListQuery) {
   if (params?.keyword) query.keyword = params.keyword
   if (params?.customerId) query.customerId = params.customerId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
+  if (params?.names?.length) query.names = params.names.join(',')
+  if (params?.mobilePhones?.length) query.mobilePhones = params.mobilePhones.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom

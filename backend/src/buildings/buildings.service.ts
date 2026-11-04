@@ -16,6 +16,8 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
+import { stringFieldInOrEmpty } from '../common/column-filter';
+import { actorLabelsOrEmpty } from '../common/audit';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
@@ -63,8 +65,13 @@ export class BuildingsService {
   async findAll(params: {
     keyword?: string;
     activeOnly?: boolean;
+    names?: string[];
     managers?: string[];
     active?: string[];
+    createdBys?: string[];
+    updatedBys?: string[];
+    createdAtEmpty?: boolean;
+    updatedAtEmpty?: boolean;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     createdAtFrom?: string;
@@ -101,14 +108,20 @@ export class BuildingsService {
   private buildListWhere(params: {
     keyword?: string;
     activeOnly?: boolean;
+    names?: string[];
     managers?: string[];
     active?: string[];
+    createdBys?: string[];
+    updatedBys?: string[];
+    createdAtEmpty?: boolean;
+    updatedAtEmpty?: boolean;
     createdAtFrom?: string;
     createdAtTo?: string;
     updatedAtFrom?: string;
     updatedAtTo?: string;
   }): Prisma.BuildingWhereInput {
     const where: Prisma.BuildingWhereInput = {};
+    const and: Prisma.BuildingWhereInput[] = [];
 
     const activeVals = (params.active || [])
       .map((v) => s(v).toLowerCase())
@@ -119,26 +132,44 @@ export class BuildingsService {
       where.active = true;
     }
 
-    const managers = (params.managers || []).map((v) => s(v)).filter(Boolean);
-    if (managers.length) where.manager = { in: managers };
+    const nameClause = stringFieldInOrEmpty('name', params.names);
+    if (nameClause) and.push(nameClause as Prisma.BuildingWhereInput);
+    const managerClause = stringFieldInOrEmpty('manager', params.managers);
+    if (managerClause) and.push(managerClause as Prisma.BuildingWhereInput);
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys);
+    if (createdByClause) and.push(createdByClause as Prisma.BuildingWhereInput);
+    const updatedByClause = actorLabelsOrEmpty('updatedBy', params.updatedBys);
+    if (updatedByClause) and.push(updatedByClause as Prisma.BuildingWhereInput);
 
     const keyword = params.keyword?.trim();
     if (keyword) {
-      where.OR = [
-        { name: { contains: keyword, mode: 'insensitive' } },
-        { address: { contains: keyword, mode: 'insensitive' } },
-        { addressEn: { contains: keyword, mode: 'insensitive' } },
-        { manager: { contains: keyword, mode: 'insensitive' } },
-        { email: { contains: keyword, mode: 'insensitive' } },
-        { managerPhone: { contains: keyword, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { address: { contains: keyword, mode: 'insensitive' } },
+          { addressEn: { contains: keyword, mode: 'insensitive' } },
+          { manager: { contains: keyword, mode: 'insensitive' } },
+          { email: { contains: keyword, mode: 'insensitive' } },
+          { managerPhone: { contains: keyword, mode: 'insensitive' } },
+        ],
+      });
     }
 
-    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
-    if (createdAt) where.createdAt = createdAt;
-    const updatedAt = dateRangeFilter(params.updatedAtFrom, params.updatedAtTo, true);
-    if (updatedAt) where.updatedAt = updatedAt;
+    if (params.createdAtEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+      if (createdAt) where.createdAt = createdAt;
+    }
+    if (params.updatedAtEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const updatedAt = dateRangeFilter(params.updatedAtFrom, params.updatedAtTo, true);
+      if (updatedAt) where.updatedAt = updatedAt;
+    }
 
+    if (and.length) where.AND = and;
     return where;
   }
 
@@ -153,6 +184,20 @@ export class BuildingsService {
     if (key === 'roomCount') return [{ rooms: { _count: dir } }, { name: 'asc' }];
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'updatedAt') return [{ updatedAt: dir }];
+    if (key === 'createdBy') {
+      return [
+        { createdByUser: { displayName: dir } },
+        { createdByUser: { account: dir } },
+        { name: 'asc' },
+      ];
+    }
+    if (key === 'updatedBy') {
+      return [
+        { updatedByUser: { displayName: dir } },
+        { updatedByUser: { account: dir } },
+        { name: 'asc' },
+      ];
+    }
     if (key === 'active') return [{ active: dir }, { name: 'asc' }];
     return [{ name: 'asc' }];
   }

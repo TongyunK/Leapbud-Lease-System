@@ -11,6 +11,7 @@ import { formatDateTime } from '@/utils/format'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentLink from '@/components/AttachmentLink.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -95,10 +96,17 @@ function openPastCustomer(customerId: string) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('occupant.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('occupant.detailTitle')"
+        :code="occupant?.name"
+      />
+    </template>
     <template v-if="occupant">
       <section class="detail-section">
         <h3>{{ t('occupant.sections.basic') }}</h3>

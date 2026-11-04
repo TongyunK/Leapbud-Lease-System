@@ -6,6 +6,7 @@ import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentLink from '@/components/AttachmentLink.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import {
   customerRequirementRentalTypeTone,
@@ -62,10 +63,17 @@ function onCustomerClick() {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('customerRequirement.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('customerRequirement.detailTitle')"
+        :code="requirement?.requirementCode"
+      />
+    </template>
     <template v-if="requirement">
       <section class="detail-section">
         <h3>{{ t('customerRequirement.sections.basic') }}</h3>

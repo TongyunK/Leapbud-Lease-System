@@ -10,8 +10,12 @@ import {
 
 /** 与 th > .cell 左右内边距大致一致 */
 const HEADER_CELL_PAD = 24
-/** TableColumnHeader 图标槽（含间距） */
-const HEADER_ICON_SLOT = 26
+/**
+ * TableColumnHeader 交互槽：须同时容纳「筛选/排序触发器 + 角标溢出」与「激活态清除叉号」，
+ * 否则内容全空（如合约编号筛空值）时列宽仅靠表头，两枚 icon 会重叠。
+ * 约：label↔trigger gap 4 + trigger 18 + badge 溢出 7 + head gap 4 + clear 16 + 余量
+ */
+const HEADER_ICON_SLOT = 42
 /** 字体回退与字重偏差余量 */
 const WIDTH_SLACK = 10
 

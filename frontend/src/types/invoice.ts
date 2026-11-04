@@ -29,6 +29,8 @@ export interface InvoiceRecord {
   roomCode: string
   roomName: string
   roomSizeSqft?: number | null
+  buildingId?: string
+  buildingName?: string
   invoiceType: string
   /** manual=用户手动；auto=系统自动 */
   billingKind?: string

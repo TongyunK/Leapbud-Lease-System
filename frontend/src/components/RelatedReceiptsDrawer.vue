@@ -72,7 +72,7 @@ const printing = ref(false)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '860px'))
-const canDelete = computed(() => perms.delete.value || perms.batchDelete.value)
+const canDelete = computed(() => perms.delete || perms.batchDelete)
 
 const title = computed(() => {
   const ctx = props.titleContext?.trim()
@@ -209,7 +209,7 @@ async function onToolbarDelete() {
   const ids = [...selectedIds.value]
   batchDeleting.value = true
   try {
-    const { ok, fail } = perms.batchDelete.value
+    const { ok, fail } = perms.batchDelete
       ? await runServerBatchDelete(ids, (chunk) => batchDeleteReceiptsApi(chunk))
       : await runBatchDelete(ids, (id) => deleteReceiptApi(id))
     if (fail === 0) ElMessage.success(t('common.batchDeleteDone', { ok }))

@@ -18,6 +18,11 @@ export type InvoiceServiceDetailWritePayload = {
 export type InvoiceServiceDetailListQuery = {
   keyword?: string
   invoiceId?: string
+  invoiceCodes?: string[]
+  quantities?: string[]
+  unitAmounts?: string[]
+  subtotals?: string[]
+  createdBys?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   createdAtFrom?: string
@@ -30,6 +35,11 @@ export function fetchInvoiceServiceDetails(params?: InvoiceServiceDetailListQuer
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
   if (params?.invoiceId) query.invoiceId = params.invoiceId
+  if (params?.invoiceCodes?.length) query.invoiceCodes = params.invoiceCodes.join(',')
+  if (params?.quantities?.length) query.quantities = params.quantities.join(',')
+  if (params?.unitAmounts?.length) query.unitAmounts = params.unitAmounts.join(',')
+  if (params?.subtotals?.length) query.subtotals = params.subtotals.join(',')
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom

@@ -47,9 +47,14 @@ export class ReceiptsController {
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'paymentMethod', required: false, description: 'Comma-separated payment methods' })
+  @ApiQuery({ name: 'receiptCodes', required: false })
   @ApiQuery({ name: 'contractCodes', required: false, description: 'Comma-separated contract codes' })
   @ApiQuery({ name: 'invoiceCodes', required: false, description: 'Comma-separated invoice codes' })
   @ApiQuery({ name: 'receivableCodes', required: false, description: 'Comma-separated receivable codes' })
+  @ApiQuery({ name: 'amounts', required: false })
+  @ApiQuery({ name: 'remarks', required: false })
+  @ApiQuery({ name: 'changeLogs', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'kinds', required: false, description: 'Comma-separated: booking_deposit,invoice' })
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'invoiceId', required: false })
@@ -69,9 +74,14 @@ export class ReceiptsController {
     @Query('customerNames') customerNames?: string,
     @Query('paymentMethod') paymentMethod?: string,
     @Query('kinds') kinds?: string,
+    @Query('receiptCodes') receiptCodes?: string,
     @Query('contractCodes') contractCodes?: string,
     @Query('invoiceCodes') invoiceCodes?: string,
     @Query('receivableCodes') receivableCodes?: string,
+    @Query('amounts') amounts?: string,
+    @Query('remarks') remarks?: string,
+    @Query('changeLogs') changeLogs?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('contractId') contractId?: string,
     @Query('invoiceId') invoiceId?: string,
     @Query('receivableId') receivableId?: string,
@@ -90,9 +100,14 @@ export class ReceiptsController {
       customerNames: splitCsv(customerNames),
       paymentMethods: splitCsv(paymentMethod),
       kinds: splitCsv(kinds),
+      receiptCodes: splitCsv(receiptCodes),
       contractCodes: splitCsv(contractCodes),
       invoiceCodes: splitCsv(invoiceCodes),
       receivableCodes: splitCsv(receivableCodes),
+      amounts: splitCsv(amounts),
+      remarks: splitCsv(remarks),
+      changeLogs: splitCsv(changeLogs),
+      createdBys: splitCsv(createdBys),
       contractId,
       invoiceId,
       receivableId,

@@ -24,6 +24,7 @@ import { fetchReceivables } from '@/api/receivables'
 import type { ReceiptAttachmentRecord, ReceiptRecord } from '@/types/receipt'
 import { RECEIPT_KINDS, RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
 import { isPdfAttachment, isImageAttachment } from '@/utils/attachmentUrl'
+import { packFilterValues } from '@/utils/columnFilter'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import { receiptKindTone } from '@/constants/statusBadges'
@@ -41,6 +42,7 @@ import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
@@ -70,13 +72,21 @@ const perms = useResourcePermissions('receipts')
 const receiptActionColWidth = computed(() => {
   void locale.value
   // 按实际主列按钮测宽（与合约表同一套 CELL_PAD_RIGHT）
-  const labels = [t('receipt.printReceipt')]
-  if (perms.update.value) labels.push(t('common.edit'))
-  if (perms.delete.value) labels.push(t('common.delete'))
+  const labels = [t('receipt.printReceipt'), t('receipt.sendReceipt')]
+  if (perms.update) labels.push(t('common.edit'))
+  if (perms.delete) labels.push(t('common.delete'))
   return measureActionColWidth(labels)
 })
 
 const printingReceiptId = ref<string | null>(null)
+
+/** 占位：后续接入 WhatsApp／Email 发送 */
+async function onSendReceipt(_row: ReceiptRecord) {
+  await ElMessageBox.alert(t('receipt.sendReceiptSoon'), t('receipt.sendReceipt'), {
+    type: 'info',
+    confirmButtonText: t('common.confirm'),
+  })
+}
 
 async function onPrintReceipt(row: ReceiptRecord) {
   if (!row?.id || printingReceiptId.value) return
@@ -241,13 +251,18 @@ const {
     const chipKey = kindChipFilter.value
     return {
       keyword: kw,
-      customerNames: f.customerName?.length ? [...f.customerName] : undefined,
-      paymentMethod: f.paymentMethod?.length ? [...f.paymentMethod] : undefined,
+      customerNames: packFilterValues(f.customerName),
+      paymentMethod: packFilterValues(f.paymentMethod),
       // 页头胶囊优先；未选时才用表头「收據類型」细筛
-      kinds: chipKey ? [chipKey] : f.kind?.length ? [...f.kind] : undefined,
-      contractCodes: f.contractCode?.length ? [...f.contractCode] : undefined,
-      invoiceCodes: f.invoiceCode?.length ? [...f.invoiceCode] : undefined,
-      receivableCodes: f.receivableCode?.length ? [...f.receivableCode] : undefined,
+      kinds: chipKey ? [chipKey] : packFilterValues(f.kind),
+      receiptCodes: packFilterValues(f.receiptCode),
+      contractCodes: packFilterValues(f.contractCode),
+      invoiceCodes: packFilterValues(f.invoiceCode),
+      receivableCodes: packFilterValues(f.receivableCode),
+      amounts: packFilterValues(f.amount),
+      remarks: packFilterValues(f.remark),
+      changeLogs: packFilterValues(f.changeLog),
+      createdBys: packFilterValues(f.createdBy),
       sortBy,
       sortDir,
       paymentDateFrom: payment.from,
@@ -325,7 +340,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -366,6 +381,24 @@ function uniqLabelOptions(values: Array<string | null | undefined>) {
   }
   return opts
 }
+
+const receiptCodeFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.receiptCode)),
+)
+const amountFilterOptions = computed(() =>
+  uniqLabelOptions(
+    list.value.map((r) => (r.amount == null ? '' : String(r.amount))),
+  ).map((o) => ({ ...o, label: moneyOrDash(Number(o.value)) })),
+)
+const remarkFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.remark)),
+)
+const changeLogFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.changeLog)),
+)
+const createdByFilterOptions = computed(() =>
+  uniqLabelOptions(list.value.map((r) => r.createdBy)),
+)
 
 const customerNameFilterOptions = computed(() =>
   uniqLabelOptions(list.value.map((r) => r.customerName)).sort((a, b) =>
@@ -1277,7 +1310,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('receipt.importAdminOnly'))
     return
   }
@@ -1360,6 +1393,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head admin-page-head--with-chips">
+      <RefreshListButton :loading="loading" @refresh="() => Promise.all([loadList(), loadKindChipCounts()])" />
       <h2>{{ t('menu.receipts') }}</h2>
       <div class="building-chips-rail">
         <div class="building-chips" role="tablist" :aria-label="t('receipt.kindFilterAria')">
@@ -1434,6 +1468,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -1448,7 +1483,7 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="`${tableLayoutKey}-${codeLayoutKey}`"
+          :key="`${tableLayoutKey}-${codeLayoutKey}-${receiptActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -1490,8 +1525,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('receipt.fields.receiptCode')"
+                filterable
                 sortable
+                :options="receiptCodeFilterOptions"
+                :model-value="filters.receiptCode || []"
                 :sort-order="sortOrderOf('receiptCode')"
+                @update:model-value="(v) => setFilter('receiptCode', v)"
                 @update:sort-order="(v) => setSort('receiptCode', v)"
               />
             </template>
@@ -1666,9 +1705,11 @@ async function onImportFile(ev: Event) {
                 :label="t('receipt.fields.paymentDate')"
                 sortable
                 date-range
+                :model-value="filters.paymentDate || []"
                 :sort-order="sortOrderOf('paymentDate')"
                 :date-range-value="dateRangeOf('paymentDate')"
                 @update:sort-order="(v) => setSort('paymentDate', v)"
+                @update:model-value="(v) => setFilter('paymentDate', v)"
                 @update:date-range-value="(v) => setDateRange('paymentDate', v)"
               />
             </template>
@@ -1699,8 +1740,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('receipt.fields.amount')"
+                filterable
                 sortable
+                :options="amountFilterOptions"
+                :model-value="filters.amount || []"
                 :sort-order="sortOrderOf('amount')"
+                @update:model-value="(v) => setFilter('amount', v)"
                 @update:sort-order="(v) => setSort('amount', v)"
               />
             </template>
@@ -1713,8 +1758,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('receipt.fields.remark')"
+                filterable
                 sortable
+                :options="remarkFilterOptions"
+                :model-value="filters.remark || []"
                 :sort-order="sortOrderOf('remark')"
+                @update:model-value="(v) => setFilter('remark', v)"
                 @update:sort-order="(v) => setSort('remark', v)"
               />
             </template>
@@ -1741,8 +1790,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('receipt.fields.changeLog')"
+                filterable
                 sortable
+                :options="changeLogFilterOptions"
+                :model-value="filters.changeLog || []"
                 :sort-order="sortOrderOf('changeLog')"
+                @update:model-value="(v) => setFilter('changeLog', v)"
                 @update:sort-order="(v) => setSort('changeLog', v)"
               />
             </template>
@@ -1752,8 +1805,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdBy')"
+                filterable
                 sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
                 :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
                 @update:sort-order="(v) => setSort('createdBy', v)"
               />
             </template>
@@ -1769,9 +1826,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -1795,6 +1854,14 @@ async function onImportFile(ev: Event) {
                   @click.stop="onPrintReceipt(row)"
                 >
                   {{ t('receipt.printReceipt') }}
+                </button>
+                <button
+                  type="button"
+                  class="action-pill action-pill--info"
+                  :title="t('receipt.sendReceiptSoon')"
+                  @click.stop="onSendReceipt(row)"
+                >
+                  {{ t('receipt.sendReceipt') }}
                 </button>
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
@@ -1868,42 +1935,10 @@ async function onImportFile(ev: Event) {
     >
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
-          <el-form-item :label="t('receipt.fields.customerName')" required class="span-2">
-            <SelectWithViewAction
-              :disabled="!form.customerId"
-              @view="openCustomerSide(form.customerId, 'ltr')"
-            >
-              <el-select
-                v-model="form.customerId"
-                filterable
-                remote
-                reserve-keyword
-                fit-input-width
-                style="width: 100%"
-                popper-class="receipt-customer-select-popper"
-                :placeholder="t('receipt.fields.customerName')"
-                :remote-method="searchCustomersRemote"
-                :loading="customerSelectLoading"
-                @visible-change="onCustomerSelectVisible"
-              >
-                <el-option
-                  v-for="opt in customerSelectOptions"
-                  :key="opt.id"
-                  :label="customerOptionLabel(opt)"
-                  :value="opt.id"
-                  :title="customerOptionLabel(opt)"
-                >
-                  <span class="select-option-ellipsis" :title="customerOptionLabel(opt)">
-                    {{ customerOptionLabel(opt) }}
-                  </span>
-                </el-option>
-              </el-select>
-            </SelectWithViewAction>
-          </el-form-item>
-          <el-form-item :label="t('receipt.fields.receiptCode')" class="span-2">
+          <el-form-item :label="t('receipt.fields.receiptCode')">
             <el-input v-model="form.receiptCode" :placeholder="t('receipt.codeAutoHint')" />
           </el-form-item>
-          <el-form-item :label="t('receipt.fields.receivableCode')" class="span-2">
+          <el-form-item :label="t('receipt.fields.receivableCode')">
             <SelectWithViewAction
               clearable
               :disabled="!form.receivableId"
@@ -1939,37 +1974,33 @@ async function onImportFile(ev: Event) {
               </el-select>
             </SelectWithViewAction>
           </el-form-item>
-          <el-form-item :label="t('receipt.fields.invoiceCode')">
+          <el-form-item :label="t('receipt.fields.customerName')" required>
             <SelectWithViewAction
-              clearable
-              :disabled="!form.invoiceId"
-              @view="openInvoiceSide(form.invoiceId, 'ltr')"
+              :disabled="!form.customerId"
+              @view="openCustomerSide(form.customerId, 'ltr')"
             >
               <el-select
-                v-model="form.invoiceId"
-                clearable
-                value-on-clear=""
+                v-model="form.customerId"
                 filterable
                 remote
                 reserve-keyword
                 fit-input-width
                 style="width: 100%"
-                popper-class="receipt-invoice-select-popper"
-                :placeholder="t('receipt.fields.invoiceCode')"
-                :remote-method="searchInvoicesRemote"
-                :loading="invoiceSelectLoading"
-                @visible-change="onInvoiceSelectVisible"
-                @change="onInvoiceSelected"
+                popper-class="receipt-customer-select-popper"
+                :placeholder="t('receipt.fields.customerName')"
+                :remote-method="searchCustomersRemote"
+                :loading="customerSelectLoading"
+                @visible-change="onCustomerSelectVisible"
               >
                 <el-option
-                  v-for="opt in invoiceSelectOptions"
+                  v-for="opt in customerSelectOptions"
                   :key="opt.id"
-                  :label="invoiceOptionLabel(opt)"
+                  :label="customerOptionLabel(opt)"
                   :value="opt.id"
-                  :title="invoiceOptionLabel(opt)"
+                  :title="customerOptionLabel(opt)"
                 >
-                  <span class="select-option-ellipsis" :title="invoiceOptionLabel(opt)">
-                    {{ invoiceOptionLabel(opt) }}
+                  <span class="select-option-ellipsis" :title="customerOptionLabel(opt)">
+                    {{ customerOptionLabel(opt) }}
                   </span>
                 </el-option>
               </el-select>

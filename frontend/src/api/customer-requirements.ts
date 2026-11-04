@@ -27,6 +27,9 @@ export type CustomerRequirementListQuery = {
   customerId?: string
   customerNames?: string[]
   salesManagers?: string[]
+  requirementCodes?: string[]
+  leaseDurations?: string[]
+  budgets?: string[]
   sizeConfigLabels?: string[]
   acConfigLabels?: string[]
   windowConfigLabels?: string[]
@@ -34,8 +37,11 @@ export type CustomerRequirementListQuery = {
   sortDir?: 'asc' | 'desc'
   requirementDateFrom?: string
   requirementDateTo?: string
+  requirementDateEmpty?: boolean
   createdAtFrom?: string
   createdAtTo?: string
+  createdAtEmpty?: boolean
+  createdBys?: string[]
   page?: number
   pageSize?: number
 }
@@ -51,6 +57,9 @@ export function fetchCustomerRequirements(params?: CustomerRequirementListQuery)
   if (params?.customerId) query.customerId = params.customerId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')
+  if (params?.requirementCodes?.length) query.requirementCodes = params.requirementCodes.join(',')
+  if (params?.leaseDurations?.length) query.leaseDurations = params.leaseDurations.join(',')
+  if (params?.budgets?.length) query.budgets = params.budgets.join(',')
   if (params?.sizeConfigLabels?.length) query.sizeConfigLabels = params.sizeConfigLabels.join(',')
   if (params?.acConfigLabels?.length) query.acConfigLabels = params.acConfigLabels.join(',')
   if (params?.windowConfigLabels?.length) {
@@ -60,8 +69,11 @@ export function fetchCustomerRequirements(params?: CustomerRequirementListQuery)
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.requirementDateFrom) query.requirementDateFrom = params.requirementDateFrom
   if (params?.requirementDateTo) query.requirementDateTo = params.requirementDateTo
+  if (params?.requirementDateEmpty) query.requirementDateEmpty = 'true'
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
   if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.createdAtEmpty) query.createdAtEmpty = 'true'
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
   if (params?.page != null) query.page = params.page
   if (params?.pageSize != null) query.pageSize = params.pageSize
   return request.get<CustomerRequirementListPage>('/customer-requirements', {

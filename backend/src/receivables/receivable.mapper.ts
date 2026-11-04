@@ -20,8 +20,20 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
   return Number(value.toString())
 }
 
+export type ReceivableReceiptSummary = {
+  id: string
+  receiptCode: string
+  paymentDate: Date | null
+  paymentMethod: string
+  amount: Prisma.Decimal
+  remark: string
+  _count?: { attachments: number }
+  attachments?: Array<{ id: string }>
+}
+
 export type ReceivableWithRelations = Receivable & {
   _count?: { receipts: number }
+  receipts?: ReceivableReceiptSummary[]
   invoice?: Pick<Invoice, 'id' | 'invoiceCode' | 'invoiceType' | 'description'> | null
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
@@ -39,7 +51,39 @@ export const receivableInclude = {
   ...auditUserInclude,
 } as const
 
+/** 详情 / 写回后返回：附带下属收据摘要（勿 as const：Prisma orderBy 需可变数组） */
+export const receivableDetailInclude: Prisma.ReceivableInclude = {
+  _count: { select: { receipts: true } },
+  invoice: { select: { id: true, invoiceCode: true, invoiceType: true, description: true } },
+  contract: { select: { id: true, contractCode: true } },
+  customer: { select: { id: true, customerCode: true, name: true } },
+  depositRefund: { select: { id: true, refundCode: true } },
+  ...auditUserInclude,
+  receipts: {
+    select: {
+      id: true,
+      receiptCode: true,
+      paymentDate: true,
+      paymentMethod: true,
+      amount: true,
+      remark: true,
+      _count: { select: { attachments: true } },
+      attachments: { select: { id: true } },
+    },
+    orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }],
+  },
+}
+
 export function toReceivableDto(row: ReceivableWithRelations) {
+  const receipts = (row.receipts ?? []).map((r) => ({
+    id: r.id,
+    receiptCode: r.receiptCode,
+    paymentDate: dateOnly(r.paymentDate),
+    paymentMethod: r.paymentMethod || '',
+    amount: decimalToNumber(r.amount),
+    remark: r.remark || '',
+    attachmentCount: r._count?.attachments ?? r.attachments?.length ?? 0,
+  }))
   return {
     id: row.id,
     receivableCode: row.receivableCode,
@@ -61,7 +105,8 @@ export function toReceivableDto(row: ReceivableWithRelations) {
     relatedReceiptRef: row.relatedReceiptRef,
     depositRefundId: row.depositRefundId,
     depositRefundCode: row.depositRefund?.refundCode ?? '',
-    receiptCount: row._count?.receipts ?? 0,
+    receiptCount: row._count?.receipts ?? receipts.length,
+    receipts,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

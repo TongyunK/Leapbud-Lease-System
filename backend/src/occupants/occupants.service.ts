@@ -24,6 +24,7 @@ import {
   parsePageSize,
   parseSortDir,
 } from '../common/pagination';
+import { splitEmptyFilter, stringFieldInOrEmpty } from '../common/column-filter';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
@@ -80,6 +81,8 @@ export class OccupantsService {
     keyword?: string;
     customerId?: string;
     customerNames?: string[];
+    names?: string[];
+    mobilePhones?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     createdAtFrom?: string;
@@ -140,6 +143,8 @@ export class OccupantsService {
     keyword?: string;
     customerId?: string;
     customerNames?: string[];
+    names?: string[];
+    mobilePhones?: string[];
     createdAtFrom?: string;
     createdAtTo?: string;
   }): Prisma.OccupantWhereInput {
@@ -148,17 +153,31 @@ export class OccupantsService {
 
     if (params.customerId?.trim()) where.customerId = params.customerId.trim();
 
-    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
-    if (customerNames.length) {
-      and.push({
-        OR: [
-          { customer: { name: { in: customerNames } } },
-          {
-            AND: [{ customerId: null }, { relatedCustomerName: { in: customerNames } }],
-          },
-        ],
-      });
+    const { values: customerNames, includeEmpty: includeEmptyCustomer } = splitEmptyFilter(
+      params.customerNames,
+    );
+    if (customerNames.length || includeEmptyCustomer) {
+      const or: Prisma.OccupantWhereInput[] = [];
+      if (customerNames.length) {
+        or.push({ customer: { name: { in: customerNames } } });
+        or.push({
+          AND: [{ customerId: null }, { relatedCustomerName: { in: customerNames } }],
+        });
+      }
+      if (includeEmptyCustomer) {
+        or.push({
+          AND: [{ customerId: null }, { relatedCustomerName: '' }],
+        });
+        or.push({ customer: { name: '' } });
+      }
+      and.push(or.length === 1 ? or[0]! : { OR: or });
     }
+
+    const nameClause = stringFieldInOrEmpty('name', params.names);
+    if (nameClause) and.push(nameClause as Prisma.OccupantWhereInput);
+
+    const mobileClause = stringFieldInOrEmpty('mobilePhone', params.mobilePhones);
+    if (mobileClause) and.push(mobileClause as Prisma.OccupantWhereInput);
 
     const keyword = params.keyword?.trim();
     if (keyword) {

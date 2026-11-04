@@ -51,6 +51,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<NumberingRule>()
 
 function displayName(row: NumberingRule) {
@@ -66,9 +67,15 @@ const columnGetters = {
   currentSeq: (o: NumberingRule) => o.currentSeq,
   resetCycle: (o: NumberingRule) => o.resetCycle,
   active: (o: NumberingRule) => String(o.active),
+  updatedBy: (o: NumberingRule) => o.updatedBy,
   updatedAt: (o: NumberingRule) => o.updatedAt,
 }
 
+const nameFilterOptions = computed(() => uniqueOptions(list.value, (o) => displayName(o)))
+const formatFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.format))
+const previewFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.preview))
+const startValueFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.startValue))
+const currentSeqFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.currentSeq))
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
@@ -77,6 +84,7 @@ const activeFilterOptions = computed(() => [
 const resetCycleFilterOptions = computed(() =>
   RESET_CYCLES.map((k) => ({ value: k, label: t(`autoNumbering.resetCycle.${k}`) })),
 )
+const updatedByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.updatedBy))
 
 const sorted = computed(() => {
   const applied = applySortFilter(list.value, columnGetters)
@@ -230,8 +238,12 @@ async function toggleActive(row: NumberingRule) {
             <template #header>
               <TableColumnHeader
                 :label="t('autoNumbering.fields.name')"
+                filterable
                 sortable
+                :options="nameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -250,8 +262,12 @@ async function toggleActive(row: NumberingRule) {
             <template #header>
               <TableColumnHeader
                 :label="t('autoNumbering.fields.format')"
+                filterable
                 sortable
+                :options="formatFilterOptions"
+                :model-value="filters.format || []"
                 :sort-order="sortOrderOf('format')"
+                @update:model-value="(v) => setFilter('format', v)"
                 @update:sort-order="(v) => setSort('format', v)"
               />
             </template>
@@ -265,8 +281,12 @@ async function toggleActive(row: NumberingRule) {
             <template #header>
               <TableColumnHeader
                 :label="t('autoNumbering.fields.preview')"
+                filterable
                 sortable
+                :options="previewFilterOptions"
+                :model-value="filters.preview || []"
                 :sort-order="sortOrderOf('preview')"
+                @update:model-value="(v) => setFilter('preview', v)"
                 @update:sort-order="(v) => setSort('preview', v)"
               />
             </template>
@@ -278,8 +298,12 @@ async function toggleActive(row: NumberingRule) {
             <template #header>
               <TableColumnHeader
                 :label="t('autoNumbering.fields.startValue')"
+                filterable
                 sortable
+                :options="startValueFilterOptions"
+                :model-value="filters.startValue || []"
                 :sort-order="sortOrderOf('startValue')"
+                @update:model-value="(v) => setFilter('startValue', v)"
                 @update:sort-order="(v) => setSort('startValue', v)"
               />
             </template>
@@ -291,8 +315,12 @@ async function toggleActive(row: NumberingRule) {
             <template #header>
               <TableColumnHeader
                 :label="t('autoNumbering.fields.currentSeq')"
+                filterable
                 sortable
+                :options="currentSeqFilterOptions"
+                :model-value="filters.currentSeq || []"
                 :sort-order="sortOrderOf('currentSeq')"
+                @update:model-value="(v) => setFilter('currentSeq', v)"
                 @update:sort-order="(v) => setSort('currentSeq', v)"
               />
             </template>
@@ -335,11 +363,23 @@ async function toggleActive(row: NumberingRule) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="updatedAt"
             :width="datetimeColWidth"
@@ -351,10 +391,12 @@ async function toggleActive(row: NumberingRule) {
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
               />
             </template>
           </el-table-column>

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import InvoiceCreateDialog from '@/components/InvoiceCreateDialog.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import { INVOICE_STATUSES, INVOICE_TYPE_I18N_KEY } from '@/types/invoice'
@@ -46,12 +47,16 @@ const props = withDefaults(
 const emit = defineEmits<{
   openInvoice: [invoice: InvoiceRecord]
   openContract: [contractId: string]
+  openCustomer: [customerId: string]
+  openRoom: [roomId: string]
   changed: []
 }>()
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('invoices')
+const canCreate = computed(() => perms.create && Boolean(props.contract?.id))
+const createVisible = ref(false)
 const { colW, codeColW, statusColW, tableLayoutKey } = useTableColWidth()
 const {
   tableRef,
@@ -72,7 +77,7 @@ const printing = ref(false)
 const statusLabels = computed(() => INVOICE_STATUSES.map((s) => t(`invoice.status.${s}`, s)))
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '860px'))
-const canDelete = computed(() => perms.delete.value || perms.batchDelete.value)
+const canDelete = computed(() => perms.delete || perms.batchDelete)
 
 const title = computed(() => {
   const ctx = props.titleContext?.trim()
@@ -148,6 +153,16 @@ function onRowClick(row: InvoiceRecord, column?: { type?: string }, event?: Even
   emit('openInvoice', row)
 }
 
+function onCreateInvoice() {
+  if (!canCreate.value) return
+  createVisible.value = true
+}
+
+function onInvoiceCreated() {
+  void loadInvoices()
+  emit('changed')
+}
+
 function typeLabel(type: string) {
   const key = INVOICE_TYPE_I18N_KEY[type]
   return key ? t(`invoice.types.${key}`) : type
@@ -206,7 +221,7 @@ async function onToolbarDelete() {
   const ids = [...selectedIds.value]
   batchDeleting.value = true
   try {
-    const { ok, fail } = perms.batchDelete.value
+    const { ok, fail } = perms.batchDelete
       ? await runServerBatchDelete(ids, (chunk) => batchDeleteInvoicesApi(chunk))
       : await runBatchDelete(ids, (id) => deleteInvoiceApi(id))
     if (fail === 0) ElMessage.success(t('common.batchDeleteDone', { ok }))
@@ -240,6 +255,15 @@ async function onToolbarDelete() {
           :placeholder="t('invoice.searchPlaceholder')"
         />
         <div class="related-list__actions">
+          <button
+            v-if="canCreate"
+            v-admin-glow="perms.codes.create"
+            type="button"
+            class="action-pill action-pill--edit"
+            @click="onCreateInvoice"
+          >
+            {{ t('invoice.create') }}
+          </button>
           <button
             type="button"
             class="action-pill action-pill--leave"
@@ -386,6 +410,15 @@ async function onToolbarDelete() {
       </div>
     </div>
   </el-drawer>
+
+  <InvoiceCreateDialog
+    v-model="createVisible"
+    :contract="contract"
+    @saved="onInvoiceCreated"
+    @open-contract="(id) => emit('openContract', id)"
+    @open-customer="(id) => emit('openCustomer', id)"
+    @open-room="(id) => emit('openRoom', id)"
+  />
 </template>
 
 <style scoped>

@@ -30,12 +30,14 @@ import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
+import { packFilterValues } from '@/utils/columnFilter'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -53,7 +55,14 @@ const route = useRoute()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('occupants')
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([
+    t('common.detail'),
+    perms.update && t('common.edit'),
+    perms.delete && t('common.delete'),
+  ]),
+)
 const { colW, textColW, datetimeColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
@@ -80,6 +89,7 @@ const {
   sortKey,
   sortOrder,
   dateRanges,
+  uniqueOptions,
 } = sortFilter
 
 const {
@@ -101,7 +111,9 @@ const {
   buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => ({
     keyword: kw,
     customerId: customerIdFilter.value || undefined,
-    customerNames: f.customerName?.length ? [...f.customerName] : undefined,
+    names: packFilterValues(f.name),
+    mobilePhones: packFilterValues(f.mobilePhone),
+    customerNames: packFilterValues(f.customerName),
     sortBy,
     sortDir,
     createdAtFrom: range('createdAt').from,
@@ -147,7 +159,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -171,6 +183,16 @@ async function onBatchDelete() {
     batchDeleting.value = false
   }
 }
+
+function uniqueListOptions(
+  get: (row: OccupantRecord) => string | number | null | undefined,
+  labelOf?: (value: string) => string,
+) {
+  return uniqueOptions(list.value, get, labelOf)
+}
+
+const nameFilterOptions = computed(() => uniqueListOptions((r) => r.name))
+const mobilePhoneFilterOptions = computed(() => uniqueListOptions((r) => r.mobilePhone))
 
 const customerFilterOptions = computed(() =>
   customers.value.map((c) => ({
@@ -425,7 +447,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('occupant.importAdminOnly'))
     return
   }
@@ -525,6 +547,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.occupants') }}</h2>
       <div class="head-actions">
         <el-input
@@ -578,6 +601,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -592,7 +616,7 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           class="occupant-table--clickable"
           :data="list"
           row-key="id"
@@ -629,8 +653,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('occupant.fields.name')"
+                filterable
                 sortable
+                :options="nameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -671,8 +699,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('occupant.fields.mobilePhone')"
+                filterable
                 sortable
+                :options="mobilePhoneFilterOptions"
+                :model-value="filters.mobilePhone || []"
                 :sort-order="sortOrderOf('mobilePhone')"
+                @update:model-value="(v) => setFilter('mobilePhone', v)"
                 @update:sort-order="(v) => setSort('mobilePhone', v)"
               />
             </template>
@@ -703,9 +735,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -713,7 +747,7 @@ async function onImportFile(ev: Event) {
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="perms.canEditOrDelete ? actionColWidth.three : actionColWidth.one"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"

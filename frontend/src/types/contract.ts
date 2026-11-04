@@ -70,6 +70,10 @@ export interface ContractRecord {
   otherFees?: ContractOtherFeeNestedRecord[]
   invoiceCount?: number
   receivableCount?: number
+  /** 当前下属应收「应收金额」合计 */
+  receivableAmountTotal?: number
+  /** 收租情况：collected=已收租 / uncollected=未收租 */
+  rentCollectionStatus?: 'collected' | 'uncollected'
   receiptCount?: number
   periodCount?: number
   terminationCount?: number

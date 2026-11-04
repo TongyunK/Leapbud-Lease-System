@@ -10,6 +10,7 @@ import { useIsMobile } from '@/composables/useMediaQuery'
 import { formatDateTime } from '@/utils/format'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentLink from '@/components/AttachmentLink.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import { customerStatusTone } from '@/constants/statusBadges'
@@ -117,10 +118,17 @@ function emitIfCount(
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('customer.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('customer.detailTitle')"
+        :code="customer?.customerCode"
+      />
+    </template>
     <template v-if="customer">
       <section class="detail-section">
         <h3>{{ t('customer.sections.info') }}</h3>

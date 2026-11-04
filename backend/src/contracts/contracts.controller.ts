@@ -44,6 +44,7 @@ export class ContractsController {
   @ApiQuery({ name: 'roomId', required: false })
   @ApiQuery({ name: 'requirementId', required: false })
   @ApiQuery({ name: 'buildingIds', required: false, description: 'Comma-separated building ids' })
+  @ApiQuery({ name: 'contractCodes', required: false, description: 'Comma-separated contract codes' })
   @ApiQuery({ name: 'roomCodes', required: false, description: 'Comma-separated room codes' })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'salesManagers', required: false, description: 'Comma-separated sales manager labels' })
@@ -53,6 +54,7 @@ export class ContractsController {
     required: false,
     description: 'Comma-separated occupancy keys: whole | part | part:A',
   })
+  @ApiQuery({ name: 'monthlyRents', required: false, description: 'Comma-separated monthly rents' })
   @ApiQuery({ name: 'paymentCycles', required: false, description: 'Comma-separated payment cycles' })
   @ApiQuery({ name: 'paymentMethods', required: false, description: 'Comma-separated payment methods' })
   @ApiQuery({ name: 'sortBy', required: false })
@@ -63,10 +65,24 @@ export class ContractsController {
   @ApiQuery({ name: 'endDateTo', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
   @ApiQuery({ name: 'createdAtTo', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
+  @ApiQuery({ name: 'createdAtEmpty', required: false })
+  @ApiQuery({ name: 'startDateEmpty', required: false })
+  @ApiQuery({ name: 'endDateEmpty', required: false })
   @ApiQuery({
     name: 'expiringSoon',
     required: false,
     description: '1/true：套用系统设置「即将到期」条件（与整租/分租可并行）',
+  })
+  @ApiQuery({
+    name: 'hasOutstandingReceivable',
+    required: false,
+    description: '1/true：仅当前应收金额 > 0（存在应收金额大于 0 的下属应收；可与整租/分租/即将到期并行）',
+  })
+  @ApiQuery({
+    name: 'rentCollectionStatuses',
+    required: false,
+    description: 'Comma-separated: collected | uncollected（收租情况）',
   })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
@@ -79,11 +95,13 @@ export class ContractsController {
     @Query('roomId') roomId?: string,
     @Query('requirementId') requirementId?: string,
     @Query('buildingIds') buildingIds?: string,
+    @Query('contractCodes') contractCodes?: string,
     @Query('roomCodes') roomCodes?: string,
     @Query('customerNames') customerNames?: string,
     @Query('salesManagers') salesManagers?: string,
     @Query('leaseTypes') leaseTypes?: string,
     @Query('occupancyKeys') occupancyKeys?: string,
+    @Query('monthlyRents') monthlyRents?: string,
     @Query('paymentCycles') paymentCycles?: string,
     @Query('paymentMethods') paymentMethods?: string,
     @Query('sortBy') sortBy?: string,
@@ -94,11 +112,20 @@ export class ContractsController {
     @Query('endDateTo') endDateTo?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
     @Query('createdAtTo') createdAtTo?: string,
+    @Query('createdBys') createdBys?: string,
+    @Query('createdAtEmpty') createdAtEmpty?: string,
+    @Query('startDateEmpty') startDateEmpty?: string,
+    @Query('endDateEmpty') endDateEmpty?: string,
     @Query('expiringSoon') expiringSoon?: string,
+    @Query('hasOutstandingReceivable') hasOutstandingReceivable?: string,
+    @Query('rentCollectionStatuses') rentCollectionStatuses?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     const soon = String(expiringSoon || '').trim().toLowerCase();
+    const outstanding = String(hasOutstandingReceivable || '').trim().toLowerCase();
+    const flag = (v?: string) =>
+      ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase());
     return this.contractsService.findAll({
       keyword,
       status,
@@ -107,11 +134,13 @@ export class ContractsController {
       roomId,
       requirementId,
       buildingIds: splitCsv(buildingIds),
+      contractCodes: splitCsv(contractCodes),
       roomCodes: splitCsv(roomCodes),
       customerNames: splitCsv(customerNames),
       salesManagers: splitCsv(salesManagers),
       leaseTypes: splitCsv(leaseTypes),
       occupancyKeys: splitCsv(occupancyKeys),
+      monthlyRents: splitCsv(monthlyRents),
       paymentCycles: splitCsv(paymentCycles),
       paymentMethods: splitCsv(paymentMethods),
       sortBy,
@@ -122,7 +151,13 @@ export class ContractsController {
       endDateTo,
       createdAtFrom,
       createdAtTo,
-      expiringSoon: soon === '1' || soon === 'true' || soon === 'yes',
+      createdBys: splitCsv(createdBys),
+      createdAtEmpty: flag(createdAtEmpty) || undefined,
+      startDateEmpty: flag(startDateEmpty) || undefined,
+      endDateEmpty: flag(endDateEmpty) || undefined,
+      expiringSoon: flag(soon),
+      hasOutstandingReceivable: flag(outstanding),
+      rentCollectionStatuses: splitCsv(rentCollectionStatuses),
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
@@ -158,6 +193,12 @@ export class ContractsController {
   @ApiOkResponse({ description: 'Count contracts matching system expiring-soon settings' })
   countExpiringSoon() {
     return this.contractsService.countExpiringSoon();
+  }
+
+  @Get('stats/outstanding-receivable')
+  @ApiOkResponse({ description: 'Count contracts with outstanding receivable amount > 0' })
+  countOutstandingReceivable() {
+    return this.contractsService.countOutstandingReceivable();
   }
 
   @Get('alerts/issue-blocked')

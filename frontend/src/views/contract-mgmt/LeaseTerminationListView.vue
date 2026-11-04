@@ -31,12 +31,14 @@ import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { packFilterValues } from '@/utils/columnFilter'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -54,7 +56,10 @@ const { t } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('leaseTerminations')
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+)
 const { colW, textColW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
@@ -81,6 +86,7 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<LeaseTerminationRecord>()
 
 const {
@@ -103,7 +109,13 @@ const {
     const created = range('createdAt')
     return {
       keyword: kw,
-      customerNames: f.customerName?.length ? [...f.customerName] : undefined,
+      terminationCodes: packFilterValues(f.terminationCode),
+      contractCodes: packFilterValues(f.contractCode),
+      customerNames: packFilterValues(f.customerName),
+      roomCodes: packFilterValues(f.roomCode),
+      doorKeyReturnedQtys: packFilterValues(f.doorKeyReturnedQty),
+      smartCardReturnedQtys: packFilterValues(f.smartCardReturnedQty),
+      createdBys: packFilterValues(f.createdBy),
       sortBy,
       sortDir,
       terminationDateFrom: termination.from,
@@ -152,7 +164,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -188,17 +200,28 @@ const contractFilterOptions = computed(() =>
   })),
 )
 
-const customerNameFilterOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { value: string; label: string }[] = []
-  for (const c of contracts.value) {
-    const name = c.customerName?.trim()
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    opts.push({ value: name, label: name })
-  }
-  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
-})
+function uniqueListOptions(
+  get: (row: LeaseTerminationRecord) => string | number | null | undefined,
+  labelOf?: (value: string) => string,
+) {
+  return uniqueOptions(list.value, get, labelOf)
+}
+
+const terminationCodeFilterOptions = computed(() => uniqueListOptions((r) => r.terminationCode))
+const contractCodeFilterOptions = computed(() => uniqueListOptions((r) => r.contractCode))
+const roomCodeFilterOptions = computed(() => uniqueListOptions((r) => r.roomCode))
+const doorKeyReturnedQtyFilterOptions = computed(() =>
+  uniqueListOptions((r) =>
+    r.doorKeyReturnedQty == null ? '' : String(r.doorKeyReturnedQty),
+  ),
+)
+const smartCardReturnedQtyFilterOptions = computed(() =>
+  uniqueListOptions((r) =>
+    r.smartCardReturnedQty == null ? '' : String(r.smartCardReturnedQty),
+  ),
+)
+const createdByFilterOptions = computed(() => uniqueListOptions((r) => r.createdBy))
+const customerNameFilterOptions = computed(() => uniqueListOptions((r) => r.customerName))
 
 const selectedContractDisplay = computed(() => {
   const opt = contractFilterOptions.value.find((o) => o.value === form.contractId)
@@ -475,7 +498,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('leaseTermination.importAdminOnly'))
     return
   }
@@ -561,6 +584,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.leaseTerminations') }}</h2>
       <div class="head-actions">
         <el-input
@@ -614,6 +638,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -624,11 +649,15 @@ async function onImportFile(ev: Event) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -665,8 +694,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('leaseTermination.fields.terminationCode')"
+                filterable
                 sortable
+                :options="terminationCodeFilterOptions"
+                :model-value="filters.terminationCode || []"
                 :sort-order="sortOrderOf('terminationCode')"
+                @update:model-value="(v) => setFilter('terminationCode', v)"
                 @update:sort-order="(v) => setSort('terminationCode', v)"
               />
             </template>
@@ -680,8 +713,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('leaseTermination.fields.contractCode')"
+                filterable
                 sortable
+                :options="contractCodeFilterOptions"
+                :model-value="filters.contractCode || []"
                 :sort-order="sortOrderOf('contractCode')"
+                @update:model-value="(v) => setFilter('contractCode', v)"
                 @update:sort-order="(v) => setSort('contractCode', v)"
               />
             </template>
@@ -735,8 +772,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('leaseTermination.fields.roomCode')"
+                filterable
                 sortable
+                :options="roomCodeFilterOptions"
+                :model-value="filters.roomCode || []"
                 :sort-order="sortOrderOf('roomCode')"
+                @update:model-value="(v) => setFilter('roomCode', v)"
                 @update:sort-order="(v) => setSort('roomCode', v)"
               />
             </template>
@@ -768,9 +809,11 @@ async function onImportFile(ev: Event) {
                 :label="t('leaseTermination.fields.terminationDate')"
                 sortable
                 date-range
+                :model-value="filters.terminationDate || []"
                 :sort-order="sortOrderOf('terminationDate')"
                 :date-range-value="dateRangeOf('terminationDate')"
                 @update:sort-order="(v) => setSort('terminationDate', v)"
+                @update:model-value="(v) => setFilter('terminationDate', v)"
                 @update:date-range-value="(v) => setDateRange('terminationDate', v)"
               />
             </template>
@@ -784,8 +827,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('leaseTermination.fields.doorKeyReturnedQty')"
+                filterable
                 sortable
+                :options="doorKeyReturnedQtyFilterOptions"
+                :model-value="filters.doorKeyReturnedQty || []"
                 :sort-order="sortOrderOf('doorKeyReturnedQty')"
+                @update:model-value="(v) => setFilter('doorKeyReturnedQty', v)"
                 @update:sort-order="(v) => setSort('doorKeyReturnedQty', v)"
               />
             </template>
@@ -799,8 +846,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('leaseTermination.fields.smartCardReturnedQty')"
+                filterable
                 sortable
+                :options="smartCardReturnedQtyFilterOptions"
+                :model-value="filters.smartCardReturnedQty || []"
                 :sort-order="sortOrderOf('smartCardReturnedQty')"
+                @update:model-value="(v) => setFilter('smartCardReturnedQty', v)"
                 @update:sort-order="(v) => setSort('smartCardReturnedQty', v)"
               />
             </template>
@@ -836,8 +887,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdBy')"
+                filterable
                 sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
                 :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
                 @update:sort-order="(v) => setSort('createdBy', v)"
               />
             </template>
@@ -853,9 +908,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -864,7 +921,7 @@ async function onImportFile(ev: Event) {
           <el-table-column
             v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -872,6 +929,8 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button
+                  v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
@@ -879,6 +938,8 @@ async function onImportFile(ev: Event) {
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="perms.delete"
+                  v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import { formatMoney } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -54,10 +55,17 @@ function f(key: string) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t(`${ns}.detailTitle`)"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t(`${ns}.detailTitle`)"
+        :code="fee?.contractCode || fee?.description"
+      />
+    </template>
     <template v-if="fee">
       <section class="detail-section">
         <h3>{{ t(`${ns}.sections.basic`) }}</h3>

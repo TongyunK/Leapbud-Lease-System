@@ -174,6 +174,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<ScheduledJobRecord>()
 
 const enabledFilterOptions = computed(() => [
@@ -184,10 +185,16 @@ const enabledFilterOptions = computed(() => [
 const columnGetters = {
   name: (o: ScheduledJobRecord) => o.name,
   enabled: (o: ScheduledJobRecord) => String(o.enabled),
-  runTime: (o: ScheduledJobRecord) => o.runTime,
+  runTime: (o: ScheduledJobRecord) => cycleLabel(o),
   handlerLabel: (o: ScheduledJobRecord) => o.handlerLabel || o.handlerKey,
   nextRunAt: (o: ScheduledJobRecord) => o.nextRunAt || '',
 }
+
+const nameFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.name))
+const runTimeFilterOptions = computed(() => uniqueOptions(list.value, (o) => cycleLabel(o)))
+const handlerLabelFilterOptions = computed(() =>
+  uniqueOptions(list.value, (o) => o.handlerLabel || o.handlerKey),
+)
 
 const sorted = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -269,7 +276,7 @@ onMounted(() => {
 })
 
 async function toggleEnabled(row: ScheduledJobRecord) {
-  if (!perms.update.value || togglingIds.value.has(row.id)) return
+  if (!perms.update || togglingIds.value.has(row.id)) return
   const next = !row.enabled
   togglingIds.value = new Set(togglingIds.value).add(row.id)
   try {
@@ -287,7 +294,7 @@ async function toggleEnabled(row: ScheduledJobRecord) {
 }
 
 async function onRun(row: ScheduledJobRecord) {
-  if (!perms.update.value || runningIds.value.has(row.id)) return
+  if (!perms.update || runningIds.value.has(row.id)) return
   runningIds.value = new Set(runningIds.value).add(row.id)
   try {
     await runScheduledJobApi(row.id)
@@ -430,14 +437,18 @@ function triggerLabel(trigger: string) {
             <template #header>
               <TableColumnHeader
                 :label="t('scheduledJob.fields.name')"
+                filterable
                 sortable
+                :options="nameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
             <template #default="{ row }">
               <button
-                v-if="perms.update.value"
+                v-if="perms.update"
                 type="button"
                 class="name-edit-link"
                 @click="openEdit(row)"
@@ -467,7 +478,7 @@ function triggerLabel(trigger: string) {
             <template #default="{ row }">
               <el-switch
                 :model-value="row.enabled"
-                :disabled="!perms.update.value || togglingIds.has(row.id)"
+                :disabled="!perms.update || togglingIds.has(row.id)"
                 @change="() => toggleEnabled(row)"
               />
             </template>
@@ -476,8 +487,12 @@ function triggerLabel(trigger: string) {
             <template #header>
               <TableColumnHeader
                 :label="t('scheduledJob.fields.cycle')"
+                filterable
                 sortable
+                :options="runTimeFilterOptions"
+                :model-value="filters.runTime || []"
                 :sort-order="sortOrderOf('runTime')"
+                @update:model-value="(v) => setFilter('runTime', v)"
                 @update:sort-order="(v) => setSort('runTime', v)"
               />
             </template>
@@ -492,8 +507,12 @@ function triggerLabel(trigger: string) {
             <template #header>
               <TableColumnHeader
                 :label="t('scheduledJob.fields.handler')"
+                filterable
                 sortable
+                :options="handlerLabelFilterOptions"
+                :model-value="filters.handlerLabel || []"
                 :sort-order="sortOrderOf('handlerLabel')"
+                @update:model-value="(v) => setFilter('handlerLabel', v)"
                 @update:sort-order="(v) => setSort('handlerLabel', v)"
               />
             </template>
@@ -523,9 +542,11 @@ function triggerLabel(trigger: string) {
                 :label="t('scheduledJob.fields.nextRunAt')"
                 sortable
                 date-range
+                :model-value="filters.nextRunAt || []"
                 :sort-order="sortOrderOf('nextRunAt')"
                 :date-range-value="dateRangeOf('nextRunAt')"
                 @update:sort-order="(v) => setSort('nextRunAt', v)"
+                @update:model-value="(v) => setFilter('nextRunAt', v)"
                 @update:date-range-value="(v) => setDateRange('nextRunAt', v)"
               />
             </template>
@@ -557,7 +578,7 @@ function triggerLabel(trigger: string) {
             <template #default="{ row }">
               <div class="action-pills">
                 <button
-                  v-if="perms.update.value"
+                  v-if="perms.update"
                   v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--info"
@@ -567,7 +588,7 @@ function triggerLabel(trigger: string) {
                   {{ t('scheduledJob.run') }}
                 </button>
                 <button
-                  v-if="perms.update.value"
+                  v-if="perms.update"
                   v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"

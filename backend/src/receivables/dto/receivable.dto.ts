@@ -73,10 +73,19 @@ export class CreateReceivableDto {
   @IsString()
   remark?: string
 
-  @ApiPropertyOptional({ description: '收款记录引用（文本占位）' })
+  @ApiPropertyOptional({ description: '收款记录引用（兼容旧导入；正式关联优先用 receiptIds）' })
   @IsOptional()
   @IsString()
   relatedReceiptRef?: string
+
+  @ApiPropertyOptional({
+    description: '关联收据 ID 列表（一对多；传入则同步 receipts.receivableId，顺序写入 relatedReceiptRef）',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  receiptIds?: string[]
 
   @ApiPropertyOptional({ description: '关联按金退还记录 ID' })
   @IsOptional()
@@ -157,6 +166,15 @@ export class UpdateReceivableDto {
   @IsOptional()
   @IsString()
   relatedReceiptRef?: string
+
+  @ApiPropertyOptional({
+    description: '关联收据 ID 列表（一对多；传入则同步 receipts.receivableId）',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  receiptIds?: string[]
 
   @ApiPropertyOptional()
   @IsOptional()

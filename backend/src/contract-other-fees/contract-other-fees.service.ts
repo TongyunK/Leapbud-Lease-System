@@ -25,6 +25,12 @@ import {
 } from '../common/pagination';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import { actorLabelsOrEmpty } from '../common/audit';
+import {
+  numberFieldInOrEmpty,
+  splitEmptyFilter,
+  stringFieldInOrEmpty,
+} from '../common/column-filter';
 import {
   contractByRoomSelect,
   pickContractFromRoomCandidates,
@@ -66,8 +72,15 @@ export class ContractOtherFeesService {
   async findAll(params: {
     keyword?: string;
     contractId?: string;
+    contractCodes?: string[];
     customerNames?: string[];
     terminationId?: string;
+    terminationCodes?: string[];
+    quantities?: string[];
+    unitAmounts?: string[];
+    subtotals?: string[];
+    roomCodes?: string[];
+    createdBys?: string[];
     /** true：仅返回已关联退租的费用（按金扣除） */
     linkedToTermination?: boolean;
     sortBy?: string;
@@ -104,8 +117,15 @@ export class ContractOtherFeesService {
   private buildListWhere(params: {
     keyword?: string;
     contractId?: string;
+    contractCodes?: string[];
     customerNames?: string[];
     terminationId?: string;
+    terminationCodes?: string[];
+    quantities?: string[];
+    unitAmounts?: string[];
+    subtotals?: string[];
+    roomCodes?: string[];
+    createdBys?: string[];
     linkedToTermination?: boolean;
     createdAtFrom?: string;
     createdAtTo?: string;
@@ -114,10 +134,61 @@ export class ContractOtherFeesService {
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
     if (params.terminationId?.trim()) where.terminationId = params.terminationId.trim();
     else if (params.linkedToTermination) where.terminationId = { not: null };
-    const customerNames = (params.customerNames || []).map((v) => (v ?? '').trim()).filter(Boolean);
-    if (customerNames.length) {
-      where.contract = { customer: { name: { in: customerNames } } };
+
+    const and: Prisma.ContractOtherFeeWhereInput[] = [];
+
+    const { values: contractCodes, includeEmpty: includeEmptyContract } = splitEmptyFilter(
+      params.contractCodes,
+    );
+    const { values: customerNames, includeEmpty: includeEmptyCustomer } = splitEmptyFilter(
+      params.customerNames,
+    );
+    const { values: roomCodes, includeEmpty: includeEmptyRoom } = splitEmptyFilter(
+      params.roomCodes,
+    );
+    if (
+      contractCodes.length ||
+      customerNames.length ||
+      roomCodes.length ||
+      includeEmptyContract ||
+      includeEmptyCustomer ||
+      includeEmptyRoom
+    ) {
+      const contractWhere: Prisma.ContractWhereInput = {};
+      const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes);
+      if (contractCodeClause) Object.assign(contractWhere, contractCodeClause);
+      const customerNameClause = stringFieldInOrEmpty('name', params.customerNames);
+      if (customerNameClause) {
+        contractWhere.customer = customerNameClause as Prisma.CustomerWhereInput;
+      }
+      const roomCodeClause = stringFieldInOrEmpty('roomCode', params.roomCodes);
+      if (roomCodeClause) {
+        contractWhere.room = roomCodeClause as Prisma.RoomWhereInput;
+      }
+      and.push({ contract: contractWhere });
     }
+
+    const terminationCodeClause = stringFieldInOrEmpty(
+      'terminationCode',
+      params.terminationCodes,
+    );
+    if (terminationCodeClause) {
+      and.push({ termination: terminationCodeClause } as Prisma.ContractOtherFeeWhereInput);
+    }
+
+    const quantityClause = numberFieldInOrEmpty('quantity', params.quantities);
+    if (quantityClause) and.push(quantityClause as Prisma.ContractOtherFeeWhereInput);
+
+    const unitAmountClause = numberFieldInOrEmpty('unitAmount', params.unitAmounts);
+    if (unitAmountClause) and.push(unitAmountClause as Prisma.ContractOtherFeeWhereInput);
+
+    const subtotalClause = numberFieldInOrEmpty('subtotal', params.subtotals);
+    if (subtotalClause) and.push(subtotalClause as Prisma.ContractOtherFeeWhereInput);
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys);
+    if (createdByClause) and.push(createdByClause as Prisma.ContractOtherFeeWhereInput);
+
+    if (and.length) where.AND = and;
 
     const keyword = params.keyword?.trim();
     if (keyword) {

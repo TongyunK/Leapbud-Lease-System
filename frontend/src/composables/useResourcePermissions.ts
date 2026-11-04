@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { useUserStore } from '@/stores/user'
 
 /** 业务资源按钮权限（create / update / delete / import / batchDelete） */
@@ -23,7 +23,9 @@ export function useResourcePermissions(resource: string) {
   )
   const canEditOrDelete = computed(() => update.value || remove.value)
 
-  return {
+  // reactive 解包嵌套 computed，模板 v-if="perms.delete" 才是布尔值；
+  // 纯对象包 ComputedRef 时对象恒为真，会导致无权限按钮仍显示、操作列被裁切。
+  return reactive({
     codes,
     create,
     update,
@@ -32,5 +34,5 @@ export function useResourcePermissions(resource: string) {
     batchDelete,
     anyWrite,
     canEditOrDelete,
-  }
+  })
 }

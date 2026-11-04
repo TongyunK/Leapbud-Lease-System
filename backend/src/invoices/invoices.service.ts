@@ -15,12 +15,14 @@ import {
   UpdateInvoiceDto,
 } from './dto/invoice.dto'
 import { invoiceInclude, toInvoiceDto } from './invoice.mapper'
+import { InvoiceAutoService } from './invoice-auto.service'
 import {
   dateRangeFilter,
   paginateArgs,
   parsePage,
   parsePageSize,
   parseSortDir,
+  splitCsv,
   type PaginatedResult,
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
@@ -30,9 +32,21 @@ import {
   invoiceRoomSuffix,
   OCCUPYING_CONTRACT_STATUSES,
 } from '../common/room-lease'
+import { actorLabelsOrEmpty } from '../common/audit'
+import {
+  numberFieldInOrEmpty,
+  splitEmptyFilter,
+  stringFieldInOrEmpty,
+} from '../common/column-filter'
 
 function s(v?: string | null) {
   return (v ?? '').trim()
+}
+
+function pushAndClause(where: Prisma.InvoiceWhereInput, clause: Prisma.InvoiceWhereInput) {
+  const and = Array.isArray(where.AND) ? [...where.AND] : where.AND ? [where.AND] : []
+  and.push(clause)
+  where.AND = and
 }
 
 /** 合约类型旧值归一；短租等其它原样返回 */
@@ -79,18 +93,31 @@ export class InvoicesService {
     private readonly prisma: PrismaService,
     private readonly numberingRules: NumberingRulesService,
     private readonly access: BuildingAccessService,
+    private readonly invoiceAuto: InvoiceAutoService,
   ) {}
 
-  /** 当前大厦范围内按来源统计（页头芯片） */
-  async countBySource(): Promise<{ all: number; contract: number; short_term: number }> {
+  /** 当前大厦范围内按来源统计（页头芯片；deposit=合约票且类型 Deposit） */
+  async countBySource(): Promise<{
+    all: number
+    contract: number
+    short_term: number
+    deposit: number
+  }> {
     const where: Prisma.InvoiceWhereInput = {}
     await this.access.constrain(where, 'viaRoom')
-    const rows = await this.prisma.invoice.groupBy({
-      by: ['source'],
-      where,
-      _count: { _all: true },
-    })
-    const counts = { all: 0, contract: 0, short_term: 0 }
+    const [rows, deposit] = await Promise.all([
+      this.prisma.invoice.groupBy({
+        by: ['source'],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.invoice.count({
+        where: {
+          AND: [where, { source: 'contract', invoiceType: 'Deposit' }],
+        },
+      }),
+    ])
+    const counts = { all: 0, contract: 0, short_term: 0, deposit }
     for (const row of rows) {
       const n = row._count._all
       counts.all += n
@@ -106,19 +133,33 @@ export class InvoicesService {
     contractId?: string
     customerId?: string
     roomId?: string
+    invoiceCodes?: string[]
+    contractCodes?: string[]
     customerNames?: string[]
+    buildingNames?: string[]
+    roomNames?: string[]
+    invoiceTypes?: string[]
+    amounts?: string[]
     status?: string
+    salesManagers?: string[]
+    sources?: string[]
     source?: string
     /** manual | auto */
     billingKind?: string
+    createdBys?: string[]
+    /** 快捷筛选：仅按金票（invoiceType=Deposit）；常与 source=contract 叠加 */
+    depositOnly?: boolean
     sortBy?: string
     sortDir?: 'asc' | 'desc'
     invoiceDateFrom?: string
     invoiceDateTo?: string
+    invoiceDateEmpty?: boolean
     paymentDueDateFrom?: string
     paymentDueDateTo?: string
+    paymentDueDateEmpty?: boolean
     createdAtFrom?: string
     createdAtTo?: string
+    createdAtEmpty?: boolean
     page?: number
     pageSize?: number
   }): Promise<PaginatedResult<ReturnType<typeof toInvoiceDto>>> {
@@ -151,60 +192,172 @@ export class InvoicesService {
     contractId?: string
     customerId?: string
     roomId?: string
+    invoiceCodes?: string[]
+    contractCodes?: string[]
     customerNames?: string[]
+    buildingNames?: string[]
+    roomNames?: string[]
+    invoiceTypes?: string[]
+    amounts?: string[]
     status?: string
+    salesManagers?: string[]
+    sources?: string[]
     source?: string
     billingKind?: string
+    createdBys?: string[]
+    depositOnly?: boolean
     invoiceDateFrom?: string
     invoiceDateTo?: string
+    invoiceDateEmpty?: boolean
     paymentDueDateFrom?: string
     paymentDueDateTo?: string
+    paymentDueDateEmpty?: boolean
     createdAtFrom?: string
     createdAtTo?: string
+    createdAtEmpty?: boolean
   }): Prisma.InvoiceWhereInput {
     const where: Prisma.InvoiceWhereInput = {}
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
     if (params.customerId?.trim()) where.customerId = params.customerId.trim()
     if (params.roomId?.trim()) where.roomId = params.roomId.trim()
-    if (params.status?.trim()) where.status = params.status.trim()
+
+    const statusClause = stringFieldInOrEmpty(
+      'status',
+      splitCsv(params.status) ?? (params.status?.trim() ? [params.status.trim()] : undefined),
+    )
+    if (statusClause) pushAndClause(where, statusClause as Prisma.InvoiceWhereInput)
+
     const source = s(params.source)
     if (source === 'contract' || source === 'short_term') where.source = source
-    const billingKind = s(params.billingKind)
-    if (billingKind === 'manual' || billingKind === 'auto') {
-      where.billingKind = billingKind
+    const sources = (params.sources || [])
+      .map((v) => v.trim())
+      .filter((v): v is 'contract' | 'short_term' => v === 'contract' || v === 'short_term')
+    if (sources.length) {
+      where.source = sources.length === 1 ? sources[0] : { in: sources }
     }
-    const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
-    if (customerNames.length) {
-      where.customer = { name: { in: customerNames } }
+
+    const billingKindClause = stringFieldInOrEmpty(
+      'billingKind',
+      splitCsv(params.billingKind) ??
+        (params.billingKind?.trim() ? [params.billingKind.trim()] : undefined),
+    )
+    if (billingKindClause) {
+      pushAndClause(where, billingKindClause as Prisma.InvoiceWhereInput)
     }
+
+    const { values: invoiceTypes } = splitEmptyFilter(params.invoiceTypes)
+    if (params.depositOnly) {
+      // 按金芯片与类型多选叠加：仅保留 Deposit；若多选未含 Deposit 则无结果
+      if (invoiceTypes.length && !invoiceTypes.includes('Deposit')) {
+        where.id = '__no_match__'
+      } else {
+        where.invoiceType = 'Deposit'
+      }
+    } else {
+      const invoiceTypeClause = stringFieldInOrEmpty('invoiceType', params.invoiceTypes)
+      if (invoiceTypeClause) {
+        pushAndClause(where, invoiceTypeClause as Prisma.InvoiceWhereInput)
+      }
+    }
+
+    const invoiceCodeClause = stringFieldInOrEmpty('invoiceCode', params.invoiceCodes)
+    if (invoiceCodeClause) pushAndClause(where, invoiceCodeClause as Prisma.InvoiceWhereInput)
+
+    const { values: contractCodes, includeEmpty: includeEmptyContract } = splitEmptyFilter(
+      params.contractCodes,
+    )
+    if (contractCodes.length || includeEmptyContract) {
+      const or: Prisma.InvoiceWhereInput[] = []
+      if (contractCodes.length) {
+        or.push({ contract: { contractCode: { in: contractCodes } } })
+      }
+      if (includeEmptyContract) {
+        // 短租无合约；合约编号空值 = 无关联合约
+        or.push({ contractId: null })
+      }
+      pushAndClause(where, or.length === 1 ? or[0]! : { OR: or })
+    }
+
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames)
+    if (customerNameClause) {
+      pushAndClause(where, { customer: customerNameClause } as Prisma.InvoiceWhereInput)
+    }
+
+    const buildingNameClause = stringFieldInOrEmpty('name', params.buildingNames)
+    if (buildingNameClause) {
+      pushAndClause(where, {
+        room: { building: buildingNameClause },
+      } as Prisma.InvoiceWhereInput)
+    }
+
+    const { values: roomNames, includeEmpty: includeEmptyRoom } = splitEmptyFilter(
+      params.roomNames,
+    )
+    if (roomNames.length || includeEmptyRoom) {
+      const or: Prisma.InvoiceWhereInput[] = []
+      if (roomNames.length) {
+        or.push({ roomNameText: { in: roomNames } })
+        or.push({ room: { name: { in: roomNames } } })
+        or.push({ room: { roomCode: { in: roomNames } } })
+      }
+      if (includeEmptyRoom) {
+        or.push({ roomNameText: '' })
+      }
+      pushAndClause(where, or.length === 1 ? or[0]! : { OR: or })
+    }
+
+    const amountClause = numberFieldInOrEmpty('amount', params.amounts)
+    if (amountClause) pushAndClause(where, amountClause as Prisma.InvoiceWhereInput)
+
+    const salesManagerClause = actorLabelsOrEmpty('salesManager', params.salesManagers)
+    if (salesManagerClause) {
+      pushAndClause(where, salesManagerClause as Prisma.InvoiceWhereInput)
+    }
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys)
+    if (createdByClause) pushAndClause(where, createdByClause as Prisma.InvoiceWhereInput)
 
     const keyword = params.keyword?.trim()
     if (keyword) {
-      where.OR = [
-        { invoiceCode: { contains: keyword, mode: 'insensitive' } },
-        { invoiceType: { contains: keyword, mode: 'insensitive' } },
-        { description: { contains: keyword, mode: 'insensitive' } },
-        { status: { contains: keyword, mode: 'insensitive' } },
-        { notes: { contains: keyword, mode: 'insensitive' } },
-        { remark: { contains: keyword, mode: 'insensitive' } },
-        { roomNameText: { contains: keyword, mode: 'insensitive' } },
-        { shortTermRentalCode: { contains: keyword, mode: 'insensitive' } },
-        { whatsappNumber: { contains: keyword, mode: 'insensitive' } },
-        { relatedReceivableRef: { contains: keyword, mode: 'insensitive' } },
-        { contract: { contractCode: { contains: keyword, mode: 'insensitive' } } },
-        { customer: { name: { contains: keyword, mode: 'insensitive' } } },
-        { customer: { customerCode: { contains: keyword, mode: 'insensitive' } } },
-        { room: { roomCode: { contains: keyword, mode: 'insensitive' } } },
-        { room: { name: { contains: keyword, mode: 'insensitive' } } },
-      ]
+      pushAndClause(where, {
+        OR: [
+          { invoiceCode: { contains: keyword, mode: 'insensitive' } },
+          { invoiceType: { contains: keyword, mode: 'insensitive' } },
+          { description: { contains: keyword, mode: 'insensitive' } },
+          { status: { contains: keyword, mode: 'insensitive' } },
+          { notes: { contains: keyword, mode: 'insensitive' } },
+          { remark: { contains: keyword, mode: 'insensitive' } },
+          { roomNameText: { contains: keyword, mode: 'insensitive' } },
+          { shortTermRentalCode: { contains: keyword, mode: 'insensitive' } },
+          { whatsappNumber: { contains: keyword, mode: 'insensitive' } },
+          { relatedReceivableRef: { contains: keyword, mode: 'insensitive' } },
+          { contract: { contractCode: { contains: keyword, mode: 'insensitive' } } },
+          { customer: { name: { contains: keyword, mode: 'insensitive' } } },
+          { customer: { customerCode: { contains: keyword, mode: 'insensitive' } } },
+          { room: { roomCode: { contains: keyword, mode: 'insensitive' } } },
+          { room: { name: { contains: keyword, mode: 'insensitive' } } },
+          { room: { building: { name: { contains: keyword, mode: 'insensitive' } } } },
+        ],
+      })
     }
 
-    const invoiceRange = dateRangeFilter(params.invoiceDateFrom, params.invoiceDateTo)
-    if (invoiceRange) where.invoiceDate = invoiceRange
-    const dueRange = dateRangeFilter(params.paymentDueDateFrom, params.paymentDueDateTo)
-    if (dueRange) where.paymentDueDate = dueRange
-    const createdRange = dateRangeFilter(params.createdAtFrom, params.createdAtTo)
-    if (createdRange) where.createdAt = createdRange
+    if (params.invoiceDateEmpty) {
+      pushAndClause(where, { id: '__no_match__' })
+    } else {
+      const invoiceRange = dateRangeFilter(params.invoiceDateFrom, params.invoiceDateTo)
+      if (invoiceRange) where.invoiceDate = invoiceRange
+    }
+    if (params.paymentDueDateEmpty) {
+      pushAndClause(where, { id: '__no_match__' })
+    } else {
+      const dueRange = dateRangeFilter(params.paymentDueDateFrom, params.paymentDueDateTo)
+      if (dueRange) where.paymentDueDate = dueRange
+    }
+    if (params.createdAtEmpty) {
+      pushAndClause(where, { id: '__no_match__' })
+    } else {
+      const createdRange = dateRangeFilter(params.createdAtFrom, params.createdAtTo)
+      if (createdRange) where.createdAt = createdRange
+    }
 
     return where
   }
@@ -219,6 +372,7 @@ export class InvoicesService {
     if (key === 'contractCode') return [{ contract: { contractCode: dir } }]
     if (key === 'customerName') return [{ customer: { name: dir } }]
     if (key === 'roomName') return [{ room: { name: dir } }]
+    if (key === 'buildingName') return [{ room: { building: { name: dir } } }]
     if (key === 'invoiceType') return [{ invoiceType: dir }, { invoiceCode: 'desc' }]
     if (key === 'source') return [{ source: dir }, { invoiceCode: 'desc' }]
     if (key === 'billingKind') return [{ billingKind: dir }, { invoiceCode: 'desc' }]
@@ -457,12 +611,17 @@ export class InvoicesService {
           },
         })
         await this.replaceServiceDetails(tx, created.id, dto.serviceDetails, actorId)
-        return tx.invoice.findUniqueOrThrow({
-          where: { id: created.id },
-          include: invoiceInclude,
-        })
+        return created.id
       })
-      return toInvoiceDto(row)
+      // 开票即建应收（幂等）；备注留空，区别于系统自动开票文案
+      await this.invoiceAuto.ensureReceivableForInvoice(row, actorId, this.prisma, {
+        remark: '',
+      })
+      const full = await this.prisma.invoice.findUniqueOrThrow({
+        where: { id: row },
+        include: invoiceInclude,
+      })
+      return toInvoiceDto(full)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`发票编号「${invoiceCode}」已存在`)
@@ -549,12 +708,16 @@ export class InvoicesService {
           },
         })
         await this.replaceServiceDetails(tx, created.id, dto.serviceDetails, actorId)
-        return tx.invoice.findUniqueOrThrow({
-          where: { id: created.id },
-          include: invoiceInclude,
-        })
+        return created.id
       })
-      return toInvoiceDto(row)
+      await this.invoiceAuto.ensureReceivableForInvoice(row, actorId, this.prisma, {
+        remark: '',
+      })
+      const full = await this.prisma.invoice.findUniqueOrThrow({
+        where: { id: row },
+        include: invoiceInclude,
+      })
+      return toInvoiceDto(full)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`发票编号「${invoiceCode}」已存在`)
@@ -797,17 +960,40 @@ export class InvoicesService {
     return { created, skipped, failed, issues }
   }
 
-  /** 预览下一个发票编号（不占用序号；保存时仍重新分配）。可选 contractId 以带上房间后缀。 */
-  async previewInvoiceCode(contractId?: string) {
-    const id = s(contractId)
-    if (id) {
-      const contract = await this.resolveContract({ contractId: id })
+  /**
+   * 预览下一个发票编号（不占用序号；保存时仍重新分配）。
+   * - contractId：合约票，后缀取合约房间／份位
+   * - roomId：短租票，后缀取房间编号（整间）
+   */
+  async previewInvoiceCode(contractId?: string, roomId?: string) {
+    const cid = s(contractId)
+    if (cid) {
+      const contract = await this.resolveContract({ contractId: cid })
       const code = await this.buildInvoiceCode(
         {
           roomCode: contract.room?.roomCode || '',
           leaseCapability: contract.room?.leaseCapability || 'flexible',
           occupancyMode: contract.occupancyMode || 'whole',
           partLabel: contract.partLabel || '',
+        },
+        false,
+      )
+      return { code }
+    }
+    const rid = s(roomId)
+    if (rid) {
+      const room = await this.prisma.room.findUnique({
+        where: { id: rid },
+        select: { id: true, roomCode: true, leaseCapability: true },
+      })
+      if (!room) throw new NotFoundException('Room not found')
+      await this.access.assertRoomId(room.id)
+      const code = await this.buildInvoiceCode(
+        {
+          roomCode: room.roomCode || '',
+          leaseCapability: room.leaseCapability || 'flexible',
+          occupancyMode: 'whole',
+          partLabel: '',
         },
         false,
       )

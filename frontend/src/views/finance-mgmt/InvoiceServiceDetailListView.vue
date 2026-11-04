@@ -18,6 +18,7 @@ import type {
   InvoiceServiceDetailListQuery,
 } from '@/api/invoice-service-details'
 import { fetchInvoices } from '@/api/invoices'
+import { invalidateInvoicePdfCache } from '@/api/document-templates'
 
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
 import type { InvoiceRecord } from '@/types/invoice'
@@ -31,12 +32,14 @@ import InvoiceServiceDetailDrawer from '@/components/InvoiceServiceDetailDrawer.
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { packFilterValues } from '@/utils/columnFilter'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -55,7 +58,10 @@ const { t } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('invoiceServiceDetails')
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+)
 const { colW, textColW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
   useTableColWidth()
 
@@ -70,6 +76,7 @@ const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(nu
 
 const {
   filters,
+  setFilter,
   setSort,
   setDateRange,
   dateRangeOf,
@@ -79,6 +86,7 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<InvoiceServiceDetailListRecord>()
 
 const {
@@ -96,10 +104,15 @@ const {
 } = useServerPagedList<InvoiceServiceDetailListRecord, InvoiceServiceDetailListQuery>({
   keyword,
   sortFilter: { filters, dateRanges, dateRangeOf, sortKey, sortOrder, clearAll },
-  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range }) => {
+  buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => {
     const created = range('createdAt')
     return {
       keyword: kw,
+      invoiceCodes: packFilterValues(f.invoiceCode),
+      quantities: packFilterValues(f.quantity),
+      unitAmounts: packFilterValues(f.unitAmount),
+      subtotals: packFilterValues(f.subtotal),
+      createdBys: packFilterValues(f.createdBy),
       sortBy,
       sortDir,
       createdAtFrom: created.from,
@@ -110,6 +123,31 @@ const {
   },
   fetchPage: fetchInvoiceServiceDetails,
 })
+
+function uniqueListOptions(
+  get: (row: InvoiceServiceDetailListRecord) => string | number | null | undefined,
+  labelOf?: (value: string) => string,
+) {
+  return uniqueOptions(list.value, get, labelOf)
+}
+
+const invoiceCodeFilterOptions = computed(() => uniqueListOptions((r) => r.invoiceCode))
+const quantityFilterOptions = computed(() =>
+  uniqueListOptions((r) => (r.quantity == null ? '' : String(r.quantity))),
+)
+const unitAmountFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.unitAmount == null ? '' : String(r.unitAmount)),
+    (v) => moneyOrDash(Number(v)),
+  ),
+)
+const subtotalFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.subtotal == null ? '' : String(r.subtotal)),
+    (v) => moneyOrDash(Number(v)),
+  ),
+)
+const createdByFilterOptions = computed(() => uniqueListOptions((r) => r.createdBy))
 
 /** 编号列宽随当前页数据变化时强制重算 */
 const codeLayoutKey = computed(() =>
@@ -154,7 +192,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -165,6 +203,13 @@ async function onBatchDelete() {
     return
   }
   const ids = [...selectedIds.value]
+  const invoiceIds = [
+    ...new Set(
+      list.value
+        .filter((r) => ids.includes(r.id) && r.invoiceId)
+        .map((r) => r.invoiceId),
+    ),
+  ]
   batchDeleting.value = true
   beginBatch(ids.length)
   try {
@@ -173,6 +218,7 @@ async function onBatchDelete() {
       (chunk) => batchDeleteInvoiceServiceDetailsApi(chunk),
       setBatchProgress,
     )
+    for (const invoiceId of invoiceIds) invalidateInvoicePdfCache(invoiceId)
     finishBatch(ok, fail)
     clearSelection()
     await loadList()
@@ -282,6 +328,7 @@ async function saveForm() {
   }
   try {
     const payload = payloadFromForm()
+    const invoiceId = payload.invoiceId || editing.value?.invoiceId || ''
     if (editing.value) {
       await updateInvoiceServiceDetailApi(editing.value.id, payload)
       ElMessage.success(t('invoiceServiceDetail.updated'))
@@ -289,6 +336,7 @@ async function saveForm() {
       await createInvoiceServiceDetailApi(payload)
       ElMessage.success(t('invoiceServiceDetail.created'))
     }
+    invalidateInvoicePdfCache(invoiceId)
     formVisible.value = false
     await loadList()
   } catch {
@@ -304,6 +352,7 @@ async function onDelete(row: InvoiceServiceDetailListRecord) {
       { type: 'warning' },
     )
     await deleteInvoiceServiceDetailApi(row.id)
+    invalidateInvoicePdfCache(row.invoiceId)
     ElMessage.success(t('invoiceServiceDetail.deleted'))
     await loadList()
   } catch {
@@ -428,7 +477,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('invoiceServiceDetail.importAdminOnly'))
     return
   }
@@ -512,6 +561,8 @@ async function onImportFile(ev: Event) {
     }
 
     await loadList()
+    // 导入可能改多张发票细节，整表清预览缓存
+    invalidateInvoicePdfCache()
     finishImport()
   } catch {
     failImport(t('invoiceServiceDetail.importFailed'))
@@ -522,6 +573,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.invoiceServiceDetails') }}</h2>
       <div class="head-actions">
         <el-input
@@ -579,6 +631,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -593,7 +646,7 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="`${tableLayoutKey}-${codeLayoutKey}`"
+          :key="`${tableLayoutKey}-${codeLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -635,8 +688,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoiceServiceDetail.fields.invoiceCode')"
+                filterable
                 sortable
+                :options="invoiceCodeFilterOptions"
+                :model-value="filters.invoiceCode || []"
                 :sort-order="sortOrderOf('invoiceCode')"
+                @update:model-value="(v) => setFilter('invoiceCode', v)"
                 @update:sort-order="(v) => setSort('invoiceCode', v)"
               />
             </template>
@@ -668,8 +725,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoiceServiceDetail.fields.quantity')"
+                filterable
                 sortable
+                :options="quantityFilterOptions"
+                :model-value="filters.quantity || []"
                 :sort-order="sortOrderOf('quantity')"
+                @update:model-value="(v) => setFilter('quantity', v)"
                 @update:sort-order="(v) => setSort('quantity', v)"
               />
             </template>
@@ -683,8 +744,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoiceServiceDetail.fields.unitAmount')"
+                filterable
                 sortable
+                :options="unitAmountFilterOptions"
+                :model-value="filters.unitAmount || []"
                 :sort-order="sortOrderOf('unitAmount')"
+                @update:model-value="(v) => setFilter('unitAmount', v)"
                 @update:sort-order="(v) => setSort('unitAmount', v)"
               />
             </template>
@@ -698,8 +763,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoiceServiceDetail.fields.subtotal')"
+                filterable
                 sortable
+                :options="subtotalFilterOptions"
+                :model-value="filters.subtotal || []"
                 :sort-order="sortOrderOf('subtotal')"
+                @update:model-value="(v) => setFilter('subtotal', v)"
                 @update:sort-order="(v) => setSort('subtotal', v)"
               />
             </template>
@@ -716,8 +785,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdBy')"
+                filterable
                 sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
                 :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
                 @update:sort-order="(v) => setSort('createdBy', v)"
               />
             </template>
@@ -733,9 +806,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -744,7 +819,7 @@ async function onImportFile(ev: Event) {
           <el-table-column
             v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -752,6 +827,8 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button
+                  v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
@@ -759,6 +836,8 @@ async function onImportFile(ev: Event) {
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="perms.delete"
+                  v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"

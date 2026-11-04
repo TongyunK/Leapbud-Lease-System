@@ -11,6 +11,7 @@ import {
   Filter,
   Lock,
   OfficeBuilding,
+  Search,
   SwitchButton,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -24,8 +25,10 @@ import { changePasswordApi } from '@/api/auth'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
 import { useFrequentRoutes, type FrequentRouteName } from '@/composables/useFrequentRoutes'
 import { registerMainBoundsPublisher } from '@/utils/layoutMainBounds'
+import type { MenuRecord } from '@/types/menu'
+import { menuDisplayName } from '@/utils/menuLabel'
 
-const { t, te } = useI18n()
+const { t, te, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
@@ -92,10 +95,61 @@ const sidebarCollapsed = computed(() => !isMobile.value && collapsed.value)
 const showLabels = computed(() => isMobile.value || !collapsed.value)
 const menuRevision = computed(() => navStore.revision)
 
-/** 根据当前路由展开对应目录 */
+const menuKeyword = ref('')
+
+function menuNodeMatches(node: MenuRecord, q: string) {
+  const label = menuDisplayName(node, locale.value, t, te).toLowerCase()
+  if (label.includes(q)) return true
+  if (String(node.name || '').toLowerCase().includes(q)) return true
+  if (String(node.nameEn || '').toLowerCase().includes(q)) return true
+  return false
+}
+
+function filterMenuTree(nodes: MenuRecord[], q: string): MenuRecord[] {
+  if (!q) return nodes
+  const out: MenuRecord[] = []
+  for (const node of nodes) {
+    if (node.type === 'directory') {
+      const selfHit = menuNodeMatches(node, q)
+      const children = filterMenuTree(node.children || [], q)
+      if (selfHit) {
+        out.push({ ...node, children: node.children ? [...node.children] : [] })
+      } else if (children.length) {
+        out.push({ ...node, children })
+      }
+      continue
+    }
+    if (node.routeName && menuNodeMatches(node, q)) out.push(node)
+  }
+  return out
+}
+
+function collectDirectoryIds(nodes: MenuRecord[]): string[] {
+  const ids: string[] = []
+  for (const node of nodes) {
+    if (node.type !== 'directory') continue
+    ids.push(node.id)
+    if (node.children?.length) ids.push(...collectDirectoryIds(node.children))
+  }
+  return ids
+}
+
+const filteredMenuTree = computed(() => {
+  const q = menuKeyword.value.trim().toLowerCase()
+  return filterMenuTree(navStore.tree, q)
+})
+
+const menuSearchActive = computed(() => Boolean(menuKeyword.value.trim()))
+
+/** 根据当前路由展开对应目录；搜索时展开筛选结果中的全部目录 */
 const openMenus = computed(() => {
+  if (menuSearchActive.value) return collectDirectoryIds(filteredMenuTree.value)
   if (typeof route.name !== 'string') return []
   return navStore.openIdsForRoute(route.name)
+})
+
+watch(sidebarCollapsed, (collapsedNow) => {
+  if (collapsedNow) menuKeyword.value = ''
 })
 
 watch(
@@ -172,6 +226,7 @@ function onSelect(index: string) {
   if (!index) return
   router.push({ name: index })
   mobileOpen.value = false
+  menuKeyword.value = ''
 }
 
 function onLogout() {
@@ -282,9 +337,19 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
         </button>
       </div>
 
+      <div v-show="showLabels" class="sidebar-menu-search" @mousedown.stop @click.stop>
+        <el-input
+          v-model="menuKeyword"
+          clearable
+          :prefix-icon="Search"
+          :placeholder="t('layout.menuSearchPlaceholder')"
+          class="sidebar-menu-search__input"
+        />
+      </div>
+
       <div class="sidebar-nav">
         <el-menu
-          :key="`${isMobile}-${sidebarCollapsed}-${menuRevision}-${activeMenu}`"
+          :key="`${isMobile}-${sidebarCollapsed}-${menuRevision}-${activeMenu}-${menuKeyword.trim()}`"
           :default-active="activeMenu"
           :default-openeds="openMenus"
           :collapse="sidebarCollapsed"
@@ -293,8 +358,11 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
           class="sidebar-menu"
           @select="onSelect"
         >
-          <SidebarMenuNodes :nodes="navStore.tree" />
+          <SidebarMenuNodes :nodes="filteredMenuTree" />
         </el-menu>
+        <p v-if="menuSearchActive && !filteredMenuTree.length" class="sidebar-menu-search__empty">
+          {{ t('layout.menuSearchEmpty') }}
+        </p>
       </div>
     </aside>
 
@@ -527,7 +595,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 16px 10px 12px;
+  padding: 16px 10px 4px;
   cursor: pointer;
   min-height: 64px;
 }
@@ -619,11 +687,79 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.sidebar-menu-search {
+  flex-shrink: 0;
+  /* 上移与品牌区距离、下收与首个菜单间距 */
+  padding: 26px 14px 6px;
+}
+
+.sidebar-menu-search__input {
+  width: 100%;
+}
+
+.sidebar-menu-search__input :deep(.el-input__wrapper) {
+  min-height: 32px;
+  padding-inline: 11px 9px;
+  border-radius: 999px !important;
+  /* 融入侧栏：半透明浅绿底，避免纯白高对比 */
+  background: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset !important;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.sidebar-menu-search__input :deep(.el-input__wrapper:hover) {
+  background: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset !important;
+}
+
+.sidebar-menu-search__input :deep(.el-input__wrapper.is-focus) {
+  background: rgba(255, 255, 255, 0.2) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.32) inset,
+    0 0 0 3px rgba(158, 187, 176, 0.22) !important;
+}
+
+.sidebar-menu-search__input :deep(.el-input__inner) {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.sidebar-menu-search__input :deep(.el-input__inner::placeholder) {
+  color: rgba(255, 255, 255, 0.42);
+  font-weight: 450;
+}
+
+.sidebar-menu-search__input :deep(.el-input__prefix),
+.sidebar-menu-search__input :deep(.el-input__suffix) {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sidebar-menu-search__input :deep(.el-input__clear) {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sidebar-menu-search__input :deep(.el-input__clear:hover) {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sidebar-menu-search__empty {
+  margin: 18px 8px 8px;
+  padding: 0 6px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.4;
+}
+
 .sidebar-nav {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px 6px 14px;
+  padding: 2px 6px 14px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
 }

@@ -19,10 +19,13 @@ import {
   parsePage,
   parsePageSize,
   parseSortDir,
+  splitCsv,
   type PaginatedResult,
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
+import { actorLabelsOrEmpty } from '../common/audit'
+import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter'
 
 function s(v?: string | null) {
   return (v ?? '').trim()
@@ -60,7 +63,14 @@ export class DepositRefundsService {
     contractId?: string
     customerId?: string
     roomId?: string
+    refundCodes?: string[]
+    contractCodes?: string[]
     customerNames?: string[]
+    roomNames?: string[]
+    totalDeposits?: string[]
+    actualRefundAmounts?: string[]
+    handlers?: string[]
+    createdBys?: string[]
     status?: string
     sortBy?: string
     sortDir?: 'asc' | 'desc'
@@ -102,7 +112,14 @@ export class DepositRefundsService {
     contractId?: string
     customerId?: string
     roomId?: string
+    refundCodes?: string[]
+    contractCodes?: string[]
     customerNames?: string[]
+    roomNames?: string[]
+    totalDeposits?: string[]
+    actualRefundAmounts?: string[]
+    handlers?: string[]
+    createdBys?: string[]
     status?: string
     terminationDateFrom?: string
     terminationDateTo?: string
@@ -115,11 +132,49 @@ export class DepositRefundsService {
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
     if (params.customerId?.trim()) where.customerId = params.customerId.trim()
     if (params.roomId?.trim()) where.roomId = params.roomId.trim()
-    if (params.status?.trim()) where.status = params.status.trim()
-    const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
-    if (customerNames.length) {
-      where.customer = { name: { in: customerNames } }
+
+    const and: Prisma.DepositRefundWhereInput[] = []
+
+    const statusClause = stringFieldInOrEmpty(
+      'status',
+      splitCsv(params.status) ?? (params.status?.trim() ? [params.status.trim()] : undefined),
+    )
+    if (statusClause) and.push(statusClause as Prisma.DepositRefundWhereInput)
+
+    const refundCodeClause = stringFieldInOrEmpty('refundCode', params.refundCodes)
+    if (refundCodeClause) and.push(refundCodeClause as Prisma.DepositRefundWhereInput)
+
+    const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes)
+    if (contractCodeClause) {
+      and.push({ contract: contractCodeClause } as Prisma.DepositRefundWhereInput)
     }
+
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames)
+    if (customerNameClause) {
+      and.push({ customer: customerNameClause } as Prisma.DepositRefundWhereInput)
+    }
+
+    const roomNameClause = stringFieldInOrEmpty('name', params.roomNames)
+    if (roomNameClause) {
+      and.push({ room: roomNameClause } as Prisma.DepositRefundWhereInput)
+    }
+
+    const totalDepositClause = numberFieldInOrEmpty('totalDeposit', params.totalDeposits)
+    if (totalDepositClause) and.push(totalDepositClause as Prisma.DepositRefundWhereInput)
+
+    const actualRefundClause = numberFieldInOrEmpty(
+      'actualRefundAmount',
+      params.actualRefundAmounts,
+    )
+    if (actualRefundClause) and.push(actualRefundClause as Prisma.DepositRefundWhereInput)
+
+    const handlerClause = actorLabelsOrEmpty('handler', params.handlers)
+    if (handlerClause) and.push(handlerClause as Prisma.DepositRefundWhereInput)
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys)
+    if (createdByClause) and.push(createdByClause as Prisma.DepositRefundWhereInput)
+
+    if (and.length) where.AND = and
 
     const keyword = params.keyword?.trim()
     if (keyword) {

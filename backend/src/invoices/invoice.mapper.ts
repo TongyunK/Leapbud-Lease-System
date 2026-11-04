@@ -1,4 +1,5 @@
 import type {
+  Building,
   Contract,
   Customer,
   Invoice,
@@ -41,7 +42,11 @@ export type InvoiceWithRelations = Invoice & {
   }
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
-  room?: Pick<Room, 'id' | 'roomCode' | 'name' | 'sizeSqft'> | null
+  room?:
+    | (Pick<Room, 'id' | 'roomCode' | 'name' | 'sizeSqft' | 'buildingId'> & {
+        building?: Pick<Building, 'id' | 'name'> | null
+      })
+    | null
   referredByCustomer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
   salesManagerUser?: SalesManagerLite | null
   serviceDetails?: InvoiceServiceDetailRow[]
@@ -59,7 +64,16 @@ export const invoiceInclude = {
   },
   contract: { select: { id: true, contractCode: true } },
   customer: { select: { id: true, customerCode: true, name: true } },
-  room: { select: { id: true, roomCode: true, name: true, sizeSqft: true } },
+  room: {
+    select: {
+      id: true,
+      roomCode: true,
+      name: true,
+      sizeSqft: true,
+      buildingId: true,
+      building: { select: { id: true, name: true } },
+    },
+  },
   referredByCustomer: { select: { id: true, customerCode: true, name: true } },
   salesManagerUser: { select: { id: true, account: true, displayName: true } },
   serviceDetails: {
@@ -109,6 +123,8 @@ export function toInvoiceDto(row: InvoiceWithRelations) {
     roomCode: row.room?.roomCode ?? '',
     roomName: row.room?.name ?? '',
     roomSizeSqft: decimalToNumber(row.room?.sizeSqft),
+    buildingId: row.room?.buildingId ?? row.room?.building?.id ?? '',
+    buildingName: row.room?.building?.name ?? '',
     invoiceType: row.invoiceType,
     billingKind: row.billingKind,
     periodStart: dateOnly(row.periodStart),

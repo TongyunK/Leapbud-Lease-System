@@ -38,6 +38,9 @@ export class ContractPeriodsController {
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'dateTypes', required: false, description: 'Comma-separated dateType labels' })
+  @ApiQuery({ name: 'contractCodes', required: false, description: 'Comma-separated contract codes' })
+  @ApiQuery({ name: 'roomCodes', required: false, description: 'Comma-separated room codes' })
+  @ApiQuery({ name: 'dateValues', required: false, description: 'Comma-separated dateValue numbers' })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'startDateFrom', required: false })
@@ -56,6 +59,9 @@ export class ContractPeriodsController {
     @Query('contractId') contractId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('dateTypes') dateTypes?: string,
+    @Query('contractCodes') contractCodes?: string,
+    @Query('roomCodes') roomCodes?: string,
+    @Query('dateValues') dateValues?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('startDateFrom') startDateFrom?: string,
@@ -78,6 +84,14 @@ export class ContractPeriodsController {
             .split(',')
             .map((v) => v.trim())
             .filter(Boolean)
+        : undefined,
+      contractCodes: splitCsv(contractCodes),
+      roomCodes: splitCsv(roomCodes),
+      dateValues: dateValues
+        ? dateValues
+            .split(',')
+            .map((v) => Math.floor(Number(v.trim())))
+            .filter((v) => Number.isFinite(v))
         : undefined,
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,

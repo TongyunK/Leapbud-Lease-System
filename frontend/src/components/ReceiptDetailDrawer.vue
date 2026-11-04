@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import type { ReceiptRecord } from '@/types/receipt'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import ReceiptAttachmentList from '@/components/ReceiptAttachmentList.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { receiptKindTone } from '@/constants/statusBadges'
@@ -84,8 +85,12 @@ async function onPrintReceipt() {
     class="responsive-drawer"
   >
     <template #header="{ titleId, titleClass }">
-      <div class="drawer-header-with-action">
-        <h4 :id="titleId" :class="titleClass">{{ t('receipt.detailTitle') }}</h4>
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('receipt.detailTitle')"
+        :code="record?.receiptCode"
+      >
         <el-button
           v-if="record"
           type="primary"
@@ -97,7 +102,7 @@ async function onPrintReceipt() {
         >
           {{ t('receipt.printReceipt') }}
         </el-button>
-      </div>
+      </DrawerDetailHeader>
     </template>
     <template v-if="record">
       <section class="detail-section">

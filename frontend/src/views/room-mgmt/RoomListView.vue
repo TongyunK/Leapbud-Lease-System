@@ -36,6 +36,7 @@ import type { RoomTypeOption } from '@/types/room-type'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
+import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
@@ -44,6 +45,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import SuperAdminInlineCell from '@/components/SuperAdminInlineCell.vue'
 import { ROOM_INLINE_FIELDS, type RoomInlineField } from '@/config/inlineEditWhitelist'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 
@@ -61,7 +63,7 @@ import type { InvoiceRecord } from '@/types/invoice'
 import type { LeaseTerminationRecord } from '@/types/lease-termination'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { roomFillStatusTone, roomLeaseCapabilityTone } from '@/constants/statusBadges'
-import { formatMoney, formatNumber2 } from '@/utils/format'
+import { formatDateTime, formatMoney, formatNumber2 } from '@/utils/format'
 import {
   roomIoTemplateExampleRow,
   roomToIoRow,
@@ -91,7 +93,14 @@ const { t, locale } = useI18n()
 const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const perms = useResourcePermissions('rooms')
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([
+    t('common.detail'),
+    perms.update && t('common.edit'),
+    perms.delete && t('common.delete'),
+  ]),
+)
 const { colW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
@@ -249,6 +258,7 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<RoomRecord>()
 
 const roomTypeFilterOptions = computed(() =>
@@ -260,6 +270,25 @@ const buildingFilterOptions = computed(() =>
 const statusFilterOptions = computed(() =>
   fillStatusOptions.map((s) => ({ value: s, label: t(`room.fillStatus.${s}`) })),
 )
+const roomCodeFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.roomCode))
+const roomNameFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.name))
+const leaseCapabilityColumnFilterOptions = computed(() =>
+  (['flexible', 'whole_only', 'part_only'] as const).map((cap) => ({
+    value: cap,
+    label: leaseCapabilityLabel(cap),
+  })),
+)
+const monthlyRentFilterOptions = computed(() =>
+  uniqueOptions(list.value, (r) => (r.monthlyRent == null ? '' : String(r.monthlyRent))),
+)
+const dailyRentFilterOptions = computed(() =>
+  uniqueOptions(list.value, (r) => (r.dailyRent == null ? '' : String(r.dailyRent))),
+)
+const hourlyRentFilterOptions = computed(() =>
+  uniqueOptions(list.value, (r) => (r.hourlyRent == null ? '' : String(r.hourlyRent))),
+)
+const createdByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.createdBy))
+const updatedByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.updatedBy))
 
 function fillStatusOf(row: RoomRecord | null | undefined): RoomFillStatus {
   return row?.occupancy?.summary || 'idle'
@@ -331,14 +360,25 @@ const {
     const updated = range('updatedAt')
     return {
       keyword: kw,
-      buildingIds:
-        buildingScope.selectedId || !f.buildingId?.length ? undefined : [...f.buildingId],
+      buildingIds: buildingScope.selectedId ? undefined : packFilterValues(f.buildingId),
       leaseCapability: leaseCapabilityFilter.value || undefined,
-      occupancySummaries: f.status?.length ? [...f.status] : undefined,
-      roomTypes: f.roomType?.length ? [...f.roomType] : undefined,
-      sizeRangeIds: f.sizeRange?.length ? [...f.sizeRange] : undefined,
-      windowConfigs: f.windowConfig?.length ? [...f.windowConfig] : undefined,
-      acConfigs: f.acConfig?.length ? [...f.acConfig] : undefined,
+      leaseCapabilities: !leaseCapabilityFilter.value
+        ? packFilterValues(f.leaseCapability)
+        : undefined,
+      roomCodes: packFilterValues(f.roomCode),
+      names: packFilterValues(f.name),
+      monthlyRents: packFilterValues(f.monthlyRent),
+      dailyRents: packFilterValues(f.dailyRent),
+      hourlyRents: packFilterValues(f.hourlyRent),
+      occupancySummaries: packFilterValues(f.status),
+      roomTypes: packFilterValues(f.roomType),
+      sizeRangeIds: packFilterValues(f.sizeRange),
+      windowConfigs: packFilterValues(f.windowConfig),
+      acConfigs: packFilterValues(f.acConfig),
+      createdBys: packFilterValues(f.createdBy),
+      updatedBys: packFilterValues(f.updatedBy),
+      createdAtEmpty: (f.createdAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
+      updatedAtEmpty: (f.updatedAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
       sortBy,
       sortDir,
       createdAtFrom: created.from,
@@ -419,7 +459,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -665,9 +705,14 @@ async function loadLeaseCapabilityCounts() {
   }
 }
 
+async function onRefreshList() {
+  await Promise.all([loadList(), loadLeaseCapabilityCounts()])
+}
+
 function setLeaseCapabilityFilter(cap: RoomLeaseCapability | null) {
   if (leaseCapabilityFilter.value === cap) return
   leaseCapabilityFilter.value = cap
+  if (cap) setFilter('leaseCapability', [])
   resetPage()
   void loadList()
 }
@@ -853,7 +898,7 @@ async function runImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('room.importAdminOnly'))
     return
   }
@@ -1094,7 +1139,7 @@ async function saveForm() {
         await deleteRoomImageApi(editing.value.id, imageId)
       }
     } else {
-      if (!perms.import.value) {
+      if (!perms.import) {
         ElMessage.warning(t('room.importAdminOnly'))
         return
       }
@@ -1121,6 +1166,7 @@ async function saveForm() {
 <template>
   <div class="admin-page">
     <div class="admin-page-head admin-page-head--with-chips">
+      <RefreshListButton :loading="loading" @refresh="() => void onRefreshList()" />
       <h2>{{ t('menu.rooms') }}</h2>
       <div class="building-chips-rail">
         <div class="building-chips" role="tablist" :aria-label="t('room.fields.leaseCapability')">
@@ -1191,6 +1237,7 @@ async function saveForm() {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -1201,11 +1248,15 @@ async function saveForm() {
       </div>
     </div>
 
-    <div v-if="!useCards" class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div v-if="!useCards" class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -1234,8 +1285,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.roomCode')"
+                filterable
                 sortable
+                :options="roomCodeFilterOptions"
+                :model-value="filters.roomCode || []"
                 :sort-order="sortOrderOf('roomCode')"
+                @update:model-value="(v) => setFilter('roomCode', v)"
                 @update:sort-order="(v) => setSort('roomCode', v)"
               />
             </template>
@@ -1247,8 +1302,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.name')"
+                filterable
                 sortable
+                :options="roomNameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -1314,8 +1373,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.leaseCapability')"
+                filterable
                 sortable
+                :options="leaseCapabilityColumnFilterOptions"
+                :model-value="filters.leaseCapability || []"
                 :sort-order="sortOrderOf('leaseCapability')"
+                @update:model-value="(v) => setFilter('leaseCapability', v)"
                 @update:sort-order="(v) => setSort('leaseCapability', v)"
               />
             </template>
@@ -1373,8 +1436,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.monthlyRent')"
+                filterable
                 sortable
+                :options="monthlyRentFilterOptions"
+                :model-value="filters.monthlyRent || []"
                 :sort-order="sortOrderOf('monthlyRent')"
+                @update:model-value="(v) => setFilter('monthlyRent', v)"
                 @update:sort-order="(v) => setSort('monthlyRent', v)"
               />
             </template>
@@ -1396,8 +1463,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.dailyRent')"
+                filterable
                 sortable
+                :options="dailyRentFilterOptions"
+                :model-value="filters.dailyRent || []"
                 :sort-order="sortOrderOf('dailyRent')"
+                @update:model-value="(v) => setFilter('dailyRent', v)"
                 @update:sort-order="(v) => setSort('dailyRent', v)"
               />
             </template>
@@ -1419,8 +1490,12 @@ async function saveForm() {
             <template #header>
               <TableColumnHeader
                 :label="t('room.fields.hourlyRent')"
+                filterable
                 sortable
+                :options="hourlyRentFilterOptions"
+                :model-value="filters.hourlyRent || []"
                 :sort-order="sortOrderOf('hourlyRent')"
+                @update:model-value="(v) => setFilter('hourlyRent', v)"
                 @update:sort-order="(v) => setSort('hourlyRent', v)"
               />
             </template>
@@ -1554,46 +1629,76 @@ async function saveForm() {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
-          <el-table-column prop="createdAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
+          <el-table-column :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:sort-order="(v) => setSort('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
+            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
-          <el-table-column prop="updatedAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
+          <el-table-column :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
+            <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.three"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -1665,7 +1770,7 @@ async function saveForm() {
       </div>
     </div>
 
-    <div v-else class="data-cards">
+    <div v-else class="data-cards" v-loading="loading">
       <article v-for="row in list" :key="row.id" class="data-card">
         <div class="data-card__head">
           <div>

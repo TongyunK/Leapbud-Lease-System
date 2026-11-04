@@ -28,7 +28,10 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+)
 const { colW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const loading = ref(false)
@@ -49,16 +52,23 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<CustomerSourceOption>()
 
 const columnGetters = {
   label: (o: CustomerSourceOption) => o.label,
   sortOrder: (o: CustomerSourceOption) => o.sortOrder,
   active: (o: CustomerSourceOption) => String(o.active),
+  createdBy: (o: CustomerSourceOption) => o.createdBy,
+  updatedBy: (o: CustomerSourceOption) => o.updatedBy,
   createdAt: (o: CustomerSourceOption) => o.createdAt,
   updatedAt: (o: CustomerSourceOption) => o.updatedAt,
 }
 
+const labelFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.label))
+const sortOrderFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.sortOrder))
+const createdByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.createdBy))
+const updatedByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.updatedBy))
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
@@ -245,7 +255,7 @@ async function toggleActive(row: CustomerSourceOption) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           :data="paged"
           row-key="id"
           height="100%"
@@ -277,8 +287,12 @@ async function toggleActive(row: CustomerSourceOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('customerSource.fields.label')"
+                filterable
                 sortable
+                :options="labelFilterOptions"
+                :model-value="filters.label || []"
                 :sort-order="sortOrderOf('label')"
+                @update:model-value="(v) => setFilter('label', v)"
                 @update:sort-order="(v) => setSort('label', v)"
               />
             </template>
@@ -291,8 +305,12 @@ async function toggleActive(row: CustomerSourceOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('customerSource.fields.sortOrder')"
+                filterable
                 sortable
+                :options="sortOrderFilterOptions"
+                :model-value="filters.sortOrder || []"
                 :sort-order="sortOrderOf('sortOrder')"
+                @update:model-value="(v) => setFilter('sortOrder', v)"
                 @update:sort-order="(v) => setSort('sortOrder', v)"
               />
             </template>
@@ -318,11 +336,23 @@ async function toggleActive(row: CustomerSourceOption) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="createdAt"
             :width="datetimeColWidth"
@@ -334,19 +364,33 @@ async function toggleActive(row: CustomerSourceOption) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="updatedAt"
             :width="datetimeColWidth"
@@ -358,16 +402,18 @@ async function toggleActive(row: CustomerSourceOption) {
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"

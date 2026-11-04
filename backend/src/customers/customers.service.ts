@@ -15,7 +15,7 @@ import {
   UpdateCustomerDto,
 } from './dto/customer.dto';
 import { customerInclude, customerListInclude, toCustomerDto } from './customer.mapper';
-import { userWhereActorLabels } from '../common/audit';
+import { actorLabelsOrEmpty } from '../common/audit';
 import {
   dateRangeFilter,
   paginateArgs,
@@ -23,6 +23,7 @@ import {
   parsePageSize,
   parseSortDir,
 } from '../common/pagination';
+import { stringFieldInOrEmpty } from '../common/column-filter';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
@@ -132,6 +133,7 @@ export class CustomersService {
 
   async findAll(params: {
     keyword?: string;
+    customerCodes?: string[];
     status?: string;
     statuses?: string[];
     accountManagers?: string[];
@@ -170,6 +172,7 @@ export class CustomersService {
 
   private buildListWhere(params: {
     keyword?: string;
+    customerCodes?: string[];
     status?: string;
     statuses?: string[];
     accountManagers?: string[];
@@ -182,36 +185,29 @@ export class CustomersService {
     const where: Prisma.CustomerWhereInput = {};
     const and: Prisma.CustomerWhereInput[] = [];
 
-    const statuses = [
-      ...new Set(
-        [...(params.statuses || []), params.status?.trim() || '']
-          .map((v) => s(v))
-          .filter(Boolean),
-      ),
-    ];
-    if (statuses.length === 1) where.status = statuses[0];
-    else if (statuses.length > 1) where.status = { in: statuses };
+    const customerCodeClause = stringFieldInOrEmpty('customerCode', params.customerCodes);
+    if (customerCodeClause) and.push(customerCodeClause as Prisma.CustomerWhereInput);
 
-    const managers = (params.accountManagers || []).map((v) => s(v)).filter(Boolean);
-    if (managers.length) {
-      and.push({ accountManagerUser: userWhereActorLabels(managers) });
+    const statusClause = stringFieldInOrEmpty('status', [
+      ...(params.statuses || []),
+      ...(params.status?.trim() ? [params.status.trim()] : []),
+    ]);
+    if (statusClause) and.push(statusClause as Prisma.CustomerWhereInput);
+
+    const managerClause = actorLabelsOrEmpty('accountManager', params.accountManagers);
+    if (managerClause) and.push(managerClause as Prisma.CustomerWhereInput);
+
+    const buildingNameClause = stringFieldInOrEmpty('name', params.buildingNames);
+    if (buildingNameClause) {
+      and.push({ building: buildingNameClause } as Prisma.CustomerWhereInput);
     }
 
-    const buildingNames = (params.buildingNames || []).map((v) => s(v)).filter(Boolean);
-    if (buildingNames.length) {
-      and.push({ building: { name: { in: buildingNames } } });
-    }
+    const nameClause = stringFieldInOrEmpty('name', params.names);
+    if (nameClause) and.push(nameClause as Prisma.CustomerWhereInput);
 
-    const names = (params.names || []).map((v) => s(v)).filter(Boolean);
-    if (names.length === 1) {
-      and.push({ name: names[0] });
-    } else if (names.length > 1) {
-      and.push({ name: { in: names } });
-    }
-
-    const primaryContacts = (params.primaryContacts || []).map((v) => s(v)).filter(Boolean);
-    if (primaryContacts.length) {
-      and.push({ primaryOccupant: { name: { in: primaryContacts } } });
+    const primaryContactClause = stringFieldInOrEmpty('name', params.primaryContacts);
+    if (primaryContactClause) {
+      and.push({ primaryOccupant: primaryContactClause } as Prisma.CustomerWhereInput);
     }
 
     const keyword = params.keyword?.trim();

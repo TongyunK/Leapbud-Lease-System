@@ -22,6 +22,7 @@ import {
 } from '../common/resolve-contract-by-room';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import { splitEmptyFilter, stringFieldInOrEmpty } from '../common/column-filter';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -75,6 +76,9 @@ export class ContractPeriodsService {
     contractId?: string;
     customerNames?: string[];
     dateTypes?: string[];
+    contractCodes?: string[];
+    roomCodes?: string[];
+    dateValues?: number[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     startDateFrom?: string;
@@ -117,6 +121,9 @@ export class ContractPeriodsService {
     contractId?: string;
     customerNames?: string[];
     dateTypes?: string[];
+    contractCodes?: string[];
+    roomCodes?: string[];
+    dateValues?: number[];
     startDateFrom?: string;
     startDateTo?: string;
     endDateFrom?: string;
@@ -129,12 +136,58 @@ export class ContractPeriodsService {
     const where: Prisma.ContractPeriodWhereInput = {};
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
 
-    const dateTypes = (params.dateTypes || []).map((v) => s(v)).filter(Boolean);
-    if (dateTypes.length) where.dateType = { in: dateTypes };
+    const and: Prisma.ContractPeriodWhereInput[] = [];
 
-    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
-    if (customerNames.length) {
-      where.contract = { customer: { name: { in: customerNames } } };
+    const dateTypeClause = stringFieldInOrEmpty('dateType', params.dateTypes);
+    if (dateTypeClause) and.push(dateTypeClause as Prisma.ContractPeriodWhereInput);
+
+    const dateValueNums = (params.dateValues || [])
+      .map((v) => Math.floor(Number(v)))
+      .filter((v) => Number.isFinite(v));
+    if (dateValueNums.length) {
+      and.push({
+        dateValue: dateValueNums.length === 1 ? dateValueNums[0] : { in: dateValueNums },
+      });
+    }
+
+    const { values: customerNames, includeEmpty: includeEmptyCustomer } = splitEmptyFilter(
+      params.customerNames,
+    );
+    const { values: contractCodes, includeEmpty: includeEmptyContract } = splitEmptyFilter(
+      params.contractCodes,
+    );
+    const { values: roomCodes, includeEmpty: includeEmptyRoom } = splitEmptyFilter(
+      params.roomCodes,
+    );
+    if (
+      customerNames.length ||
+      contractCodes.length ||
+      roomCodes.length ||
+      includeEmptyCustomer ||
+      includeEmptyContract ||
+      includeEmptyRoom
+    ) {
+      const contractWhere: Prisma.ContractWhereInput = {};
+      const customerNameClause = stringFieldInOrEmpty('name', params.customerNames);
+      if (customerNameClause) {
+        contractWhere.customer = customerNameClause as Prisma.CustomerWhereInput;
+      }
+      const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes);
+      if (contractCodeClause) Object.assign(contractWhere, contractCodeClause);
+      const roomCodeClause = stringFieldInOrEmpty('roomCode', params.roomCodes);
+      if (roomCodeClause) {
+        contractWhere.room = roomCodeClause as Prisma.RoomWhereInput;
+      }
+      and.push({ contract: contractWhere });
+    }
+
+    if (and.length) {
+      const existing = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
+      where.AND = [...existing, ...and];
     }
 
     const keyword = params.keyword?.trim();

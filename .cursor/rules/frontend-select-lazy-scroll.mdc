@@ -1,23 +1,29 @@
 ---
-description: 表单远程下拉统一用滚动分页懒加载（首屏 20、滚到底再加 20）
+description: 关联查询下拉强制滚动分页懒加载（首屏 20、滚到底再加 20；禁止全量预拉）
 alwaysApply: true
 ---
 
-# 表单下拉：滚动懒加载（强制）
+# 关联查询下拉：滚动懒加载（强制）
 
-凡业务表单里选项可能较多的 `el-select`（房间、客户、发票、合约等），**禁止**在页面 `onMounted` / `loadOptions` 时全量拉取；统一用**打开下拉拉首屏 + 滚到底追加**。
+凡表单／弹窗里**按业务实体做关联选择**的 `el-select`（客户、房间、合约、发票、应收、收据、大厦内筛等），**一律**用本约定；**不要**因为「现在数据少」就一次全拉或只拉固定一页（如 30 条）却不滚动追加。
 
-参考实现：`frontend/src/views/contract-mgmt/ContractListView.vue`（房间 / 客户下拉）。
+**禁止**：`onMounted` / `openCreate` / `loadOptions` 时全量 `fetchXxx()` 填下拉；只拉 `page=1` 固定条数却无法滚到底续载。
+
+**参考**：
+- `ContractListView.vue`（房间 / 客户）
+- `ReceiptListView.vue`（客户 / 合约 / 发票 / 应收）
+- `InvoiceListView.vue`（合约；短租客户 / 短租房间）
 
 ## 行为约定
 
 | 时机 | 行为 |
 |------|------|
-| 进入列表页 | **不**预拉下拉选项 |
+| 进入列表页 / 打开新增弹窗 | **不**预拉下拉选项 |
 | 打开下拉 | `page=1`，`pageSize=20` |
 | 滚到底部 | 追加下一页 20 条 |
 | 输入关键字 | 重置分页，按 keyword 从第 1 页重拉，仍可滚动加载 |
-| 编辑回填 | 先用当前行数据 seed 一项，打开下拉后再拉首屏并保留已选 |
+| 编辑回填 | 先用当前行数据 seed 一项，打开下拉后再拉首屏并保留已选（sticky/pin） |
+| 顶栏大厦切换 | 按新范围重拉；已选项不在范围内则清空 |
 
 ## 必须遵守（防闪动）
 
@@ -26,6 +32,7 @@ alwaysApply: true
 3. **追加后恢复 `scrollTop`**：请求前记下位置，`nextTick` 后写回。
 4. **不要**在列表底部插临时「載入中」`el-option`（高度跳变会闪）。
 5. 用独立 `popper-class` 找到滚动容器（`.el-select-dropdown__wrap` 或 `.el-scrollbar__wrap`），`passive` scroll + rAF 节流；关闭下拉时卸载监听。
+6. **`remote` + 可能空列表**：提供 `#empty` 插槽，避免 EP 藏下拉且 `expanded` 卡死（参考短租房间／客户）。
 
 ## 模板要点
 
@@ -40,6 +47,9 @@ alwaysApply: true
   @visible-change="onXxxSelectVisible"
 >
   <el-option v-for="item in xxxSelectOptions" :key="item.id" ... />
+  <template #empty>
+    <div><!-- 无数据提示 --></div>
+  </template>
 </el-select>
 ```
 
@@ -47,8 +57,14 @@ alwaysApply: true
 - `onXxxSelectVisible(open)`：关闭时解绑 scroll；打开时重置 keyword / hasMore → `loadXxxPage(true)` → 绑定滚到底加载
 - `loadXxxPage(false)`：仅 `loadingMore`，追加 + 恢复滚动
 
+## 权限与范围
+
+- 列表接口已由后端 `BuildingAccessService` 按登录用户可访问大厦过滤；顶栏所选大厦由请求拦截器注入 `buildingId`。
+- 若需「仅所属大厦」再在客户端按 `buildingId` 收窄；过滤后本页为空但 `hasMore` 时可静默续拉下一页。
+- 带查看的实体选择仍包 `SelectWithViewAction`（见 `ui-and-runtime.mdc`）。
+
 ## 其它
 
-- 全局大厦筛选仍走请求拦截器；若需「仅所属大厦」再在客户端按 `buildingId` 过滤；过滤后本页为空但 `hasMore` 时可静默续拉下一页。
 - 表头列筛选选项优先从**当前列表页数据**聚合，不要为表头再全量拉房间/客户。
-- 新增同类下拉时复用同一套状态字段命名：`xxxSelectOptions` / `xxxSelectLoading` / `xxxSelectLoadingMore` / `xxxSelectPage` / `xxxSelectHasMore` / `xxxSelectKeyword`。
+- 状态字段命名统一：`xxxSelectOptions` / `xxxSelectLoading` / `xxxSelectLoadingMore` / `xxxSelectPage` / `xxxSelectHasMore` / `xxxSelectKeyword`。
+- 改旧代码碰到「一次全拉／只拉一页不续载」的关联下拉时顺手改成懒加载；新增不得再引入全量预拉。

@@ -40,7 +40,13 @@ export class LeaseTerminationsController {
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'roomId', required: false })
+  @ApiQuery({ name: 'terminationCodes', required: false })
+  @ApiQuery({ name: 'contractCodes', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
+  @ApiQuery({ name: 'roomCodes', required: false })
+  @ApiQuery({ name: 'doorKeyReturnedQtys', required: false })
+  @ApiQuery({ name: 'smartCardReturnedQtys', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'terminationDateFrom', required: false })
@@ -55,7 +61,13 @@ export class LeaseTerminationsController {
     @Query('contractId') contractId?: string,
     @Query('customerId') customerId?: string,
     @Query('roomId') roomId?: string,
+    @Query('terminationCodes') terminationCodes?: string,
+    @Query('contractCodes') contractCodes?: string,
     @Query('customerNames') customerNames?: string,
+    @Query('roomCodes') roomCodes?: string,
+    @Query('doorKeyReturnedQtys') doorKeyReturnedQtys?: string,
+    @Query('smartCardReturnedQtys') smartCardReturnedQtys?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('terminationDateFrom') terminationDateFrom?: string,
@@ -70,7 +82,13 @@ export class LeaseTerminationsController {
       contractId,
       customerId,
       roomId,
+      terminationCodes: splitCsv(terminationCodes),
+      contractCodes: splitCsv(contractCodes),
       customerNames: splitCsv(customerNames),
+      roomCodes: splitCsv(roomCodes),
+      doorKeyReturnedQtys: splitCsv(doorKeyReturnedQtys),
+      smartCardReturnedQtys: splitCsv(smartCardReturnedQtys),
+      createdBys: splitCsv(createdBys),
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
       terminationDateFrom,

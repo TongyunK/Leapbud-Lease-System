@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import { formatMoney } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -46,10 +47,17 @@ function money(v: number | null | undefined) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('invoiceServiceDetail.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('invoiceServiceDetail.detailTitle')"
+        :code="detail?.invoiceCode"
+      />
+    </template>
     <template v-if="detail">
       <section class="detail-section">
         <h3>{{ t('invoiceServiceDetail.sections.basic') }}</h3>

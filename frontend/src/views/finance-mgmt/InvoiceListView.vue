@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Search, Download, Upload, Delete, Rank } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -19,8 +19,11 @@ import type { InvoiceWritePayload, InvoiceListQuery, InvoiceSourceCounts } from 
 import { fetchContracts } from '@/api/contracts'
 import { fetchCustomers } from '@/api/customers'
 import { fetchRooms } from '@/api/rooms'
+import { fetchRoomConfigs } from '@/api/room-configs'
 import { fetchUsers } from '@/api/users'
 import type { InvoiceRecord, InvoiceServiceDetailRecord } from '@/types/invoice'
+import type { RoomConfigOption } from '@/types/room-config'
+import { useBuildingScopeStore } from '@/stores/buildingScope'
 import {
   CONTRACT_INVOICE_TYPES,
   DEFAULT_CONTRACT_INVOICE_TYPE,
@@ -52,6 +55,7 @@ import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { invoiceBillingKindTone, invoiceStatusTone } from '@/constants/statusBadges'
@@ -59,6 +63,7 @@ import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -75,6 +80,7 @@ import {
   previewInvoicePdfApi,
   prefetchInvoicePdfApi,
   previewInvoiceDraftPdfApi,
+  invalidateInvoicePdfCache,
 } from '@/api/document-templates'
 import type { InvoicePreviewDraft } from '@/api/document-templates'
 
@@ -90,8 +96,11 @@ type FeeFormRow = {
 
 const { t, locale } = useI18n()
 const userStore = useUserStore()
+const buildingScope = useBuildingScopeStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('invoices')
+const SELECT_PAGE_SIZE = 20
+const SHORT_ROOM_PAGE_SIZE = 20
 const {
   colW,
   textColW,
@@ -106,8 +115,8 @@ const invoiceActionColWidth = computed(() => {
   void locale.value
   // 按实际主列按钮测宽（与合约表同一套 CELL_PAD_RIGHT），勿再 Math.max 无关文案
   const labels = [t('invoice.printInvoice'), t('invoice.resendInvoice')]
-  if (perms.update.value) labels.push(t('common.edit'))
-  if (perms.delete.value) labels.push(t('common.delete'))
+  if (perms.update) labels.push(t('common.edit'))
+  if (perms.delete) labels.push(t('common.delete'))
   return measureActionColWidth(labels)
 })
 
@@ -136,7 +145,15 @@ async function onPrintInvoice(row: InvoiceRecord) {
 const keyword = ref('')
 const formVisible = ref(false)
 const editing = ref<InvoiceRecord | null>(null)
-const contracts = ref<ContractRecord[]>([])
+/** 新增／编辑弹窗：合约下拉（懒加载，随大厦权限／顶栏范围） */
+const contractSelectOptions = ref<ContractRecord[]>([])
+const contractSelectLoading = ref(false)
+const contractSelectLoadingMore = ref(false)
+const contractSelectPage = ref(1)
+const contractSelectHasMore = ref(true)
+const contractSelectKeyword = ref('')
+let contractSelectScrollEl: HTMLElement | null = null
+let contractSelectScrollHandler: ((e: Event) => void) | null = null
 const users = ref<UserRecord[]>([])
 
 const drawerVisible = ref(false)
@@ -160,11 +177,18 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<InvoiceRecord>()
 
-/** 页头快捷筛选：null=全部 */
+/** 页头快捷筛选：null=全部；按金可与合约发票叠加 */
 const sourceFilter = ref<'contract' | 'short_term' | null>(null)
-const sourceCounts = ref<InvoiceSourceCounts>({ all: 0, contract: 0, short_term: 0 })
+const depositFilter = ref(false)
+const sourceCounts = ref<InvoiceSourceCounts>({
+  all: 0,
+  contract: 0,
+  short_term: 0,
+  deposit: 0,
+})
 
 const sourceFilterChips = computed(() => [
   {
@@ -187,7 +211,12 @@ const sourceFilterChips = computed(() => [
 async function loadSourceCounts() {
   try {
     const { data } = await fetchInvoiceSourceCounts()
-    sourceCounts.value = data
+    sourceCounts.value = {
+      all: data.all ?? 0,
+      contract: data.contract ?? 0,
+      short_term: data.short_term ?? 0,
+      deposit: data.deposit ?? 0,
+    }
   } catch {
     /* interceptor */
   }
@@ -213,20 +242,35 @@ const {
     const created = range('createdAt')
     const invoice = range('invoiceDate')
     const due = range('paymentDueDate')
+    const depositOnly =
+      sourceFilter.value === 'contract' && depositFilter.value ? true : undefined
     return {
       keyword: kw,
-      customerNames: f.customerName?.length ? [...f.customerName] : undefined,
-      status: f.status?.[0],
-      billingKind: f.billingKind?.[0],
+      invoiceCodes: packFilterValues(f.invoiceCode),
+      contractCodes: packFilterValues(f.contractCode),
+      customerNames: packFilterValues(f.customerName),
+      buildingNames: buildingScope.selectedId ? undefined : packFilterValues(f.buildingName),
+      roomNames: packFilterValues(f.roomName),
+      invoiceTypes: packFilterValues(f.invoiceType),
+      amounts: packFilterValues(f.amount),
+      status: packFilterValues(f.status)?.join(','),
+      salesManagers: packFilterValues(f.salesManager),
+      sources: packFilterValues(f.source),
+      billingKind: packFilterValues(f.billingKind)?.join(','),
+      createdBys: packFilterValues(f.createdBy),
       source: sourceFilter.value || undefined,
+      depositOnly,
       sortBy,
       sortDir,
       invoiceDateFrom: invoice.from,
       invoiceDateTo: invoice.to,
+      invoiceDateEmpty: (f.invoiceDate || []).includes(EMPTY_FILTER_VALUE) || undefined,
       paymentDueDateFrom: due.from,
       paymentDueDateTo: due.to,
+      paymentDueDateEmpty: (f.paymentDueDate || []).includes(EMPTY_FILTER_VALUE) || undefined,
       createdAtFrom: created.from,
       createdAtTo: created.to,
+      createdAtEmpty: (f.createdAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
       page: p,
       pageSize: ps,
     }
@@ -237,12 +281,29 @@ const {
 function setSourceFilter(key: 'contract' | 'short_term' | null) {
   if (sourceFilter.value === key) return
   sourceFilter.value = key
+  if (key !== 'contract') depositFilter.value = false
+  resetPage()
+  void loadList()
+}
+
+function toggleDepositFilter() {
+  if (sourceFilter.value !== 'contract') return
+  depositFilter.value = !depositFilter.value
   resetPage()
   void loadList()
 }
 
 async function reloadListAndCounts() {
   await Promise.all([loadList(), loadSourceCounts()])
+}
+
+const invoiceConditionCount = computed(
+  () => activeConditionCount.value + (depositFilter.value ? 1 : 0),
+)
+
+function onClearInvoiceFilters() {
+  depositFilter.value = false
+  onClearFilters()
 }
 
 const codeLayoutKey = computed(() =>
@@ -293,7 +354,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -342,11 +403,53 @@ const billingKindFilterOptions = computed(() => [
   { value: 'auto', label: t('invoice.billingKind.auto') },
 ])
 
+const invoiceTypeFilterOptions = computed(() => {
+  const values = [
+    ...CONTRACT_INVOICE_TYPES,
+    SHORT_TERM_INVOICE_TYPE,
+    '10, Other charges',
+  ]
+  return values.map((value) => ({ value, label: typeLabel(value) || value }))
+})
+
+const sourceColumnFilterOptions = computed(() => [
+  { value: 'contract', label: t('invoice.source.contract') },
+  { value: 'short_term', label: t('invoice.source.short_term') },
+])
+
+function uniqueListOptions(
+  get: (row: InvoiceRecord) => string | number | null | undefined,
+  labelOf?: (value: string) => string,
+) {
+  return uniqueOptions(list.value, get, labelOf)
+}
+
+const invoiceCodeFilterOptions = computed(() =>
+  uniqueListOptions((r) => r.invoiceCode),
+)
+const contractCodeFilterOptions = computed(() =>
+  uniqueListOptions((r) => r.contractCode),
+)
+const roomNameFilterOptions = computed(() =>
+  uniqueListOptions((r) => r.roomName || r.roomCode),
+)
+const amountFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.amount == null ? '' : String(r.amount)),
+    (v) => moneyOrDash(Number(v)),
+  ),
+)
+const salesManagerFilterOptions = computed(() =>
+  uniqueListOptions((r) => r.salesManager),
+)
+const createdByFilterOptions = computed(() =>
+  uniqueListOptions((r) => r.createdBy),
+)
 const customerNameFilterOptions = computed(() => {
   const seen = new Set<string>()
   const opts: { value: string; label: string }[] = []
-  for (const c of contracts.value) {
-    const name = c.customerName?.trim()
+  for (const row of list.value) {
+    const name = row.customerName?.trim()
     if (!name || seen.has(name)) continue
     seen.add(name)
     opts.push({ value: name, label: name })
@@ -354,12 +457,17 @@ const customerNameFilterOptions = computed(() => {
   return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
 
-const contractFilterOptions = computed(() =>
-  contracts.value.map((c) => ({
-    value: c.id,
-    label: `${c.contractCode} · ${c.customerName} · ${c.roomCode}`,
-  })),
-)
+const buildingFilterOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const b of buildingScope.options) {
+    const name = b.name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    opts.push({ value: name, label: name })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+})
 
 const userFilterOptions = computed(() =>
   users.value.map((u) => ({
@@ -369,12 +477,22 @@ const userFilterOptions = computed(() =>
 )
 
 const selectedContract = computed(() =>
-  contracts.value.find((c) => c.id === form.contractId) || null,
+  contractSelectOptions.value.find((c) => c.id === form.contractId) || null,
 )
+
+function contractOptionLabel(
+  c: Pick<ContractRecord, 'contractCode' | 'customerName' | 'roomCode'>,
+) {
+  return `${c.contractCode} · ${c.customerName} · ${c.roomCode}`
+}
+
+function shortCustomerOptionLabel(c: Pick<CustomerRecord, 'customerCode' | 'name'>) {
+  return `${c.customerCode || ''} ${c.name || ''}`.trim()
+}
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '920px'))
 
-function defaultFeeRow(): FeeFormRow {
+function defaultFeeRow(partial?: Partial<FeeFormRow>): FeeFormRow {
   return {
     uid: newFeeUid(),
     description: '',
@@ -382,7 +500,19 @@ function defaultFeeRow(): FeeFormRow {
     unitAmount: 0,
     remark: '',
     sortOrder: 0,
+    ...partial,
   }
+}
+
+/** 新增发票（合约／短租）预填两条服务细节，方便用户改金额 */
+function defaultCreateFeeRows(today: string): FeeFormRow[] {
+  return [
+    defaultFeeRow({ description: 'Deposit', sortOrder: 0 }),
+    defaultFeeRow({
+      description: `1, Charging Period\n${today}`,
+      sortOrder: 1,
+    }),
+  ]
 }
 
 const emptyForm = () => ({
@@ -403,7 +533,6 @@ const emptyForm = () => ({
   rentalDurationText: '' as string,
   referredByCustomerId: '' as string,
   roomInfoText: '' as string,
-  roomSizeText: '' as string,
 })
 
 const form = reactive(emptyForm())
@@ -413,7 +542,38 @@ const isShortTermForm = computed(() => formSource.value === 'short_term')
 const shortCustomers = ref<CustomerRecord[]>([])
 const shortRooms = ref<RoomRecord[]>([])
 const shortCustomerLoading = ref(false)
+const shortCustomerLoadingMore = ref(false)
+const shortCustomerPage = ref(1)
+const shortCustomerHasMore = ref(true)
+const shortCustomerKeyword = ref('')
+let shortCustomerScrollEl: HTMLElement | null = null
+let shortCustomerScrollHandler: ((e: Event) => void) | null = null
 const shortRoomLoading = ref(false)
+const shortRoomLoadingMore = ref(false)
+const shortRoomPage = ref(1)
+const shortRoomHasMore = ref(true)
+const shortRoomKeyword = ref('')
+/** 短租房间下拉：面积档位筛选（空=全部） */
+const shortRoomSizeRangeId = ref('')
+/** 短租房间下拉：大厦筛选（空=全部；全局已锁大厦时不用） */
+const shortRoomBuildingId = ref('')
+const shortRoomSizeOptions = ref<RoomConfigOption[]>([])
+/** 短租房间下拉实例：筛选交互时用于重新展开 */
+const shortRoomSelectRef = ref<{
+  focus: () => void
+  blur: () => void
+  toggleMenu: (event?: Event) => void
+} | null>(null)
+let shortRoomScrollEl: HTMLElement | null = null
+let shortRoomScrollHandler: ((e: Event) => void) | null = null
+/** 内层大厦/面积筛选交互中：父下拉若被 click-outside 关掉则立刻重开 */
+let shortRoomSuppressClose = false
+let shortRoomSuppressCloseTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 顶栏未锁单一大厦时，房间下拉内再提供大厦筛选 */
+const shortRoomShowBuildingFilter = computed(
+  () => !buildingScope.selectedId && buildingScope.options.length > 1,
+)
 const feeRows = ref<FeeFormRow[]>([])
 const FEE_PAGE_SIZE = 5
 const feePage = ref(1)
@@ -436,12 +596,30 @@ function feeSubtotal(row: Pick<FeeFormRow, 'quantity' | 'unitAmount'>): number {
   return (Number(row.quantity) || 0) * (Number(row.unitAmount) || 0)
 }
 
+/** 开票金额 = 服务细节各行小计之和（自动汇总，不可手改） */
+const feeAmountTotal = computed(() => {
+  const sum = feeRows.value.reduce((acc, r) => acc + feeSubtotal(r), 0)
+  return Math.round((sum + Number.EPSILON) * 100) / 100
+})
+
+watch(
+  feeAmountTotal,
+  (n) => {
+    form.amount = n
+  },
+  { immediate: true },
+)
+
 function addFeeRow() {
   feeRows.value.push(defaultFeeRow())
   feePage.value = Math.ceil(feeRows.value.length / FEE_PAGE_SIZE)
 }
 
 function removeFeeRow(idx: number) {
+  if (feeRows.value.length <= 1) {
+    ElMessage.warning(t('invoice.serviceDetailMinOne'))
+    return
+  }
   feeRows.value.splice(idx, 1)
   clampFeePage()
 }
@@ -453,25 +631,47 @@ function goToFeeIndex(absoluteIdx: number) {
 const editingFeeIndexUid = ref<string | null>(null)
 const editingFeeIndexFrom = ref(-1)
 const editingFeeIndexDraft = ref('')
-const feeIndexInputRef = ref<HTMLInputElement | null>(null)
+const feeIndexInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null)
 let feeIndexCommitLock = false
 const dragFeeUid = ref<string | null>(null)
 const dragOverFeeUid = ref<string | null>(null)
 
+function resolveFeeIndexInput(): HTMLInputElement | null {
+  const el = feeIndexInputRef.value
+  if (!el) return null
+  return Array.isArray(el) ? el[0] ?? null : el
+}
+
+function unbindFeeIndexOutside() {
+  document.removeEventListener('pointerdown', onFeeIndexOutsidePointerDown, true)
+}
+
+function onFeeIndexOutsidePointerDown(e: Event) {
+  const input = resolveFeeIndexInput()
+  if (!input || !editingFeeIndexUid.value) return
+  const t = e.target
+  if (t instanceof Node && (input === t || input.contains(t))) return
+  // 点任意别处：先写入 DOM 值再提交（不依赖 blur，避免被 overflow 裁切后失焦异常）
+  commitEditFeeIndex()
+}
+
 async function startEditFeeIndex(uid: string, currentIndex: number) {
   if (feeRows.value.length <= 1) return
+  unbindFeeIndexOutside()
   feeIndexCommitLock = false
   editingFeeIndexUid.value = uid
   editingFeeIndexFrom.value = currentIndex
   editingFeeIndexDraft.value = String(currentIndex + 1)
   await nextTick()
-  const el = feeIndexInputRef.value
+  const el = resolveFeeIndexInput()
   if (!el) return
   el.focus()
   el.select()
+  document.addEventListener('pointerdown', onFeeIndexOutsidePointerDown, true)
 }
 
 function cancelEditFeeIndex() {
+  unbindFeeIndexOutside()
   editingFeeIndexUid.value = null
   editingFeeIndexFrom.value = -1
   editingFeeIndexDraft.value = ''
@@ -480,6 +680,10 @@ function cancelEditFeeIndex() {
 function commitEditFeeIndex() {
   if (feeIndexCommitLock) return
   feeIndexCommitLock = true
+  const input = resolveFeeIndexInput()
+  if (input) {
+    editingFeeIndexDraft.value = String(input.value ?? '').replace(/\D/g, '')
+  }
   const uid = editingFeeIndexUid.value
   const fromIdx = editingFeeIndexFrom.value
   const draft = String(editingFeeIndexDraft.value ?? '').trim()
@@ -560,18 +764,22 @@ function onFeeDragEnd() {
 
 function ensureContractOption(inv: InvoiceRecord) {
   if (!inv.contractId) return
-  if (contracts.value.some((c) => c.id === inv.contractId)) return
-  contracts.value = [
+  if (contractSelectOptions.value.some((c) => c.id === inv.contractId)) return
+  contractSelectOptions.value = [
     {
       id: inv.contractId,
       contractCode: inv.contractCode || '',
+      customerId: inv.customerId || '',
       customerName: inv.customerName || '',
+      roomId: inv.roomId || '',
       roomCode: inv.roomCode || '',
       roomName: inv.roomName || '',
       roomNameText: inv.roomNameText || '',
+      buildingId: null,
+      buildingName: '',
       salesManagerId: inv.salesManagerId || '',
     } as ContractRecord,
-    ...contracts.value,
+    ...contractSelectOptions.value,
   ]
 }
 
@@ -596,18 +804,127 @@ function billingKindLabel(kind?: string | null) {
     : t('invoice.billingKind.manual')
 }
 
-async function loadContracts() {
-  const { data } = await fetchContracts()
-  contracts.value = data.items
-}
-
 async function loadUsers() {
   const { data } = await fetchUsers()
   users.value = data
 }
 
+function unbindContractSelectScroll() {
+  if (contractSelectScrollEl && contractSelectScrollHandler) {
+    contractSelectScrollEl.removeEventListener('scroll', contractSelectScrollHandler)
+  }
+  contractSelectScrollEl = null
+  contractSelectScrollHandler = null
+}
+
+function bindContractSelectScroll(onReachEnd: () => void) {
+  const popper = document.querySelector('.invoice-contract-select-popper')
+  const wrap =
+    (popper?.querySelector('.el-select-dropdown__wrap') as HTMLElement | null) ||
+    (popper?.querySelector('.el-scrollbar__wrap') as HTMLElement | null)
+  if (!wrap) return
+  let ticking = false
+  const handler = () => {
+    if (ticking) return
+    ticking = true
+    requestAnimationFrame(() => {
+      ticking = false
+      if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 28) onReachEnd()
+    })
+  }
+  wrap.addEventListener('scroll', handler, { passive: true })
+  contractSelectScrollEl = wrap
+  contractSelectScrollHandler = handler
+}
+
+async function restoreContractSelectScroll(top: number) {
+  if (!contractSelectScrollEl) return
+  await nextTick()
+  contractSelectScrollEl.scrollTop = top
+}
+
+/** 合约下拉：后端按可访问大厦 + 顶栏 buildingId 过滤 */
+async function loadContractsPage(reset: boolean) {
+  if (reset) {
+    if (contractSelectLoading.value) return
+    contractSelectLoading.value = true
+  } else {
+    if (
+      contractSelectLoading.value ||
+      contractSelectLoadingMore.value ||
+      !contractSelectHasMore.value
+    ) {
+      return
+    }
+    contractSelectLoadingMore.value = true
+  }
+  const page = reset ? 1 : contractSelectPage.value
+  const prevTop = contractSelectScrollEl?.scrollTop ?? 0
+  const scopeBid = buildingScope.selectedId || undefined
+  try {
+    const { data } = await fetchContracts({
+      keyword: contractSelectKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
+      buildingIds: scopeBid ? [scopeBid] : undefined,
+    })
+    const items = (data.items || []).filter(
+      (c) => !scopeBid || !c.buildingId || c.buildingId === scopeBid,
+    )
+    if (reset) {
+      contractSelectOptions.value = keepSelectedInOptions(
+        items,
+        form.contractId,
+        contractSelectOptions.value,
+      )
+    } else {
+      appendUniqueById(contractSelectOptions.value, items)
+      await restoreContractSelectScroll(prevTop)
+    }
+    contractSelectPage.value = page + 1
+    contractSelectHasMore.value = (data.items || []).length >= SELECT_PAGE_SIZE
+  } catch {
+    if (reset) {
+      contractSelectOptions.value = keepSelectedInOptions(
+        [],
+        form.contractId,
+        contractSelectOptions.value,
+      )
+      contractSelectHasMore.value = false
+    }
+  } finally {
+    if (reset) contractSelectLoading.value = false
+    else contractSelectLoadingMore.value = false
+  }
+}
+
+function searchContractsRemote(query: string) {
+  contractSelectKeyword.value = query.trim()
+  contractSelectHasMore.value = true
+  void loadContractsPage(true)
+}
+
+async function onContractSelectVisible(open: boolean) {
+  unbindContractSelectScroll()
+  if (!open) return
+  contractSelectKeyword.value = ''
+  contractSelectHasMore.value = true
+  await loadContractsPage(true)
+  await nextTick()
+  bindContractSelectScroll(() => {
+    void loadContractsPage(false)
+  })
+}
+
 onMounted(async () => {
-  await Promise.all([loadContracts(), loadUsers(), loadList(), loadSourceCounts()])
+  if (!buildingScope.loaded) {
+    try {
+      await buildingScope.load()
+    } catch {
+      /* ignore */
+    }
+  }
+  await Promise.all([loadUsers(), loadList(), loadSourceCounts()])
 })
 
 watch(
@@ -615,20 +932,20 @@ watch(
   (id) => {
     if (!id || editing.value) return
     // 销售经理跟随合约；合约未指定时回退当前登录用户
-    const c = contracts.value.find((x) => x.id === id)
+    const c = contractSelectOptions.value.find((x) => x.id === id)
     const fromContract = c?.salesManagerId?.trim() || ''
     const meId = userStore.user?.id?.trim() || ''
     form.salesManagerId = fromContract || meId
     if (form.salesManagerId) ensureSalesManagerOption(form.salesManagerId)
     // 选合约后刷新带房间后缀的编号预览
-    void refreshInvoiceCodePreview(id)
+    void refreshInvoiceCodePreview({ contractId: id })
   },
 )
 
-async function refreshInvoiceCodePreview(contractId?: string) {
+async function refreshInvoiceCodePreview(opts?: { contractId?: string; roomId?: string }) {
   if (editing.value) return
   try {
-    const { data } = await previewInvoiceCodeApi(contractId)
+    const { data } = await previewInvoiceCodeApi(opts)
     if (formVisible.value && !editing.value) {
       form.invoiceCode = data?.code?.trim() || ''
     }
@@ -667,17 +984,34 @@ function resetCreateFormDefaults(source: 'contract' | 'short_term') {
     source === 'short_term' ? SHORT_TERM_INVOICE_TYPE : DEFAULT_CONTRACT_INVOICE_TYPE
   const meId = userStore.user?.id?.trim() || ''
   form.salesManagerId = meId
-  form.invoiceDate = todayYmd()
+  const today = todayYmd()
+  form.invoiceDate = today
+  form.paymentDueDate = today
+  if (source === 'short_term') form.rentalStartDate = today
   ensureSalesManagerOption(meId)
-  feeRows.value = []
+  feeRows.value = defaultCreateFeeRows(today)
   feePage.value = 1
   stickyShortCustomers.value = []
 }
 
 function openCreate() {
   editing.value = null
-  resetCreateFormDefaults('contract')
+  // 列表正筛短租／合约时，新增弹窗跟列表来源；「全部」仍默认合约
+  const source = sourceFilter.value === 'short_term' ? 'short_term' : 'contract'
+  resetCreateFormDefaults(source)
+  contractSelectOptions.value = []
+  contractSelectKeyword.value = ''
+  contractSelectHasMore.value = true
+  shortCustomers.value = []
+  shortCustomerKeyword.value = ''
+  shortCustomerHasMore.value = true
   formVisible.value = true
+  if (source === 'short_term') {
+    shortRoomSizeRangeId.value = ''
+    shortRoomBuildingId.value = ''
+    shortRoomKeyword.value = ''
+    // 客户／房间下拉打开时再懒加载，不预拉
+  }
   void refreshInvoiceCodePreview()
 }
 
@@ -688,8 +1022,14 @@ function onCreateSourceTabChange(name: string | number) {
   if (next === formSource.value) return
   resetCreateFormDefaults(next)
   if (next === 'short_term') {
-    void loadShortCustomerOptions()
-    void loadShortRoomOptions()
+    shortRoomSizeRangeId.value = ''
+    shortRoomBuildingId.value = ''
+    shortRoomKeyword.value = ''
+    shortCustomers.value = []
+    shortCustomerKeyword.value = ''
+    shortCustomerHasMore.value = true
+    // 未选房间时先预览裸号；选房间后再带房间后缀
+    void refreshInvoiceCodePreview()
   } else {
     void refreshInvoiceCodePreview()
   }
@@ -710,20 +1050,113 @@ function mergeStickyShortCustomers(items: CustomerRecord[]) {
   return extra.length ? [...extra, ...items] : items
 }
 
-async function loadShortCustomerOptions(keyword = '') {
-  shortCustomerLoading.value = true
+function unbindShortCustomerScroll() {
+  if (shortCustomerScrollEl && shortCustomerScrollHandler) {
+    shortCustomerScrollEl.removeEventListener('scroll', shortCustomerScrollHandler)
+  }
+  shortCustomerScrollEl = null
+  shortCustomerScrollHandler = null
+}
+
+function bindShortCustomerScroll(onReachEnd: () => void) {
+  const popper = document.querySelector('.invoice-short-customer-select-popper')
+  const wrap =
+    (popper?.querySelector('.el-select-dropdown__wrap') as HTMLElement | null) ||
+    (popper?.querySelector('.el-scrollbar__wrap') as HTMLElement | null)
+  if (!wrap) return
+  let ticking = false
+  const handler = () => {
+    if (ticking) return
+    ticking = true
+    requestAnimationFrame(() => {
+      ticking = false
+      if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 28) onReachEnd()
+    })
+  }
+  wrap.addEventListener('scroll', handler, { passive: true })
+  shortCustomerScrollEl = wrap
+  shortCustomerScrollHandler = handler
+}
+
+async function restoreShortCustomerScroll(top: number) {
+  if (!shortCustomerScrollEl) return
+  await nextTick()
+  shortCustomerScrollEl.scrollTop = top
+}
+
+/** 短租客户下拉：打开首屏 + 滚到底追加（后端按可访问大厦过滤） */
+async function loadShortCustomersPage(reset: boolean) {
+  if (reset) {
+    if (shortCustomerLoading.value) return
+    shortCustomerLoading.value = true
+  } else {
+    if (
+      shortCustomerLoading.value ||
+      shortCustomerLoadingMore.value ||
+      !shortCustomerHasMore.value
+    ) {
+      return
+    }
+    shortCustomerLoadingMore.value = true
+  }
+  const page = reset ? 1 : shortCustomerPage.value
+  const prevTop = shortCustomerScrollEl?.scrollTop ?? 0
+  const scopeBid = buildingScope.selectedId || undefined
   try {
     const { data } = await fetchCustomers({
-      keyword: keyword.trim() || undefined,
-      page: 1,
-      pageSize: 30,
+      keyword: shortCustomerKeyword.value || undefined,
+      page,
+      pageSize: SELECT_PAGE_SIZE,
     })
-    shortCustomers.value = mergeStickyShortCustomers(data.items || [])
+    const items = (data.items || []).filter(
+      (c) => !scopeBid || !c.buildingId || c.buildingId === scopeBid,
+    )
+    if (reset) {
+      let next = keepSelectedInOptions(items, form.customerId, shortCustomers.value)
+      next = keepSelectedInOptions(next, form.referredByCustomerId, shortCustomers.value)
+      shortCustomers.value = mergeStickyShortCustomers(next)
+    } else {
+      appendUniqueById(shortCustomers.value, items)
+      await restoreShortCustomerScroll(prevTop)
+    }
+    shortCustomerPage.value = page + 1
+    shortCustomerHasMore.value = (data.items || []).length >= SELECT_PAGE_SIZE
   } catch {
-    shortCustomers.value = mergeStickyShortCustomers([])
+    if (reset) {
+      shortCustomers.value = mergeStickyShortCustomers(
+        keepSelectedInOptions([], form.customerId, shortCustomers.value),
+      )
+      shortCustomerHasMore.value = false
+    }
   } finally {
-    shortCustomerLoading.value = false
+    if (reset) shortCustomerLoading.value = false
+    else shortCustomerLoadingMore.value = false
   }
+}
+
+function searchShortCustomersRemote(query: string) {
+  shortCustomerKeyword.value = query.trim()
+  shortCustomerHasMore.value = true
+  void loadShortCustomersPage(true)
+}
+
+async function onShortCustomerSelectVisible(open: boolean) {
+  unbindShortCustomerScroll()
+  if (!open) return
+  shortCustomerKeyword.value = ''
+  shortCustomerHasMore.value = true
+  await loadShortCustomersPage(true)
+  await nextTick()
+  bindShortCustomerScroll(() => {
+    void loadShortCustomersPage(false)
+  })
+}
+
+/** @deprecated 兼容旧调用 */
+async function loadShortCustomerOptions(keyword = '') {
+  shortCustomerKeyword.value = String(keyword || '').trim()
+  shortCustomerHasMore.value = true
+  await loadShortCustomersPage(true)
 }
 
 watch(
@@ -738,34 +1171,236 @@ watch(
   },
 )
 
-async function loadShortRoomOptions(keyword = '') {
-  shortRoomLoading.value = true
-  try {
-    const { data } = await fetchRooms({
-      keyword: keyword.trim() || undefined,
-      page: 1,
-      pageSize: 50,
-    })
-    shortRooms.value = (data.items || []).filter((r) => r.allowShortTerm === true)
-  } catch {
-    shortRooms.value = []
-  } finally {
-    shortRoomLoading.value = false
+function shortRoomOptionLabel(r: Pick<RoomRecord, 'roomCode' | 'name' | 'buildingName'>) {
+  const parts = [r.roomCode]
+  if (r.name?.trim()) parts.push(r.name)
+  if (!buildingScope.selectedId && r.buildingName?.trim()) parts.push(r.buildingName)
+  return parts.join(' · ')
+}
+
+function shortRoomSizeLabel(r: Pick<RoomRecord, 'sizeSqft'>) {
+  const n = Number(r.sizeSqft)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  return t('invoice.shortRoomSizeBadge', { n })
+}
+
+function keepSelectedInOptions<T extends { id: string }>(
+  items: T[],
+  selectedId: string | null | undefined,
+  current: T[],
+): T[] {
+  const sid = String(selectedId ?? '').trim()
+  if (!sid || items.some((x) => x.id === sid)) return items
+  const keep = current.find((x) => x.id === sid)
+  return keep ? [keep, ...items] : items
+}
+
+function appendUniqueById<T extends { id: string }>(prev: T[], next: T[]): void {
+  if (!next.length) return
+  const seen = new Set(prev.map((x) => x.id))
+  for (const item of next) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    prev.push(item)
   }
+}
+
+function unbindShortRoomScroll() {
+  if (shortRoomScrollEl && shortRoomScrollHandler) {
+    shortRoomScrollEl.removeEventListener('scroll', shortRoomScrollHandler)
+  }
+  shortRoomScrollEl = null
+  shortRoomScrollHandler = null
+}
+
+function bindShortRoomScroll(onReachEnd: () => void) {
+  const popper = document.querySelector('.invoice-short-room-select-popper')
+  const wrap =
+    (popper?.querySelector('.el-select-dropdown__wrap') as HTMLElement | null) ||
+    (popper?.querySelector('.el-scrollbar__wrap') as HTMLElement | null)
+  if (!wrap) return
+  let ticking = false
+  const handler = () => {
+    if (ticking) return
+    ticking = true
+    requestAnimationFrame(() => {
+      ticking = false
+      if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 28) onReachEnd()
+    })
+  }
+  wrap.addEventListener('scroll', handler, { passive: true })
+  shortRoomScrollEl = wrap
+  shortRoomScrollHandler = handler
+}
+
+async function restoreShortRoomScroll(top: number) {
+  if (!shortRoomScrollEl) return
+  await nextTick()
+  shortRoomScrollEl.scrollTop = top
+}
+
+function buildShortRoomSelectQuery(page: number) {
+  const sizeId = shortRoomSizeRangeId.value.trim()
+  const buildingId =
+    buildingScope.selectedId || shortRoomBuildingId.value.trim() || undefined
+  return {
+    keyword: shortRoomKeyword.value || undefined,
+    page,
+    pageSize: SHORT_ROOM_PAGE_SIZE,
+    allowShortTerm: true as const,
+    /** 仅闲置：已有占用中合约／短租中的房间不可选 */
+    occupancySummaries: ['idle'] as string[],
+    sizeRangeIds: sizeId ? [sizeId] : undefined,
+    buildingId: buildingId || undefined,
+  }
+}
+
+async function ensureShortRoomFilterOptions() {
+  if (!shortRoomSizeOptions.value.length) {
+    try {
+      const { data } = await fetchRoomConfigs({ type: 'size', activeOnly: true })
+      shortRoomSizeOptions.value = data || []
+    } catch {
+      shortRoomSizeOptions.value = []
+    }
+  }
+  if (!buildingScope.loaded) {
+    try {
+      await buildingScope.load()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function loadShortRoomsPage(reset: boolean) {
+  if (reset) {
+    if (shortRoomLoading.value) return
+    shortRoomLoading.value = true
+  } else {
+    if (shortRoomLoading.value || shortRoomLoadingMore.value || !shortRoomHasMore.value) return
+    shortRoomLoadingMore.value = true
+  }
+  const page = reset ? 1 : shortRoomPage.value
+  const prevTop = shortRoomScrollEl?.scrollTop ?? 0
+  try {
+    const { data } = await fetchRooms(buildShortRoomSelectQuery(page))
+    const items = data.items || []
+    if (reset) {
+      shortRooms.value = keepSelectedInOptions(items, form.roomId, shortRooms.value)
+    } else {
+      appendUniqueById(shortRooms.value, items)
+      await restoreShortRoomScroll(prevTop)
+    }
+    shortRoomPage.value = page + 1
+    shortRoomHasMore.value = items.length >= SHORT_ROOM_PAGE_SIZE
+  } catch {
+    if (reset) {
+      shortRooms.value = keepSelectedInOptions([], form.roomId, shortRooms.value)
+      shortRoomHasMore.value = false
+    }
+  } finally {
+    if (reset) shortRoomLoading.value = false
+    else shortRoomLoadingMore.value = false
+  }
+}
+
+function searchShortRoomsRemote(query: string) {
+  shortRoomKeyword.value = query.trim()
+  shortRoomHasMore.value = true
+  void loadShortRoomsPage(true)
+}
+
+function setShortRoomSizeRange(id: string) {
+  const next = String(id ?? '').trim()
+  if (shortRoomSizeRangeId.value === next) return
+  shortRoomSizeRangeId.value = next
+  shortRoomHasMore.value = true
+  void loadShortRoomsPage(true)
+}
+
+function setShortRoomBuilding(id: string) {
+  const next = String(id ?? '').trim()
+  if (shortRoomBuildingId.value === next) return
+  shortRoomBuildingId.value = next
+  shortRoomHasMore.value = true
+  void loadShortRoomsPage(true)
+}
+
+function armShortRoomSuppressClose() {
+  shortRoomSuppressClose = true
+  if (shortRoomSuppressCloseTimer) clearTimeout(shortRoomSuppressCloseTimer)
+  shortRoomSuppressCloseTimer = setTimeout(() => {
+    shortRoomSuppressClose = false
+    shortRoomSuppressCloseTimer = null
+  }, 500)
+}
+
+function onShortRoomFilterVisible(_open: boolean) {
+  // 打开／选完关闭时都武装，避免内层选项 click 被当成父级 outside
+  armShortRoomSuppressClose()
+}
+
+function onShortRoomSizeFilterChange(id: string | null | undefined) {
+  armShortRoomSuppressClose()
+  setShortRoomSizeRange(String(id ?? ''))
+}
+
+function onShortRoomBuildingFilterChange(id: string | null | undefined) {
+  armShortRoomSuppressClose()
+  setShortRoomBuilding(String(id ?? ''))
+}
+
+function reopenShortRoomSelect() {
+  const sel = shortRoomSelectRef.value
+  if (!sel) return
+  // filterable 下若 expanded 仍为 true 但面板已藏，直接 toggle 会被吞掉；先 blur 清状态再打开
+  sel.blur()
+  void nextTick(() => {
+    sel.focus()
+    sel.toggleMenu()
+  })
+}
+
+async function onShortRoomSelectVisible(open: boolean) {
+  if (!open) {
+    unbindShortRoomScroll()
+    if (shortRoomSuppressClose) {
+      shortRoomSuppressClose = false
+      if (shortRoomSuppressCloseTimer) {
+        clearTimeout(shortRoomSuppressCloseTimer)
+        shortRoomSuppressCloseTimer = null
+      }
+      await nextTick()
+      reopenShortRoomSelect()
+      return
+    }
+    return
+  }
+  await ensureShortRoomFilterOptions()
+  shortRoomKeyword.value = ''
+  shortRoomHasMore.value = true
+  await loadShortRoomsPage(true)
+  await nextTick()
+  bindShortRoomScroll(() => {
+    void loadShortRoomsPage(false)
+  })
+}
+
+/** @deprecated 兼容旧调用名：打开下拉首屏 */
+async function loadShortRoomOptions(keyword = '') {
+  shortRoomKeyword.value = String(keyword || '').trim()
+  shortRoomHasMore.value = true
+  await ensureShortRoomFilterOptions()
+  await loadShortRoomsPage(true)
 }
 
 function onShortRoomChange(roomId: string) {
   const room = shortRooms.value.find((r) => r.id === roomId)
-  if (!room) {
-    form.roomInfoText = ''
-    form.roomSizeText = ''
-    return
-  }
-  form.roomInfoText = [room.roomCode, room.name].filter(Boolean).join(' · ')
-  form.roomSizeText =
-    room.sizeSqft != null && Number.isFinite(Number(room.sizeSqft))
-      ? String(room.sizeSqft)
-      : ''
+  // 仅内部带出 roomNameText 供保存/预览；表单不再展示「房间信息/尺寸」
+  form.roomInfoText = room
+    ? [room.roomCode, room.name].filter(Boolean).join(' · ')
+    : ''
 }
 
 watch(
@@ -773,8 +1408,68 @@ watch(
   (id) => {
     if (!isShortTermForm.value) return
     onShortRoomChange(id)
+    // 短租：选房间后预览「自动编号-房间编号」；清空房间则回退裸号预览
+    if (!editing.value) {
+      const rid = String(id ?? '').trim()
+      void refreshInvoiceCodePreview(rid ? { roomId: rid } : undefined)
+    }
   },
 )
+
+watch(
+  () => buildingScope.viewKey,
+  () => {
+    shortRoomBuildingId.value = ''
+    // 顶栏大厦变更：表单下拉按新范围重拉；选中项若不属于新范围则清空
+    const scopeBid = buildingScope.selectedId
+    if (form.contractId) {
+      const c = contractSelectOptions.value.find((x) => x.id === form.contractId)
+      if (scopeBid && c?.buildingId && c.buildingId !== scopeBid) {
+        form.contractId = ''
+      }
+    }
+    if (form.customerId && isShortTermForm.value) {
+      const cust = shortCustomers.value.find((x) => x.id === form.customerId)
+      if (scopeBid && cust?.buildingId && cust.buildingId !== scopeBid) {
+        form.customerId = ''
+      }
+    }
+    if (form.roomId && isShortTermForm.value) {
+      const room = shortRooms.value.find((x) => x.id === form.roomId)
+      if (scopeBid && room?.buildingId && room.buildingId !== scopeBid) {
+        form.roomId = ''
+      }
+    }
+    contractSelectHasMore.value = true
+    contractSelectOptions.value = keepSelectedInOptions(
+      [],
+      form.contractId,
+      contractSelectOptions.value,
+    )
+    shortCustomerHasMore.value = true
+    shortCustomers.value = mergeStickyShortCustomers(
+      keepSelectedInOptions([], form.customerId, shortCustomers.value),
+    )
+    if (!formVisible.value) return
+    if (isShortTermForm.value) {
+      shortRoomHasMore.value = true
+      void loadShortCustomersPage(true)
+      void loadShortRoomsPage(true)
+    } else {
+      void loadContractsPage(true)
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  unbindShortRoomScroll()
+  unbindShortCustomerScroll()
+  unbindContractSelectScroll()
+  if (shortRoomSuppressCloseTimer) {
+    clearTimeout(shortRoomSuppressCloseTimer)
+    shortRoomSuppressCloseTimer = null
+  }
+})
 
 function newFeeUid() {
   try {
@@ -807,12 +1502,9 @@ function applyInvoiceToForm(row: InvoiceRecord) {
     rentalEndDate: row.rentalEndDate || '',
     rentalDurationText: row.rentalDurationText || '',
     referredByCustomerId: row.referredByCustomerId || '',
-    roomInfoText: [row.roomCode, row.roomName].filter(Boolean).join(' · '),
-    roomSizeText:
-      row.roomSizeSqft != null && Number.isFinite(Number(row.roomSizeSqft))
-        ? String(row.roomSizeSqft)
-        : '',
+    roomInfoText: [row.roomCode, row.roomName].filter(Boolean).join(' · ') || row.roomNameText || '',
   })
+  if (form.salesManagerId) ensureSalesManagerOption(form.salesManagerId)
   if (formSource.value === 'short_term') {
     stickyShortCustomers.value = []
     if (row.customerId) {
@@ -876,8 +1568,9 @@ async function openEdit(row: InvoiceRecord) {
   }
   formVisible.value = true
   if (formSource.value === 'short_term') {
-    void loadShortCustomerOptions()
-    void loadShortRoomOptions()
+    shortCustomerHasMore.value = true
+    shortRoomHasMore.value = true
+    // 已选客户／房间由 applyInvoiceToForm seed；下拉打开时再懒加载
   }
   try {
     const { data } = await fetchInvoice(row.id)
@@ -1031,6 +1724,10 @@ async function saveForm() {
       ElMessage.warning(t('invoice.customerRequired'))
       return
     }
+    if (!form.salesManagerId.trim()) {
+      ElMessage.warning(t('invoice.salesManagerRequired'))
+      return
+    }
     if (!form.roomId.trim()) {
       ElMessage.warning(t('invoice.roomRequired'))
       return
@@ -1051,19 +1748,45 @@ async function saveForm() {
     ElMessage.warning(t('invoice.paymentDueDateRequired'))
     return
   }
+  if (!serviceDetailsPayload().length) {
+    ElMessage.warning(t('invoice.serviceDetailMinOne'))
+    return
+  }
   try {
     const payload = payloadFromForm()
+    const silent = isShortTermForm.value
     if (editing.value) {
-      await updateInvoiceApi(editing.value.id, payload)
+      await updateInvoiceApi(editing.value.id, payload, { silentError: silent })
+      invalidateInvoicePdfCache(editing.value.id)
       ElMessage.success(t('invoice.updated'))
     } else {
-      await createInvoiceApi(payload)
+      await createInvoiceApi(payload, { silentError: silent })
       ElMessage.success(t('invoice.created'))
     }
     formVisible.value = false
     await reloadListAndCounts()
-  } catch {
-    /* interceptor */
+  } catch (e) {
+    if (!isShortTermForm.value) return
+    const raw =
+      e && typeof e === 'object' && 'response' in e
+        ? (e as { response?: { data?: { message?: string | string[] } } }).response?.data
+            ?.message
+        : undefined
+    const msg = Array.isArray(raw)
+      ? raw.join('; ')
+      : typeof raw === 'string' && raw.trim()
+        ? raw
+        : e instanceof Error && e.message
+          ? e.message
+          : 'Request failed'
+    try {
+      await ElMessageBox.alert(msg, t('invoice.createShortTerm'), {
+        type: 'warning',
+        confirmButtonText: t('common.confirm'),
+      })
+    } catch {
+      /* dismiss */
+    }
   }
 }
 
@@ -1143,6 +1866,10 @@ async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = '
   await relationDrawers.value?.openRoomSide(roomId, direction)
 }
 
+async function openBuildingSide(buildingId?: string | null) {
+  await relationDrawers.value?.openBuildingSide(buildingId)
+}
+
 function moneyOrDash(v: number | null | undefined): string {
   return v == null ? '—' : formatMoney(v)
 }
@@ -1217,7 +1944,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('invoice.importAdminOnly'))
     return
   }
@@ -1298,6 +2025,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head admin-page-head--with-chips">
+      <RefreshListButton :loading="loading" @refresh="() => void reloadListAndCounts()" />
       <h2>{{ t('menu.invoices') }}</h2>
       <div class="building-chips-rail">
         <div class="building-chips" role="tablist" :aria-label="t('invoice.sourceFilterAria')">
@@ -1314,6 +2042,20 @@ async function onImportFile(ev: Event) {
             <span class="building-chip__name">{{ chip.label }}</span>
             <span class="building-chip__count">({{ chip.count }})</span>
           </button>
+          <template v-if="sourceFilter === 'contract'">
+            <span class="building-chips__sep" aria-hidden="true">|</span>
+            <button
+              type="button"
+              class="building-chip"
+              role="tab"
+              :class="{ 'is-active': depositFilter }"
+              :aria-selected="depositFilter"
+              @click="toggleDepositFilter"
+            >
+              <span class="building-chip__name">{{ t('invoice.sourceFilterDeposit') }}</span>
+              <span class="building-chip__count">({{ sourceCounts.deposit }})</span>
+            </button>
+          </template>
         </div>
       </div>
       <div class="head-actions">
@@ -1324,7 +2066,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('invoice.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
+        <ClearTableFiltersButton :count="invoiceConditionCount" @clear="onClearInvoiceFilters" />
         <el-button
           v-if="perms.create"
           v-admin-glow="perms.codes.create"
@@ -1369,6 +2111,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -1383,7 +2126,7 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="`${tableLayoutKey}-${codeLayoutKey}`"
+          :key="`${tableLayoutKey}-${codeLayoutKey}-${invoiceActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -1420,23 +2163,31 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.invoiceCode')"
+                filterable
                 sortable
+                :options="invoiceCodeFilterOptions"
+                :model-value="filters.invoiceCode || []"
                 :sort-order="sortOrderOf('invoiceCode')"
+                @update:model-value="(v) => setFilter('invoiceCode', v)"
                 @update:sort-order="(v) => setSort('invoiceCode', v)"
               />
             </template>
             <template #default="{ row }">{{ row.invoiceCode || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :width="codeColW(t('invoice.fields.contractCode'), { interactive: true, samples: list.map((r) => r.contractCode || r.shortTermRentalCode || '') })"
+            :width="codeColW(t('invoice.fields.contractCode'), { interactive: true, samples: list.map((r) => r.contractCode) })"
             class-name="col-code"
             label-class-name="col-code"
           >
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.contractCode')"
+                filterable
                 sortable
+                :options="contractCodeFilterOptions"
+                :model-value="filters.contractCode || []"
                 :sort-order="sortOrderOf('contractCode')"
+                @update:model-value="(v) => setFilter('contractCode', v)"
                 @update:sort-order="(v) => setSort('contractCode', v)"
               />
             </template>
@@ -1450,9 +2201,6 @@ async function onImportFile(ev: Event) {
               >
                 {{ row.contractCode || '—' }}
               </button>
-              <span v-else-if="row.source === 'short_term'">
-                {{ row.shortTermRentalCode || t('invoice.source.short_term') }}
-              </span>
               <span v-else>{{ row.contractCode || '—' }}</span>
             </template>
           </el-table-column>
@@ -1486,14 +2234,48 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            v-if="!buildingScope.selectedId"
+            prop="buildingName"
+            :min-width="colW(t('invoice.fields.buildingName'), { interactive: true, contentMin: 140 })"
+            show-overflow-tooltip
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('invoice.fields.buildingName')"
+                filterable
+                sortable
+                :options="buildingFilterOptions"
+                :model-value="filters.buildingName || []"
+                :sort-order="sortOrderOf('buildingName')"
+                @update:model-value="(v) => setFilter('buildingName', v)"
+                @update:sort-order="(v) => setSort('buildingName', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <button
+                v-if="row.buildingId"
+                type="button"
+                class="fk-link"
+                @click.stop="openBuildingSide(row.buildingId)"
+              >
+                {{ row.buildingName || '—' }}
+              </button>
+              <span v-else>{{ row.buildingName || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="codeColW(t('invoice.fields.roomName'), { interactive: true, samples: list.map((r) => r.roomName || r.roomCode) })"
             show-overflow-tooltip
           >
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.roomName')"
+                filterable
                 sortable
+                :options="roomNameFilterOptions"
+                :model-value="filters.roomName || []"
                 :sort-order="sortOrderOf('roomName')"
+                @update:model-value="(v) => setFilter('roomName', v)"
                 @update:sort-order="(v) => setSort('roomName', v)"
               />
             </template>
@@ -1520,8 +2302,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.invoiceType')"
+                filterable
                 sortable
+                :options="invoiceTypeFilterOptions"
+                :model-value="filters.invoiceType || []"
                 :sort-order="sortOrderOf('invoiceType')"
+                @update:model-value="(v) => setFilter('invoiceType', v)"
                 @update:sort-order="(v) => setSort('invoiceType', v)"
               />
             </template>
@@ -1535,8 +2321,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.amount')"
+                filterable
                 sortable
+                :options="amountFilterOptions"
+                :model-value="filters.amount || []"
                 :sort-order="sortOrderOf('amount')"
+                @update:model-value="(v) => setFilter('amount', v)"
                 @update:sort-order="(v) => setSort('amount', v)"
               />
             </template>
@@ -1550,9 +2340,11 @@ async function onImportFile(ev: Event) {
                 :label="t('invoice.fields.invoiceDate')"
                 sortable
                 date-range
+                :model-value="filters.invoiceDate || []"
                 :sort-order="sortOrderOf('invoiceDate')"
                 :date-range-value="dateRangeOf('invoiceDate')"
                 @update:sort-order="(v) => setSort('invoiceDate', v)"
+                @update:model-value="(v) => setFilter('invoiceDate', v)"
                 @update:date-range-value="(v) => setDateRange('invoiceDate', v)"
               />
             </template>
@@ -1566,9 +2358,11 @@ async function onImportFile(ev: Event) {
                 :label="t('invoice.fields.paymentDueDate')"
                 sortable
                 date-range
+                :model-value="filters.paymentDueDate || []"
                 :sort-order="sortOrderOf('paymentDueDate')"
                 :date-range-value="dateRangeOf('paymentDueDate')"
                 @update:sort-order="(v) => setSort('paymentDueDate', v)"
+                @update:model-value="(v) => setFilter('paymentDueDate', v)"
                 @update:date-range-value="(v) => setDateRange('paymentDueDate', v)"
               />
             </template>
@@ -1608,8 +2402,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.salesManager')"
+                filterable
                 sortable
+                :options="salesManagerFilterOptions"
+                :model-value="filters.salesManager || []"
                 :sort-order="sortOrderOf('salesManager')"
+                @update:model-value="(v) => setFilter('salesManager', v)"
                 @update:sort-order="(v) => setSort('salesManager', v)"
               />
             </template>
@@ -1628,8 +2426,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('invoice.fields.source')"
+                filterable
                 sortable
+                :options="sourceColumnFilterOptions"
+                :model-value="filters.source || []"
                 :sort-order="sortOrderOf('source')"
+                @update:model-value="(v) => setFilter('source', v)"
                 @update:sort-order="(v) => setSort('source', v)"
               />
             </template>
@@ -1725,8 +2527,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdBy')"
+                filterable
                 sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
                 :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
                 @update:sort-order="(v) => setSort('createdBy', v)"
               />
             </template>
@@ -1742,9 +2548,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -1895,7 +2703,7 @@ async function onImportFile(ev: Event) {
           <el-form-item :label="t('invoice.fields.invoiceCode')">
             <el-input
               v-model="form.invoiceCode"
-              readonly
+              disabled
               :placeholder="editing ? undefined : t('invoice.codeAutoHint')"
             />
           </el-form-item>
@@ -1911,51 +2719,43 @@ async function onImportFile(ev: Event) {
                 reserve-keyword
                 fit-input-width
                 style="width: 100%"
-                :remote-method="loadShortCustomerOptions"
+                popper-class="invoice-short-customer-select-popper"
+                :remote-method="searchShortCustomersRemote"
                 :loading="shortCustomerLoading"
                 :placeholder="t('invoice.fields.customerName')"
-                @visible-change="(open: boolean) => open && loadShortCustomerOptions()"
+                @visible-change="onShortCustomerSelectVisible"
               >
                 <el-option
                   v-for="c in shortCustomers"
                   :key="c.id"
-                  :label="`${c.customerCode || ''} ${c.name || ''}`.trim()"
+                  :label="shortCustomerOptionLabel(c)"
                   :value="c.id"
-                />
+                  :title="shortCustomerOptionLabel(c)"
+                >
+                  <span class="select-option-ellipsis" :title="shortCustomerOptionLabel(c)">
+                    {{ shortCustomerOptionLabel(c) }}
+                  </span>
+                </el-option>
+                <template #empty>
+                  <div class="invoice-short-room-empty">{{ t('invoice.shortCustomerEmpty') }}</div>
+                </template>
               </el-select>
             </SelectWithViewAction>
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.referredByCustomer')">
-            <SelectWithViewAction
-              clearable
-              :disabled="!form.referredByCustomerId"
-              @view="openCustomerSide(form.referredByCustomerId, 'ltr')"
+          <el-form-item :label="t('invoice.fields.salesManager')" required>
+            <el-select
+              v-model="form.salesManagerId"
+              filterable
+              style="width: 100%"
+              :placeholder="t('invoice.fields.salesManager')"
             >
-              <el-select
-                v-model="form.referredByCustomerId"
-                clearable
-                value-on-clear=""
-                filterable
-                remote
-                reserve-keyword
-                fit-input-width
-                style="width: 100%"
-                :remote-method="loadShortCustomerOptions"
-                :loading="shortCustomerLoading"
-                :placeholder="t('invoice.fields.referredByCustomer')"
-                @visible-change="(open: boolean) => open && loadShortCustomerOptions()"
-              >
-                <el-option
-                  v-for="c in shortCustomers"
-                  :key="c.id"
-                  :label="`${c.customerCode || ''} ${c.name || ''}`.trim()"
-                  :value="c.id"
-                />
-              </el-select>
-            </SelectWithViewAction>
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.rentalDurationText')">
-            <el-input v-model="form.rentalDurationText" type="textarea" :rows="2" />
+              <el-option
+                v-for="u in users"
+                :key="u.id"
+                :label="userOptionLabel(u)"
+                :value="u.id"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item :label="t('invoice.fields.roomName')" required>
             <SelectWithViewAction
@@ -1963,32 +2763,93 @@ async function onImportFile(ev: Event) {
               @view="openRoomSide(form.roomId, 'ltr')"
             >
               <el-select
+                ref="shortRoomSelectRef"
                 v-model="form.roomId"
                 filterable
                 remote
                 reserve-keyword
                 fit-input-width
                 style="width: 100%"
-                :remote-method="loadShortRoomOptions"
+                popper-class="invoice-short-room-select-popper"
+                :remote-method="searchShortRoomsRemote"
                 :loading="shortRoomLoading"
                 :placeholder="t('invoice.fields.roomName')"
                 :disabled="!!editing"
-                @visible-change="(open: boolean) => open && loadShortRoomOptions()"
+                @visible-change="onShortRoomSelectVisible"
               >
+                <template #header>
+                  <div
+                    class="invoice-short-room-filters"
+                    role="group"
+                    :aria-label="t('invoice.shortRoomFilterAria')"
+                    @mousedown.stop="armShortRoomSuppressClose"
+                    @click.stop
+                  >
+                    <el-select
+                      v-if="shortRoomShowBuildingFilter"
+                      :model-value="shortRoomBuildingId || undefined"
+                      size="small"
+                      clearable
+                      filterable
+                      :teleported="false"
+                      class="invoice-short-room-filter-select"
+                      popper-class="invoice-short-room-filter-popper"
+                      :placeholder="t('invoice.shortRoomFilterBuildingAll')"
+                      @visible-change="onShortRoomFilterVisible"
+                      @change="onShortRoomBuildingFilterChange"
+                    >
+                      <el-option
+                        v-for="b in buildingScope.options"
+                        :key="b.id"
+                        :label="b.name"
+                        :value="b.id"
+                      />
+                    </el-select>
+                    <el-select
+                      :model-value="shortRoomSizeRangeId || undefined"
+                      size="small"
+                      clearable
+                      :teleported="false"
+                      class="invoice-short-room-filter-select"
+                      popper-class="invoice-short-room-filter-popper"
+                      :placeholder="t('invoice.shortRoomFilterSizeAll')"
+                      @visible-change="onShortRoomFilterVisible"
+                      @change="onShortRoomSizeFilterChange"
+                    >
+                      <el-option
+                        v-for="o in shortRoomSizeOptions"
+                        :key="o.id"
+                        :label="o.label"
+                        :value="o.id"
+                      />
+                    </el-select>
+                  </div>
+                </template>
                 <el-option
                   v-for="r in shortRooms"
                   :key="r.id"
-                  :label="`${r.roomCode || ''} ${r.name || ''}`.trim()"
+                  :label="shortRoomOptionLabel(r)"
                   :value="r.id"
-                />
+                  :title="shortRoomOptionLabel(r)"
+                >
+                  <div class="contract-room-option">
+                    <span class="select-option-ellipsis" :title="shortRoomOptionLabel(r)">
+                      {{ shortRoomOptionLabel(r) }}
+                    </span>
+                    <span
+                      v-if="shortRoomSizeLabel(r)"
+                      class="invoice-short-room-option__size"
+                    >
+                      {{ shortRoomSizeLabel(r) }}
+                    </span>
+                  </div>
+                </el-option>
+                <!-- remote + 无选项时 EP 会藏下拉且 expanded 卡死；有 empty 槽才会保持展开 -->
+                <template #empty>
+                  <div class="invoice-short-room-empty">{{ t('invoice.shortRoomEmpty') }}</div>
+                </template>
               </el-select>
             </SelectWithViewAction>
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.roomInfo')">
-            <el-input v-model="form.roomInfoText" readonly />
-          </el-form-item>
-          <el-form-item :label="t('invoice.fields.roomSize')">
-            <el-input v-model="form.roomSizeText" readonly />
           </el-form-item>
           <el-form-item :label="t('invoice.fields.invoiceDate')" required>
             <el-date-picker
@@ -2022,12 +2883,13 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.amount')">
+          <el-form-item :label="t('invoice.fields.amount')" required>
             <el-input-number
-              v-model="form.amount"
+              :model-value="feeAmountTotal"
               :min="0"
               :precision="2"
               :controls="false"
+              disabled
               style="width: 100%"
             />
           </el-form-item>
@@ -2044,11 +2906,11 @@ async function onImportFile(ev: Event) {
         </div>
 
         <div v-else class="form-grid">
-          <!-- 发票编号在合约左侧：新增预览自动编号（只读）；选合约后带房间后缀；编辑只读原号 -->
+          <!-- 发票编号在合约左侧：新增预览自动编号（不可编辑，灰色）；选合约后带房间后缀；编辑只读原号 -->
           <el-form-item :label="t('invoice.fields.invoiceCode')">
             <el-input
               v-model="form.invoiceCode"
-              readonly
+              disabled
               :placeholder="editing ? undefined : t('invoice.codeAutoHint')"
             />
           </el-form-item>
@@ -2060,20 +2922,31 @@ async function onImportFile(ev: Event) {
               <el-select
                 v-model="form.contractId"
                 filterable
+                remote
+                reserve-keyword
                 fit-input-width
                 style="width: 100%"
+                popper-class="invoice-contract-select-popper"
                 :placeholder="t('invoice.fields.contractCode')"
                 :disabled="!!editing"
+                :remote-method="searchContractsRemote"
+                :loading="contractSelectLoading"
+                @visible-change="onContractSelectVisible"
               >
                 <el-option
-                  v-for="opt in contractFilterOptions"
-                  :key="opt.value"
-                  :label="opt.label"
-                  :value="opt.value"
-                  :title="opt.label"
+                  v-for="c in contractSelectOptions"
+                  :key="c.id"
+                  :label="contractOptionLabel(c)"
+                  :value="c.id"
+                  :title="contractOptionLabel(c)"
                 >
-                  <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+                  <span class="select-option-ellipsis" :title="contractOptionLabel(c)">
+                    {{ contractOptionLabel(c) }}
+                  </span>
                 </el-option>
+                <template #empty>
+                  <div class="invoice-short-room-empty">{{ t('invoice.contractSelectEmpty') }}</div>
+                </template>
               </el-select>
             </SelectWithViewAction>
           </el-form-item>
@@ -2087,8 +2960,7 @@ async function onImportFile(ev: Event) {
             >
               <el-input
                 :model-value="selectedContract?.customerName || editing?.customerName || ''"
-                readonly
-                :placeholder="t('invoice.autoFromContract')"
+                disabled
               />
             </SelectWithViewAction>
           </el-form-item>
@@ -2106,8 +2978,7 @@ async function onImportFile(ev: Event) {
                       ? `${editing.roomCode}${editing.roomName ? ' · ' + editing.roomName : ''}`
                       : ''
                 "
-                readonly
-                :placeholder="t('invoice.autoFromContract')"
+                disabled
               />
             </SelectWithViewAction>
           </el-form-item>
@@ -2132,12 +3003,13 @@ async function onImportFile(ev: Event) {
               />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('invoice.fields.amount')">
+          <el-form-item :label="t('invoice.fields.amount')" required>
             <el-input-number
-              v-model="form.amount"
+              :model-value="feeAmountTotal"
               :min="0"
               :precision="2"
               :controls="false"
+              disabled
               style="width: 100%"
             />
           </el-form-item>
@@ -2552,17 +3424,42 @@ async function onImportFile(ev: Event) {
 .fee-table.period-table .period-table__head,
 .fee-table.period-table .period-table__row {
   display: grid;
+  /* 序号列：介于原 52 与过窄 36 之间，把手+数字不被挡，仍比原来省空隙 */
   grid-template-columns:
-    52px
-    minmax(140px, 1.6fr)
-    120px
-    120px
-    88px
-    minmax(120px, 1.2fr)
-    40px;
+    44px
+    minmax(152px, 1.75fr)
+    112px
+    112px
+    80px
+    minmax(128px, 1.3fr)
+    36px;
   align-items: center;
-  column-gap: 6px;
-  padding: 0 8px;
+  column-gap: 4px;
+  padding: 0 6px;
+}
+
+.fee-table .period-table__cell--index {
+  gap: 0;
+}
+
+.fee-table .period-row__handle {
+  width: 16px;
+}
+
+.fee-table .period-row__index {
+  min-width: 0.9rem;
+  padding: 0;
+}
+
+/* 序号列变窄后，绝对定位输入框勿溢出到描述列（会被 body overflow 裁切，导致点外部无法 blur 提交） */
+.fee-table .period-row__index-input {
+  position: static;
+  left: auto;
+  top: auto;
+  transform: none;
+  width: 1.65rem;
+  min-width: 1.65rem;
+  flex: 0 0 auto;
 }
 
 .fee-table.period-table .period-table__row {

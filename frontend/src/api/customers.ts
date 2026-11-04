@@ -39,6 +39,7 @@ export type CustomerWritePayload = {
 
 export type CustomerListQuery = {
   keyword?: string
+  customerCodes?: string[]
   status?: string
   statuses?: string[]
   accountManagers?: string[]
@@ -58,6 +59,7 @@ export type CustomerListPage = PaginatedResult<CustomerRecord>
 export function fetchCustomers(params?: CustomerListQuery) {
   const query: Record<string, string | number> = {}
   if (params?.keyword) query.keyword = params.keyword
+  if (params?.customerCodes?.length) query.customerCodes = params.customerCodes.join(',')
   if (params?.status) query.status = params.status
   if (params?.statuses?.length) query.statuses = params.statuses.join(',')
   if (params?.accountManagers?.length) query.accountManagers = params.accountManagers.join(',')

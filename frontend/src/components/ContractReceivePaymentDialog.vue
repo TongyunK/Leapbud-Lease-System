@@ -123,7 +123,7 @@ const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } = useClie
 const payVisible = ref(false)
 const payForm = reactive({
   paymentDate: '' as string,
-  paymentMethod: RECEIPT_PAYMENT_METHODS[0] as string,
+  paymentMethod: '' as string,
   remark: '',
 })
 const payPendingFiles = ref<File[]>([])
@@ -187,7 +187,7 @@ watch(
 )
 
 function openCollect() {
-  if (!receiptPerms.create.value) {
+  if (!receiptPerms.create) {
     ElMessage.warning(t('contract.receivePaymentNoPerm'))
     return
   }
@@ -196,7 +196,7 @@ function openCollect() {
     return
   }
   payForm.paymentDate = todayYmd()
-  payForm.paymentMethod = RECEIPT_PAYMENT_METHODS[0]
+  payForm.paymentMethod = ''
   payForm.remark = ''
   payPendingFiles.value = []
   payVisible.value = true
@@ -488,6 +488,7 @@ function onViewCustomer() {
       <el-button @click="visible = false">{{ t('common.close') }}</el-button>
       <el-button
         v-if="receiptPerms.create"
+        v-admin-glow="receiptPerms.codes.create"
         type="primary"
         class="lb-btn-primary"
         :disabled="!collectableSelected.length"
@@ -525,7 +526,14 @@ function onViewCustomer() {
         />
       </el-form-item>
       <el-form-item :label="t('receipt.fields.paymentMethod')" required>
-        <el-select v-model="payForm.paymentMethod" filterable style="width: 100%">
+        <el-select
+          v-model="payForm.paymentMethod"
+          filterable
+          clearable
+          value-on-clear=""
+          :placeholder="t('common.pleaseSelect')"
+          style="width: 100%"
+        >
           <el-option v-for="m in RECEIPT_PAYMENT_METHODS" :key="m" :label="m" :value="m" />
         </el-select>
       </el-form-item>

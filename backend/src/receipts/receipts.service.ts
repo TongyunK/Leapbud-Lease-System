@@ -30,6 +30,8 @@ import {
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
+import { actorLabelsOrEmpty } from '../common/audit'
+import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter'
 
 /** 开单生成定金收据时所需的合约字段 */
 export type BookingDepositContractSource = {
@@ -170,9 +172,14 @@ export class ReceiptsService {
     customerNames?: string[]
     paymentMethods?: string[]
     kinds?: string[]
+    receiptCodes?: string[]
     contractCodes?: string[]
     invoiceCodes?: string[]
     receivableCodes?: string[]
+    amounts?: string[]
+    remarks?: string[]
+    changeLogs?: string[]
+    createdBys?: string[]
     contractId?: string
     invoiceId?: string
     receivableId?: string
@@ -215,9 +222,14 @@ export class ReceiptsService {
     customerNames?: string[]
     paymentMethods?: string[]
     kinds?: string[]
+    receiptCodes?: string[]
     contractCodes?: string[]
     invoiceCodes?: string[]
     receivableCodes?: string[]
+    amounts?: string[]
+    remarks?: string[]
+    changeLogs?: string[]
+    createdBys?: string[]
     contractId?: string
     invoiceId?: string
     receivableId?: string
@@ -239,30 +251,43 @@ export class ReceiptsService {
     if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim()
     if (params.receivableId?.trim()) where.receivableId = params.receivableId.trim()
 
-    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean)
-    if (customerNames.length) {
-      and.push({ customer: { name: { in: customerNames } } })
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames)
+    if (customerNameClause) {
+      and.push({ customer: customerNameClause } as Prisma.ReceiptWhereInput)
     }
 
-    const paymentMethods = (params.paymentMethods || []).map((v) => s(v)).filter(Boolean)
-    if (paymentMethods.length) {
-      and.push({ paymentMethod: { in: paymentMethods } })
+    const paymentMethodClause = stringFieldInOrEmpty('paymentMethod', params.paymentMethods)
+    if (paymentMethodClause) and.push(paymentMethodClause as Prisma.ReceiptWhereInput)
+
+    const receiptCodeClause = stringFieldInOrEmpty('receiptCode', params.receiptCodes)
+    if (receiptCodeClause) and.push(receiptCodeClause as Prisma.ReceiptWhereInput)
+
+    const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes)
+    if (contractCodeClause) {
+      and.push({ contract: contractCodeClause } as Prisma.ReceiptWhereInput)
     }
 
-    const contractCodes = (params.contractCodes || []).map((v) => s(v)).filter(Boolean)
-    if (contractCodes.length) {
-      and.push({ contract: { contractCode: { in: contractCodes } } })
+    const invoiceCodeClause = stringFieldInOrEmpty('invoiceCode', params.invoiceCodes)
+    if (invoiceCodeClause) {
+      and.push({ invoice: invoiceCodeClause } as Prisma.ReceiptWhereInput)
     }
 
-    const invoiceCodes = (params.invoiceCodes || []).map((v) => s(v)).filter(Boolean)
-    if (invoiceCodes.length) {
-      and.push({ invoice: { invoiceCode: { in: invoiceCodes } } })
+    const receivableCodeClause = stringFieldInOrEmpty('receivableCode', params.receivableCodes)
+    if (receivableCodeClause) {
+      and.push({ receivable: receivableCodeClause } as Prisma.ReceiptWhereInput)
     }
 
-    const receivableCodes = (params.receivableCodes || []).map((v) => s(v)).filter(Boolean)
-    if (receivableCodes.length) {
-      and.push({ receivable: { receivableCode: { in: receivableCodes } } })
-    }
+    const amountClause = numberFieldInOrEmpty('amount', params.amounts)
+    if (amountClause) and.push(amountClause as Prisma.ReceiptWhereInput)
+
+    const remarkClause = stringFieldInOrEmpty('remark', params.remarks)
+    if (remarkClause) and.push(remarkClause as Prisma.ReceiptWhereInput)
+
+    const changeLogClause = stringFieldInOrEmpty('changeLog', params.changeLogs)
+    if (changeLogClause) and.push(changeLogClause as Prisma.ReceiptWhereInput)
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys)
+    if (createdByClause) and.push(createdByClause as Prisma.ReceiptWhereInput)
 
     const keyword = params.keyword?.trim()
     if (keyword) {
@@ -515,7 +540,8 @@ export class ReceiptsService {
   }
 
   /**
-   * 按关联收据金额合计回写应收：已收 = Σ收据金额，未收 = max(0, 开票金额 − 已收)。
+   * 按关联收据金额合计回写应收：已收 = Σ收据金额，未收 = max(0, 开票金额 − 已收)；
+   * 并回写 relatedReceiptRef（收据编号逗号串）。
    */
   private async syncReceivableFromReceipts(receivableId: string | null | undefined) {
     const id = (receivableId || '').trim()
@@ -525,21 +551,50 @@ export class ReceiptsService {
       select: { id: true, invoiceAmount: true },
     })
     if (!recv) return
-    const agg = await this.prisma.receipt.aggregate({
+    const linked = await this.prisma.receipt.findMany({
       where: { receivableId: id },
-      _sum: { amount: true },
+      select: { amount: true, receiptCode: true },
+      orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }],
     })
-    const receivedRaw = agg._sum.amount == null ? 0 : Number(agg._sum.amount.toString())
-    const received = Number.isFinite(receivedRaw) ? receivedRaw : 0
+    const received = linked.reduce((sum, r) => {
+      const n = Number(r.amount.toString())
+      return sum + (Number.isFinite(n) ? n : 0)
+    }, 0)
     const invoiceAmt = Number(recv.invoiceAmount.toString())
     const outstanding = Math.max(0, (Number.isFinite(invoiceAmt) ? invoiceAmt : 0) - received)
     await this.prisma.receivable.update({
       where: { id },
       data: {
-        receivedAmount: new Prisma.Decimal(received),
-        receivableAmount: new Prisma.Decimal(outstanding),
+        receivedAmount: new Prisma.Decimal(Math.round(received * 100) / 100),
+        receivableAmount: new Prisma.Decimal(Math.round(outstanding * 100) / 100),
+        relatedReceiptRef: linked.map((r) => r.receiptCode).filter(Boolean).join(','),
       },
     })
+  }
+
+  /** 关联应收时校验：金额 > 0 且不超过当前未收 */
+  private async assertReceivablePaymentAmount(
+    receivableId: string | null | undefined,
+    amount: Prisma.Decimal,
+  ) {
+    const id = (receivableId || '').trim()
+    if (!id) return
+    const recv = await this.prisma.receivable.findUnique({
+      where: { id },
+      select: { receivableAmount: true, receivableCode: true },
+    })
+    if (!recv) throw new BadRequestException('Invalid receivableId')
+    const amt = Number(amount.toString())
+    if (!Number.isFinite(amt) || amt <= 0) {
+      throw new BadRequestException('收款金额须大于 0')
+    }
+    const outstanding = Number(recv.receivableAmount.toString())
+    const due = Number.isFinite(outstanding) ? outstanding : 0
+    if (amt > due + 0.009) {
+      throw new BadRequestException(
+        `收款金额不可超过未收金额（应收 ${recv.receivableCode || id} 未收 ${due.toFixed(2)}）`,
+      )
+    }
   }
 
   async create(dto: CreateReceiptDto, actorId?: string | null) {
@@ -551,6 +606,8 @@ export class ReceiptsService {
       : dto.kind === ReceiptKind.booking_deposit
         ? ReceiptKind.booking_deposit
         : ReceiptKind.invoice
+    const amount = decimalField(dto.amount, 'amount')
+    await this.assertReceivablePaymentAmount(links.receivableId, amount)
 
     try {
       const row = await this.prisma.receipt.create({
@@ -563,7 +620,7 @@ export class ReceiptsService {
           receivableId: links.receivableId,
           paymentDate: parseDateOnly(dto.paymentDate, 'paymentDate'),
           paymentMethod: s(dto.paymentMethod),
-          amount: decimalField(dto.amount, 'amount'),
+          amount,
           remark: s(dto.remark),
           changeLog: s(dto.changeLog),
           createdById: actorId || null,

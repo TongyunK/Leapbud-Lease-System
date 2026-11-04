@@ -21,6 +21,7 @@ alwaysApply: true
 1. **前端 i18n**（`zh-TW.ts` / `en.ts`）：业务按钮键 + 对应 `permission.actions` 或 `actionsByModule`
 2. **后端目录**（可选但建议）：`backend/src/permissions/permission.catalog.ts` 的 `ACTION_LABEL` / `ACTION_LABEL_BY_MODULE`（启动 sync 写入 DB `name`；界面仍以 i18n 为准）
 3. 展示逻辑：`frontend/src/utils/permissionLabel.ts` 的 `permissionItemLabel`（已支持 `actionsByModule` 优先）
+4. **新增**权限功能按钮时：必须加 `v-admin-glow`（见 `frontend-admin-glow.mdc`）
 
 ## 示例（客户需求）
 

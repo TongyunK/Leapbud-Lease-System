@@ -8,6 +8,7 @@ import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import RoomOccupancyChips from '@/components/RoomOccupancyChips.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import RoomImageGallery from '@/components/RoomImageGallery.vue'
 import { roomFillStatusTone, roomLeaseCapabilityTone } from '@/constants/statusBadges'
 import { formatMoney, formatNumber2 } from '@/utils/format'
@@ -79,10 +80,17 @@ function emitIfCount(
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('room.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('room.detailTitle')"
+        :code="room?.roomCode"
+      />
+    </template>
     <template v-if="room">
       <section class="detail-section">
         <h3>{{ t('room.sections.basic') }}</h3>

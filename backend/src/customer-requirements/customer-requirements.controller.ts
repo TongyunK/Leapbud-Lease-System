@@ -43,6 +43,9 @@ export class CustomerRequirementsController {
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'customerNames', required: false })
   @ApiQuery({ name: 'salesManagers', required: false })
+  @ApiQuery({ name: 'requirementCodes', required: false })
+  @ApiQuery({ name: 'leaseDurations', required: false })
+  @ApiQuery({ name: 'budgets', required: false })
   @ApiQuery({ name: 'sizeConfigLabels', required: false })
   @ApiQuery({ name: 'acConfigLabels', required: false })
   @ApiQuery({ name: 'windowConfigLabels', required: false })
@@ -50,8 +53,11 @@ export class CustomerRequirementsController {
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'requirementDateFrom', required: false })
   @ApiQuery({ name: 'requirementDateTo', required: false })
+  @ApiQuery({ name: 'requirementDateEmpty', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
   @ApiQuery({ name: 'createdAtTo', required: false })
+  @ApiQuery({ name: 'createdAtEmpty', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiOkResponse({ description: 'Paginated customer requirement list' })
@@ -63,6 +69,9 @@ export class CustomerRequirementsController {
     @Query('customerId') customerId?: string,
     @Query('customerNames') customerNames?: string,
     @Query('salesManagers') salesManagers?: string,
+    @Query('requirementCodes') requirementCodes?: string,
+    @Query('leaseDurations') leaseDurations?: string,
+    @Query('budgets') budgets?: string,
     @Query('sizeConfigLabels') sizeConfigLabels?: string,
     @Query('acConfigLabels') acConfigLabels?: string,
     @Query('windowConfigLabels') windowConfigLabels?: string,
@@ -70,11 +79,16 @@ export class CustomerRequirementsController {
     @Query('sortDir') sortDir?: string,
     @Query('requirementDateFrom') requirementDateFrom?: string,
     @Query('requirementDateTo') requirementDateTo?: string,
+    @Query('requirementDateEmpty') requirementDateEmpty?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
     @Query('createdAtTo') createdAtTo?: string,
+    @Query('createdAtEmpty') createdAtEmpty?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    const flag = (v?: string) =>
+      ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase());
     return this.customerRequirementsService.findAll({
       keyword,
       status,
@@ -83,6 +97,9 @@ export class CustomerRequirementsController {
       customerId,
       customerNames: splitCsv(customerNames),
       salesManagers: splitCsv(salesManagers),
+      requirementCodes: splitCsv(requirementCodes),
+      leaseDurations: splitCsv(leaseDurations),
+      budgets: splitCsv(budgets),
       sizeConfigLabels: splitCsv(sizeConfigLabels),
       acConfigLabels: splitCsv(acConfigLabels),
       windowConfigLabels: splitCsv(windowConfigLabels),
@@ -90,8 +107,11 @@ export class CustomerRequirementsController {
       sortDir: parseSortDir(sortDir),
       requirementDateFrom,
       requirementDateTo,
+      requirementDateEmpty: flag(requirementDateEmpty) || undefined,
       createdAtFrom,
       createdAtTo,
+      createdAtEmpty: flag(createdAtEmpty) || undefined,
+      createdBys: splitCsv(createdBys),
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });

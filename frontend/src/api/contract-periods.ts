@@ -22,6 +22,9 @@ export type ContractPeriodListQuery = {
   contractId?: string
   customerNames?: string[]
   dateTypes?: string[]
+  contractCodes?: string[]
+  roomCodes?: string[]
+  dateValues?: number[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   startDateFrom?: string
@@ -49,6 +52,9 @@ export function fetchContractPeriods(params?: ContractPeriodListQuery) {
   if (params?.contractId) query.contractId = params.contractId
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.dateTypes?.length) query.dateTypes = params.dateTypes.join(',')
+  if (params?.contractCodes?.length) query.contractCodes = params.contractCodes.join(',')
+  if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
+  if (params?.dateValues?.length) query.dateValues = params.dateValues.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.startDateFrom) query.startDateFrom = params.startDateFrom

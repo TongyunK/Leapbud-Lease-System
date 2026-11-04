@@ -27,8 +27,13 @@ export type BuildingWritePayload = {
 export type BuildingListQuery = {
   keyword?: string
   activeOnly?: boolean
+  names?: string[]
   managers?: string[]
   active?: string[]
+  createdBys?: string[]
+  updatedBys?: string[]
+  createdAtEmpty?: boolean
+  updatedAtEmpty?: boolean
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   createdAtFrom?: string
@@ -46,8 +51,13 @@ export function fetchBuildings(params?: BuildingListQuery) {
   if (params?.keyword) query.keyword = params.keyword
   if (params?.activeOnly === true) query.activeOnly = 'true'
   if (params?.activeOnly === false) query.activeOnly = 'false'
+  if (params?.names?.length) query.names = params.names.join(',')
   if (params?.managers?.length) query.managers = params.managers.join(',')
   if (params?.active?.length) query.active = params.active.join(',')
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
+  if (params?.updatedBys?.length) query.updatedBys = params.updatedBys.join(',')
+  if (params?.createdAtEmpty) query.createdAtEmpty = 'true'
+  if (params?.updatedAtEmpty) query.updatedAtEmpty = 'true'
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom

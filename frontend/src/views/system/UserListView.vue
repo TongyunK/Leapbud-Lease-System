@@ -23,7 +23,7 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
-import { measureActionColWidth } from '@/composables/useActionColWidth'
+import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -33,8 +33,13 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const useCards = computed(() => isMobile.value)
+const { actionColW } = useActionColWidth()
 const userActionColWidth = computed(() =>
-  measureActionColWidth([t('common.edit'), t('user.resetPassword'), t('common.delete')]),
+  actionColW([
+    perms.update && t('common.edit'),
+    perms.update && t('user.resetPassword'),
+    perms.delete && t('common.delete'),
+  ]),
 )
 const { colW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
@@ -78,6 +83,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<UserRecord>()
 
 const columnGetters = {
@@ -90,6 +96,8 @@ const columnGetters = {
   updatedAt: (u: UserRecord) => u.updatedAt,
 }
 
+const accountFilterOptions = computed(() => uniqueOptions(list.value, (u) => u.account))
+const displayNameFilterOptions = computed(() => uniqueOptions(list.value, (u) => u.displayName))
 const roleFilterOptions = computed(() => {
   const codes = new Set<string>([
     ...roleCatalog.value.map((r) => r.code),
@@ -100,6 +108,7 @@ const roleFilterOptions = computed(() => {
 const statusFilterOptions = computed(() =>
   statusOptions.map((s) => ({ value: s, label: t(`user.status.${s}`) })),
 )
+const updatedByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.updatedBy))
 
 const filtered = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -451,7 +460,7 @@ async function onDelete(row: UserRecord) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${userActionColWidth}`"
           :data="paged"
           row-key="id"
           height="100%"
@@ -478,8 +487,12 @@ async function onDelete(row: UserRecord) {
             <template #header>
               <TableColumnHeader
                 :label="t('user.fields.account')"
+                filterable
                 sortable
+                :options="accountFilterOptions"
+                :model-value="filters.account || []"
                 :sort-order="sortOrderOf('account')"
+                @update:model-value="(v) => setFilter('account', v)"
                 @update:sort-order="(v) => setSort('account', v)"
               />
             </template>
@@ -491,8 +504,12 @@ async function onDelete(row: UserRecord) {
             <template #header>
               <TableColumnHeader
                 :label="t('user.fields.displayName')"
+                filterable
                 sortable
+                :options="displayNameFilterOptions"
+                :model-value="filters.displayName || []"
                 :sort-order="sortOrderOf('displayName')"
+                @update:model-value="(v) => setFilter('displayName', v)"
                 @update:sort-order="(v) => setSort('displayName', v)"
               />
             </template>
@@ -569,29 +586,45 @@ async function onDelete(row: UserRecord) {
                 :label="t('user.fields.lastLoginAt')"
                 sortable
                 date-range
+                :model-value="filters.lastLoginAt || []"
                 :sort-order="sortOrderOf('lastLoginAt')"
                 :date-range-value="dateRangeOf('lastLoginAt')"
                 @update:sort-order="(v) => setSort('lastLoginAt', v)"
+                @update:model-value="(v) => setFilter('lastLoginAt', v)"
                 @update:date-range-value="(v) => setDateRange('lastLoginAt', v)"
               />
             </template>
             <template #default="{ row }">{{ row.lastLoginAt || '—' }}</template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column prop="updatedAt" :width="datetimeColWidth" class-name="col-datetime" label-class-name="col-datetime">
             <template #header>
               <TableColumnHeader
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>

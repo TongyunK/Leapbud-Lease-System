@@ -500,6 +500,59 @@ button {
   max-width: max-content;
 }
 
+/* 列表刷新：标题左侧圆形按钮（紧贴 h2；抵消 page-head 横向 gap） */
+.admin-page-head > .lb-refresh-list-btn {
+  flex: 0 0 auto;
+  margin-inline-end: -8px;
+}
+
+.lb-refresh-list-btn.el-button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  border-color: #dce3de !important;
+  background: #eef1ef !important;
+  color: #5a6b62 !important;
+  box-shadow: none !important;
+}
+
+.lb-refresh-list-btn.el-button:hover,
+.lb-refresh-list-btn.el-button:focus {
+  border-color: #cfd8d2 !important;
+  background: #e6ebe8 !important;
+  color: #0f4a32 !important;
+}
+
+.lb-refresh-list-btn.el-button.is-spinning,
+.lb-refresh-list-btn.el-button:disabled {
+  color: #0f4a32 !important;
+  opacity: 1 !important;
+  cursor: wait;
+}
+
+.lb-refresh-list-btn__icon {
+  display: inline-flex;
+  transition: transform 0.2s ease;
+}
+
+.lb-refresh-list-btn.is-spinning .lb-refresh-list-btn__icon {
+  animation: lb-refresh-spin 0.7s linear infinite;
+}
+
+@keyframes lb-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-refresh-list-btn.is-spinning .lb-refresh-list-btn__icon {
+    animation: none;
+  }
+}
+
 .admin-page-head .head-building-filter {
   width: 200px;
   flex: 0 1 200px;
@@ -1145,6 +1198,7 @@ button {
 }
 
 .table-card {
+  position: relative;
   flex: 1;
   min-height: 0;
   background: #fff;
@@ -1154,6 +1208,28 @@ button {
   max-width: 100%;
   display: flex;
   flex-direction: column;
+}
+
+/* 列表刷新／筛选加载遮罩：盖住固定列与表体，品牌色旋转 */
+.table-card > .el-loading-mask,
+.table-scroll > .el-loading-mask,
+.data-cards > .el-loading-mask {
+  background-color: rgba(247, 250, 248, 0.78);
+  /* 对齐 EP 默认量级，避免被 sticky 操作列盖住 */
+  z-index: 2000;
+}
+
+.table-card > .el-loading-mask .el-loading-spinner .circular,
+.table-scroll > .el-loading-mask .el-loading-spinner .circular,
+.data-cards > .el-loading-mask .el-loading-spinner .circular {
+  width: 38px;
+  height: 38px;
+}
+
+.table-card > .el-loading-mask .el-loading-spinner .path,
+.table-scroll > .el-loading-mask .el-loading-spinner .path,
+.data-cards > .el-loading-mask .el-loading-spinner .path {
+  stroke: var(--lb-brand, #0f4a32);
 }
 
 .table-card .el-table {
@@ -2163,6 +2239,7 @@ button {
 }
 
 .table-scroll {
+  position: relative;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -2504,6 +2581,84 @@ button {
   max-width: 46%;
   font-size: 0.72rem !important;
   padding: 2px 8px 2px 7px !important;
+}
+
+/* 短租发票：房间下拉顶部大厦／面积筛选（复用合约 chip 样式） */
+/* 勿 overflow:hidden，否则 header 内 teleported=false 的筛选下拉会被裁切 */
+.invoice-short-room-select-popper.el-popper,
+.invoice-short-room-select-popper.el-select__popper {
+  overflow: visible !important;
+}
+
+.invoice-short-room-select-popper .el-select-dropdown__header {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid #e6ebe8;
+  overflow: visible;
+  position: relative;
+  z-index: 2;
+}
+
+.invoice-short-room-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.invoice-short-room-filters .invoice-short-room-filter-select {
+  flex: 1 1 140px;
+  min-width: 140px;
+  font-size: 14px;
+}
+
+.invoice-short-room-filters .invoice-short-room-filter-select .el-select__wrapper {
+  font-size: 14px;
+  min-height: 28px;
+  line-height: 22px;
+}
+
+.invoice-short-room-filters .invoice-short-room-filter-select .el-select__selected-item,
+.invoice-short-room-filters .invoice-short-room-filter-select .el-select__placeholder,
+.invoice-short-room-filters .invoice-short-room-filter-select .el-select__input {
+  font-size: 14px;
+}
+
+/* 内层筛选不 teleport，叠在房间列表之上 */
+.invoice-short-room-filter-popper {
+  z-index: 20 !important;
+  font-size: 14px;
+}
+
+.invoice-short-room-filter-popper .el-select-dropdown__item {
+  font-size: 14px;
+}
+
+.invoice-short-room-select-popper .el-select-dropdown__item {
+  height: auto;
+  min-height: 34px;
+  padding: 7px 12px;
+  line-height: 1.35;
+}
+
+.invoice-short-room-empty {
+  padding: 12px 14px;
+  color: #6b7c72;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.invoice-short-room-option__size {
+  flex: 0 0 auto;
+  max-width: 40%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef6f1;
+  color: #0f4a32;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .lb-pager__btn {
@@ -3224,7 +3379,7 @@ button {
   color: #0d3a28 !important;
 }
 
-/* 详情抽屉标题栏：标题 + 列印等操作（关闭按钮仍由 el-drawer 渲染） */
+/* 详情抽屉标题栏：标题 + 编号 + 列印等操作（关闭按钮仍由 el-drawer 渲染） */
 .drawer-header-with-action {
   display: flex;
   align-items: center;
@@ -3234,10 +3389,37 @@ button {
   padding-right: 4px;
 }
 
-.drawer-header-with-action .el-drawer__title {
+.drawer-header-title-block {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   flex: 1;
   min-width: 0;
+}
+
+.drawer-header-with-action .el-drawer__title,
+.drawer-header-title-block .el-drawer__title {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-header-code {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid #d7e2db;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
+  color: #2f4a3d;
+  font-size: 0.82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3861,6 +4043,23 @@ button {
   border-radius: 8px;
   padding: 4px;
   background: #fafbfa;
+}
+
+.lb-col-panel__empty {
+  padding: 10px 8px;
+  border: 1px dashed #d5ddd8;
+  border-radius: 8px;
+  color: #8a9690;
+  font-size: 0.78rem;
+  text-align: center;
+  background: #fafbfa;
+}
+
+.lb-col-option--empty {
+  margin-bottom: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #f3f6f4;
 }
 
 .lb-col-date-range {

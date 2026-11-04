@@ -5,6 +5,7 @@ import type { ReceivableRecord } from '@/types/receivable'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import { formatMoney } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -25,7 +26,6 @@ const emit = defineEmits<{
   openInvoice: [invoiceId: string]
   openContract: [contractId: string]
   openCustomer: [customerId: string]
-  openDepositRefund: [depositRefundId: string]
   openReceipts: [row: ReceivableRecord]
 }>()
 
@@ -48,18 +48,21 @@ function money(v: number | null | undefined) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('receivable.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('receivable.detailTitle')"
+        :code="record?.invoiceCode || record?.receivableCode"
+      />
+    </template>
     <template v-if="record">
       <section class="detail-section">
         <h3>{{ t('receivable.sections.basic') }}</h3>
         <dl class="detail-grid two">
-          <div>
-            <dt>{{ t('receivable.fields.receivableCode') }}</dt>
-            <dd>{{ record.receivableCode }}</dd>
-          </div>
           <div>
             <dt>{{ t('receivable.fields.invoiceCode') }}</dt>
             <dd>
@@ -110,24 +113,6 @@ function money(v: number | null | undefined) {
             <dt>{{ t('receivable.fields.paymentDueDate') }}</dt>
             <dd>{{ dash(record.paymentDueDate) }}</dd>
           </div>
-          <div>
-            <dt>{{ t('receivable.fields.depositRefundCode') }}</dt>
-            <dd>
-              <button
-                v-if="record.depositRefundId"
-                type="button"
-                class="fk-link"
-                @click="emit('openDepositRefund', record.depositRefundId)"
-              >
-                {{ record.depositRefundCode || '—' }}
-              </button>
-              <template v-else>{{ dash(record.depositRefundCode) }}</template>
-            </dd>
-          </div>
-          <div class="full">
-            <dt>{{ t('receivable.fields.relatedReceiptRef') }}</dt>
-            <dd>{{ dash(record.relatedReceiptRef) }}</dd>
-          </div>
         </dl>
       </section>
 
@@ -153,16 +138,38 @@ function money(v: number | null | undefined) {
         </dl>
       </section>
 
-            <section class="detail-section">
-        <h3>{{ t('receivable.sections.relatedRecords') }}</h3>
+      <section class="detail-section">
+        <h3>{{ t('receivable.sections.relatedReceipts') }}</h3>
         <dl class="detail-grid two">
           <div>
             <dt>{{ t('receivable.fields.receiptCount') }}</dt>
             <dd>
               <CountListPill
-                :count="record.receiptCount ?? 0"
-                @click="() => { if (record?.receiptCount) emit('openReceipts', record) }"
+                :count="record.receiptCount ?? record.receipts?.length ?? 0"
+                @click="() => {
+                  if ((record?.receiptCount ?? record?.receipts?.length ?? 0) > 0) {
+                    emit('openReceipts', record)
+                  }
+                }"
               />
+            </dd>
+          </div>
+          <div
+            v-if="record.receipts?.length"
+            class="full"
+          >
+            <dt>{{ t('receipt.fields.receiptCode') }}</dt>
+            <dd>
+              <ul class="receipt-code-list">
+                <li v-for="rcp in record.receipts" :key="rcp.id">
+                  <span class="receipt-code-list__code">{{ rcp.receiptCode || '—' }}</span>
+                  <span class="receipt-code-list__meta">
+                    {{ dash(rcp.paymentDate) }}
+                    ·
+                    {{ rcp.amount == null ? '—' : money(rcp.amount) }}
+                  </span>
+                </li>
+              </ul>
             </dd>
           </div>
         </dl>
@@ -177,3 +184,32 @@ function money(v: number | null | undefined) {
     </template>
   </el-drawer>
 </template>
+
+<style scoped>
+.receipt-code-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.receipt-code-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.receipt-code-list__code {
+  font-weight: 650;
+  color: #2f3f36;
+}
+
+.receipt-code-list__meta {
+  color: #6a7a70;
+  font-variant-numeric: tabular-nums;
+}
+</style>

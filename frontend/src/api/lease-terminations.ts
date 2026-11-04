@@ -27,7 +27,13 @@ export type LeaseTerminationListQuery = {
   contractId?: string
   customerId?: string
   roomId?: string
+  terminationCodes?: string[]
+  contractCodes?: string[]
   customerNames?: string[]
+  roomCodes?: string[]
+  doorKeyReturnedQtys?: string[]
+  smartCardReturnedQtys?: string[]
+  createdBys?: string[]
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   terminationDateFrom?: string
@@ -44,7 +50,17 @@ export function fetchLeaseTerminations(params?: LeaseTerminationListQuery) {
   if (params?.contractId) query.contractId = params.contractId
   if (params?.customerId) query.customerId = params.customerId
   if (params?.roomId) query.roomId = params.roomId
+  if (params?.terminationCodes?.length) query.terminationCodes = params.terminationCodes.join(',')
+  if (params?.contractCodes?.length) query.contractCodes = params.contractCodes.join(',')
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
+  if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
+  if (params?.doorKeyReturnedQtys?.length) {
+    query.doorKeyReturnedQtys = params.doorKeyReturnedQtys.join(',')
+  }
+  if (params?.smartCardReturnedQtys?.length) {
+    query.smartCardReturnedQtys = params.smartCardReturnedQtys.join(',')
+  }
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir
   if (params?.terminationDateFrom) query.terminationDateFrom = params.terminationDateFrom

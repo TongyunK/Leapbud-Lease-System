@@ -1,4 +1,9 @@
 import { computed, reactive, ref } from 'vue'
+import {
+  EMPTY_FILTER_VALUE,
+  isBlankCell,
+  isEmptyFilterValue,
+} from '@/utils/columnFilter'
 
 export type SortOrder = 'asc' | 'desc' | null
 
@@ -11,6 +16,8 @@ export type ColumnOption = {
 export type DateRangeValue = [string, string] | null
 
 export type ColumnGetterMap<T> = Record<string, (row: T) => string | number | boolean | null | undefined>
+
+export { EMPTY_FILTER_VALUE } from '@/utils/columnFilter'
 
 function compareValues(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0
@@ -111,8 +118,15 @@ export function useTableSortFilter<T>() {
       if (!selected?.length) continue
       const get = getters[key]
       if (!get) continue
-      const set = new Set(selected.map(String))
-      result = result.filter((row) => set.has(String(get(row) ?? '')))
+      const wantEmpty = selected.some(isEmptyFilterValue)
+      const valueSet = new Set(selected.filter((v) => !isEmptyFilterValue(v)).map(String))
+      result = result.filter((row) => {
+        const raw = get(row)
+        if (wantEmpty && isBlankCell(raw)) return true
+        if (!valueSet.size) return wantEmpty ? false : true
+        if (isBlankCell(raw)) return false
+        return valueSet.has(String(raw))
+      })
     }
 
     for (const [key, range] of Object.entries(dateRanges)) {
@@ -121,9 +135,14 @@ export function useTableSortFilter<T>() {
       if (!bounds) continue
       const get = getters[key]
       if (!get) continue
+      // 同列若勾了空值，空行已由 filters 放行；此处只约束有日期的行
+      const wantEmpty = (filters[key] || []).some(isEmptyFilterValue)
       result = result.filter((row) => {
-        const t = parseToTime(get(row))
-        if (Number.isNaN(t)) return false
+        const raw = get(row)
+        if (isBlankCell(raw) || Number.isNaN(parseToTime(raw))) {
+          return wantEmpty
+        }
+        const t = parseToTime(raw)
         return t >= bounds.start && t <= bounds.end
       })
     }

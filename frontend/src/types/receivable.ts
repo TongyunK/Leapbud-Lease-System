@@ -1,3 +1,14 @@
+/** 应收下属收据摘要（详情 / 表单编辑回填） */
+export interface ReceivableReceiptSummary {
+  id: string
+  receiptCode: string
+  paymentDate: string
+  paymentMethod: string
+  amount: number | null
+  remark?: string | null
+  attachmentCount?: number
+}
+
 export interface ReceivableRecord {
   id: string
   receivableCode: string
@@ -22,6 +33,8 @@ export interface ReceivableRecord {
   depositRefundId: string | null
   depositRefundCode: string
   receiptCount?: number
+  /** 关联收据（一对多；列表接口可能为空，详情有值） */
+  receipts?: ReceivableReceiptSummary[]
   createdBy: string
   updatedBy: string
   createdAt: string

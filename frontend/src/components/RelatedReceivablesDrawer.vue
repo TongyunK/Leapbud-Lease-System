@@ -72,7 +72,7 @@ const batchDeleting = ref(false)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '860px'))
-const canDelete = computed(() => perms.delete.value || perms.batchDelete.value)
+const canDelete = computed(() => perms.delete || perms.batchDelete)
 
 const title = computed(() => {
   const ctx = props.titleContext?.trim()
@@ -187,7 +187,7 @@ async function onToolbarDelete() {
   const ids = [...selectedIds.value]
   batchDeleting.value = true
   try {
-    const { ok, fail } = perms.batchDelete.value
+    const { ok, fail } = perms.batchDelete
       ? await runServerBatchDelete(ids, (chunk) => batchDeleteReceivablesApi(chunk))
       : await runBatchDelete(ids, (id) => deleteReceivableApi(id))
     if (fail === 0) ElMessage.success(t('common.batchDeleteDone', { ok }))
@@ -269,19 +269,6 @@ async function onToolbarDelete() {
             fixed="left"
           />
           <el-table-column
-            prop="receivableCode"
-            :label="t('receivable.fields.receivableCode')"
-            :min-width="
-              codeColW(t('receivable.fields.receivableCode'), {
-                samples: paged.map((r) => r.receivableCode),
-              })
-            "
-            class-name="col-code"
-            label-class-name="col-code"
-            show-overflow-tooltip
-            fixed="left"
-          />
-          <el-table-column
             prop="invoiceCode"
             :label="t('receivable.fields.invoiceCode')"
             :min-width="
@@ -291,6 +278,7 @@ async function onToolbarDelete() {
             "
             class-name="col-code"
             label-class-name="col-code"
+            fixed="left"
           >
             <template #default="{ row }">
               <button

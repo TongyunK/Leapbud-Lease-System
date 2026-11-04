@@ -24,7 +24,14 @@ export type DepositRefundListQuery = {
   contractId?: string
   customerId?: string
   roomId?: string
+  refundCodes?: string[]
+  contractCodes?: string[]
   customerNames?: string[]
+  roomNames?: string[]
+  totalDeposits?: string[]
+  actualRefundAmounts?: string[]
+  handlers?: string[]
+  createdBys?: string[]
   status?: string
   sortBy?: string
   sortDir?: 'asc' | 'desc'
@@ -44,7 +51,16 @@ export function fetchDepositRefunds(params?: DepositRefundListQuery) {
   if (params?.contractId) query.contractId = params.contractId
   if (params?.customerId) query.customerId = params.customerId
   if (params?.roomId) query.roomId = params.roomId
+  if (params?.refundCodes?.length) query.refundCodes = params.refundCodes.join(',')
+  if (params?.contractCodes?.length) query.contractCodes = params.contractCodes.join(',')
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
+  if (params?.roomNames?.length) query.roomNames = params.roomNames.join(',')
+  if (params?.totalDeposits?.length) query.totalDeposits = params.totalDeposits.join(',')
+  if (params?.actualRefundAmounts?.length) {
+    query.actualRefundAmounts = params.actualRefundAmounts.join(',')
+  }
+  if (params?.handlers?.length) query.handlers = params.handlers.join(',')
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
   if (params?.status) query.status = params.status
   if (params?.sortBy) query.sortBy = params.sortBy
   if (params?.sortDir) query.sortDir = params.sortDir

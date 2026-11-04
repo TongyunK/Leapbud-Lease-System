@@ -85,10 +85,24 @@ export class RoomsController {
     required: false,
     description: 'Comma-separated occupancy fill statuses: idle,whole,partial,full,short',
   })
+  @ApiQuery({ name: 'roomCodes', required: false })
+  @ApiQuery({ name: 'names', required: false })
+  @ApiQuery({ name: 'monthlyRents', required: false })
+  @ApiQuery({ name: 'dailyRents', required: false })
+  @ApiQuery({ name: 'hourlyRents', required: false })
   @ApiQuery({ name: 'roomTypes', required: false })
   @ApiQuery({ name: 'sizeRangeIds', required: false })
   @ApiQuery({ name: 'windowConfigs', required: false })
   @ApiQuery({ name: 'acConfigs', required: false })
+  @ApiQuery({
+    name: 'allowShortTerm',
+    required: false,
+    description: 'true | false — filter rooms by short-term flag',
+  })
+  @ApiQuery({ name: 'createdBys', required: false })
+  @ApiQuery({ name: 'updatedBys', required: false })
+  @ApiQuery({ name: 'createdAtEmpty', required: false })
+  @ApiQuery({ name: 'updatedAtEmpty', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
@@ -106,11 +120,21 @@ export class RoomsController {
     @Query('statuses') statuses?: string,
     @Query('leaseCapability') leaseCapability?: string,
     @Query('leaseCapabilities') leaseCapabilities?: string,
+    @Query('roomCodes') roomCodes?: string,
+    @Query('names') names?: string,
+    @Query('monthlyRents') monthlyRents?: string,
+    @Query('dailyRents') dailyRents?: string,
+    @Query('hourlyRents') hourlyRents?: string,
     @Query('occupancySummaries') occupancySummaries?: string,
     @Query('roomTypes') roomTypes?: string,
     @Query('sizeRangeIds') sizeRangeIds?: string,
     @Query('windowConfigs') windowConfigs?: string,
     @Query('acConfigs') acConfigs?: string,
+    @Query('allowShortTerm') allowShortTerm?: string,
+    @Query('createdBys') createdBys?: string,
+    @Query('updatedBys') updatedBys?: string,
+    @Query('createdAtEmpty') createdAtEmpty?: string,
+    @Query('updatedAtEmpty') updatedAtEmpty?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
@@ -120,6 +144,15 @@ export class RoomsController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    const shortTermRaw = (allowShortTerm ?? '').trim().toLowerCase();
+    const allowShortTermFilter =
+      shortTermRaw === 'true' || shortTermRaw === '1'
+        ? true
+        : shortTermRaw === 'false' || shortTermRaw === '0'
+          ? false
+          : undefined;
+    const flag = (v?: string) =>
+      ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase());
     return this.roomsService.findAll({
       keyword,
       buildingId,
@@ -128,11 +161,21 @@ export class RoomsController {
       statuses: splitCsv(statuses),
       leaseCapability,
       leaseCapabilities: splitCsv(leaseCapabilities),
+      roomCodes: splitCsv(roomCodes),
+      names: splitCsv(names),
+      monthlyRents: splitCsv(monthlyRents),
+      dailyRents: splitCsv(dailyRents),
+      hourlyRents: splitCsv(hourlyRents),
       occupancySummaries: splitCsv(occupancySummaries),
       roomTypes: splitCsv(roomTypes),
       sizeRangeIds: splitCsv(sizeRangeIds),
       windowConfigs: splitCsv(windowConfigs),
       acConfigs: splitCsv(acConfigs),
+      allowShortTerm: allowShortTermFilter,
+      createdBys: splitCsv(createdBys),
+      updatedBys: splitCsv(updatedBys),
+      createdAtEmpty: flag(createdAtEmpty) || undefined,
+      updatedAtEmpty: flag(updatedAtEmpty) || undefined,
       sortBy,
       sortDir: parseSortDir(sortDir),
       createdAtFrom,

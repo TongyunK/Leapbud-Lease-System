@@ -2,7 +2,13 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowDown, ArrowUp, Calendar, Close, Filter, Search, Sort } from '@element-plus/icons-vue'
-import type { ColumnOption, DateRangeValue, SortOrder } from '@/composables/useTableSortFilter'
+import {
+  EMPTY_FILTER_VALUE,
+  type ColumnOption,
+  type DateRangeValue,
+  type SortOrder,
+} from '@/composables/useTableSortFilter'
+import { isEmptyFilterValue } from '@/utils/columnFilter'
 
 const props = withDefaults(
   defineProps<{
@@ -67,6 +73,21 @@ function onDraftRangeUpdate(v: DateRangeValue | '' | null) {
   if (v[0] && v[1]) {
     draftRange.value = [v[0], v[1]]
     emit('update:dateRangeValue', [v[0], v[1]])
+    // 选了日期范围则去掉空值勾选
+    if (hasEmptyFilter.value) {
+      selected.value = selected.value.filter((x) => !isEmptyFilterValue(x))
+    }
+  }
+}
+
+function toggleEmptyFilter() {
+  const next = new Set(selected.value)
+  if (next.has(EMPTY_FILTER_VALUE)) next.delete(EMPTY_FILTER_VALUE)
+  else next.add(EMPTY_FILTER_VALUE)
+  selected.value = [...next]
+  if (next.has(EMPTY_FILTER_VALUE) && props.dateRange) {
+    draftRange.value = null
+    emit('update:dateRangeValue', null)
   }
 }
 
@@ -76,8 +97,12 @@ const hasDateRange = computed(
   () => Boolean(props.dateRangeValue?.[0] && props.dateRangeValue?.[1]),
 )
 
+const hasEmptyFilter = computed(() => selected.value.some(isEmptyFilterValue))
+
 const hasFilter = computed(
-  () => (props.filterable && selected.value.length > 0) || (props.dateRange && hasDateRange.value),
+  () =>
+    (props.filterable && selected.value.length > 0) ||
+    (props.dateRange && (hasDateRange.value || hasEmptyFilter.value)),
 )
 
 const hasSort = computed(() => Boolean(props.sortOrder))
@@ -86,7 +111,9 @@ const hasActive = computed(() => hasFilter.value || hasSort.value)
 
 const filterBadge = computed(() => {
   if (props.filterable && selected.value.length > 0) return selected.value.length
-  if (props.dateRange && hasDateRange.value) return 1
+  if (props.dateRange && (hasDateRange.value || hasEmptyFilter.value)) {
+    return (hasDateRange.value ? 1 : 0) + (hasEmptyFilter.value ? 1 : 0)
+  }
   return 0
 })
 
@@ -97,14 +124,20 @@ const activeHint = computed(() => {
   return t('tableColumn.menu')
 })
 
-/** 合并 props.options 与已选值，避免选项源收缩后已选项从列表消失 */
+const emptyOption = computed<ColumnOption>(() => ({
+  value: EMPTY_FILTER_VALUE,
+  label: t('tableColumn.filterEmptyValue'),
+}))
+
+/** 合并 props.options 与已选值，并始终置顶「(空)」 */
 const baseOptions = computed(() => {
   const map = new Map(props.options.map((o) => [o.value, o]))
   for (const v of selected.value) {
-    if (!v || map.has(v)) continue
+    if (!v || isEmptyFilterValue(v) || map.has(v)) continue
     map.set(v, { value: v, label: v })
   }
-  return [...map.values()]
+  const rest = [...map.values()].filter((o) => !isEmptyFilterValue(o.value))
+  return [emptyOption.value, ...rest]
 })
 
 const allSelected = computed(
@@ -145,7 +178,7 @@ function clearColumnConditions(e: Event) {
   e.preventDefault()
   e.stopPropagation()
   visible.value = false
-  if (props.filterable && selected.value.length) clearFilter()
+  if (selected.value.length) clearFilter()
   if (props.dateRange && hasDateRange.value) clearDateRange()
   if (props.sortable && props.sortOrder) clearSort()
 }
@@ -234,7 +267,7 @@ function toggleOption(value: string) {
           </button>
         </div>
 
-        <div v-if="filterable && options.length" class="lb-col-panel__filter">
+        <div v-if="filterable" class="lb-col-panel__filter">
           <div class="lb-col-panel__filter-head">
             <el-icon :size="14"><Filter /></el-icon>
             <span>{{ t('tableColumn.filter') }}</span>
@@ -253,14 +286,19 @@ function toggleOption(value: string) {
             </el-input>
           </div>
           <div class="lb-col-panel__filter-actions">
-            <button type="button" class="lb-col-link" :disabled="allSelected" @click="selectAll">
+            <button
+              type="button"
+              class="lb-col-link"
+              :disabled="!baseOptions.length || allSelected"
+              @click="selectAll"
+            >
               {{ t('tableColumn.selectAll') }}
             </button>
             <button type="button" class="lb-col-link" :disabled="!selected.length" @click="clearFilter">
               {{ t('tableColumn.clearFilter') }}
             </button>
           </div>
-          <div class="lb-col-panel__options">
+          <div v-if="filteredOptions.length" class="lb-col-panel__options">
             <label v-for="opt in filteredOptions" :key="opt.value" class="lb-col-option">
               <el-checkbox
                 :model-value="selected.includes(opt.value)"
@@ -269,6 +307,7 @@ function toggleOption(value: string) {
               <span class="lb-col-option__text" :title="opt.label">{{ opt.label }}</span>
             </label>
           </div>
+          <div v-else class="lb-col-panel__empty">{{ t('tableColumn.filterEmpty') }}</div>
         </div>
 
         <div v-if="dateRange" class="lb-col-panel__filter" @mousedown.stop>
@@ -276,8 +315,26 @@ function toggleOption(value: string) {
             <el-icon :size="14"><Calendar /></el-icon>
             <span>{{ t('tableColumn.dateRange') }}</span>
           </div>
+          <!-- 仅日期列（无多选区）时，在此提供空值勾选 -->
+          <label v-if="!filterable" class="lb-col-option lb-col-option--empty">
+            <el-checkbox
+              :model-value="hasEmptyFilter"
+              @update:model-value="toggleEmptyFilter"
+            />
+            <span class="lb-col-option__text">{{ t('tableColumn.filterEmptyValue') }}</span>
+          </label>
           <div class="lb-col-panel__filter-actions">
-            <button type="button" class="lb-col-link" :disabled="!hasDateRange" @click="clearDateRange">
+            <button
+              type="button"
+              class="lb-col-link"
+              :disabled="!hasDateRange && !hasEmptyFilter"
+              @click="
+                () => {
+                  clearDateRange()
+                  if (hasEmptyFilter) clearFilter()
+                }
+              "
+            >
               {{ t('tableColumn.clearFilter') }}
             </button>
           </div>

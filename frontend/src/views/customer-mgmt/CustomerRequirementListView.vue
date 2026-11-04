@@ -52,6 +52,7 @@ import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import type { ContractRecord } from '@/types/contract'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
@@ -60,6 +61,7 @@ import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney, formatNumber2 } from '@/utils/format'
+import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
 import {
   displayLeaseDuration,
   formatLeaseDuration,
@@ -80,10 +82,13 @@ const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
 const perms = useResourcePermissions('customerRequirements')
-/** 跟進 + 取消，按当前语言文案测宽（英文 Follow up 比「编辑」宽） */
+/** 跟進 / 取消：按权限与当前语言文案测宽（英文 Follow up 比「编辑」宽） */
 const requirementActionColWidth = computed(() => {
   void locale.value
-  return measureActionColWidth([t('customerRequirement.followUp'), t('common.cancel')])
+  const labels: string[] = []
+  if (perms.update) labels.push(t('customerRequirement.followUp'))
+  if (perms.delete) labels.push(t('common.cancel'))
+  return measureActionColWidth(labels)
 })
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
@@ -120,6 +125,7 @@ const {
   sortKey,
   sortOrder,
   dateRanges,
+  uniqueOptions,
 } = sortFilter
 
 const {
@@ -140,19 +146,26 @@ const {
   sortFilter,
   buildQuery: ({ keyword: kw, sortBy, sortDir, page: p, pageSize: ps, range, filters: f }) => ({
     keyword: kw,
-    statuses: f.status?.length ? [...f.status] : undefined,
-    rentalTypes: f.rentalType?.length ? [...f.rentalType] : undefined,
-    customerNames: f.customerName?.length ? [...f.customerName] : undefined,
-    salesManagers: f.salesManager?.length ? [...f.salesManager] : undefined,
-    sizeConfigLabels: f.sizeConfigLabel?.length ? [...f.sizeConfigLabel] : undefined,
-    acConfigLabels: f.acConfigLabel?.length ? [...f.acConfigLabel] : undefined,
-    windowConfigLabels: f.windowConfigLabel?.length ? [...f.windowConfigLabel] : undefined,
+    statuses: packFilterValues(f.status),
+    rentalTypes: packFilterValues(f.rentalType),
+    customerNames: packFilterValues(f.customerName),
+    salesManagers: packFilterValues(f.salesManager),
+    requirementCodes: packFilterValues(f.requirementCode),
+    leaseDurations: packFilterValues(f.leaseDuration),
+    budgets: packFilterValues(f.budget),
+    sizeConfigLabels: packFilterValues(f.sizeConfigLabel),
+    acConfigLabels: packFilterValues(f.acConfigLabel),
+    windowConfigLabels: packFilterValues(f.windowConfigLabel),
     sortBy,
     sortDir,
     requirementDateFrom: range('requirementDate').from,
     requirementDateTo: range('requirementDate').to,
+    requirementDateEmpty:
+      (f.requirementDate || []).includes(EMPTY_FILTER_VALUE) || undefined,
     createdAtFrom: range('createdAt').from,
     createdAtTo: range('createdAt').to,
+    createdAtEmpty: (f.createdAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
+    createdBys: packFilterValues(f.createdBy),
     page: p,
     pageSize: ps,
   }),
@@ -194,7 +207,7 @@ async function onSelectAll() {
 }
 
 async function onBatchCancel() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('customerRequirement.batchCancelConfirm', { n: selectedIds.value.length }),
@@ -222,6 +235,27 @@ async function onBatchCancel() {
     batchDeleting.value = false
   }
 }
+
+function uniqueListOptions(
+  get: (row: CustomerRequirementRecord) => string | number | null | undefined,
+  labelOf?: (value: string) => string,
+) {
+  return uniqueOptions(list.value, get, labelOf)
+}
+
+const requirementCodeFilterOptions = computed(() => uniqueListOptions((r) => r.requirementCode))
+const leaseDurationFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => r.leaseDuration,
+    (v) => displayLeaseDuration(v, t) || v,
+  ),
+)
+const budgetFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.budget == null ? '' : String(r.budget)),
+    (v) => formatMoney(Number(v)),
+  ),
+)
 
 const statusFilterOptions = computed(() =>
   CUSTOMER_REQUIREMENT_STATUSES.map((s) => ({
@@ -275,6 +309,7 @@ const windowConfigFilterOptions = computed(() =>
     .map((o) => ({ value: o.label, label: o.label }))
     .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant')),
 )
+const createdByFilterOptions = computed(() => uniqueListOptions((r) => r.createdBy))
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '860px'))
 
@@ -486,7 +521,7 @@ watch(matchedRooms, () => {
 })
 
 async function openCreate() {
-  if (!perms.create.value) return
+  if (!perms.create) return
   editing.value = null
   if (!users.value.length) {
     try {
@@ -528,7 +563,7 @@ async function openCreate() {
 }
 
 function openEdit(row: CustomerRequirementRecord) {
-  if (!perms.update.value) return
+  if (!perms.update) return
   editing.value = row
   const lease = parseLeaseDuration(row.leaseDuration)
   const rentalType =
@@ -595,7 +630,7 @@ async function saveForm() {
 }
 
 async function onCancel(row: CustomerRequirementRecord) {
-  if (!perms.delete.value) return
+  if (!perms.delete) return
   if (row.status === '已取消') {
     ElMessage.info(t('customerRequirement.alreadyCancelled'))
     return
@@ -731,7 +766,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('customerRequirement.importAdminOnly'))
     return
   }
@@ -833,6 +868,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.customerRequirements') }}</h2>
       <div class="head-actions">
         <el-input
@@ -886,6 +922,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -900,7 +937,7 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${requirementActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -937,8 +974,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('customerRequirement.fields.requirementCode')"
+                filterable
                 sortable
+                :options="requirementCodeFilterOptions"
+                :model-value="filters.requirementCode || []"
                 :sort-order="sortOrderOf('requirementCode')"
+                @update:model-value="(v) => setFilter('requirementCode', v)"
                 @update:sort-order="(v) => setSort('requirementCode', v)"
               />
             </template>
@@ -996,9 +1037,11 @@ async function onImportFile(ev: Event) {
                 :label="t('customerRequirement.fields.requirementDate')"
                 sortable
                 date-range
+                :model-value="filters.requirementDate || []"
                 :sort-order="sortOrderOf('requirementDate')"
                 :date-range-value="dateRangeOf('requirementDate')"
                 @update:sort-order="(v) => setSort('requirementDate', v)"
+                @update:model-value="(v) => setFilter('requirementDate', v)"
                 @update:date-range-value="(v) => setDateRange('requirementDate', v)"
               />
             </template>
@@ -1064,8 +1107,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('customerRequirement.fields.leaseDuration')"
+                filterable
                 sortable
+                :options="leaseDurationFilterOptions"
+                :model-value="filters.leaseDuration || []"
                 :sort-order="sortOrderOf('leaseDuration')"
+                @update:model-value="(v) => setFilter('leaseDuration', v)"
                 @update:sort-order="(v) => setSort('leaseDuration', v)"
               />
             </template>
@@ -1080,8 +1127,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('customerRequirement.fields.budget')"
+                filterable
                 sortable
+                :options="budgetFilterOptions"
+                :model-value="filters.budget || []"
                 :sort-order="sortOrderOf('budget')"
+                @update:model-value="(v) => setFilter('budget', v)"
                 @update:sort-order="(v) => setSort('budget', v)"
               />
             </template>
@@ -1166,11 +1217,23 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             :width="datetimeColWidth"
             class-name="col-datetime"
@@ -1181,9 +1244,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -1201,6 +1266,7 @@ async function onImportFile(ev: Event) {
               <div class="action-pills" @click.stop>
                 <button
                   v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click="openEdit(row as CustomerRequirementRecord)"
@@ -1209,6 +1275,7 @@ async function onImportFile(ev: Event) {
                 </button>
                 <button
                   v-if="perms.delete && (row as CustomerRequirementRecord).status !== '已取消'"
+                  v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click="onCancel(row as CustomerRequirementRecord)"

@@ -511,12 +511,27 @@ function setCachedInvoiceTicket(invoiceId: string, ticket: InvoicePreviewTicket)
   }
 }
 
+/** 发票数据变更后清预览缓存，避免列印仍用旧 PDF 票据 */
+export function invalidateInvoicePdfCache(invoiceId?: string | null) {
+  const id = String(invoiceId ?? '').trim()
+  if (id) {
+    invoiceTicketCache.delete(id)
+    invoiceTicketInflight.delete(id)
+    return
+  }
+  invoiceTicketCache.clear()
+  invoiceTicketInflight.clear()
+}
+
 async function fetchInvoicePreviewTicket(
   invoiceId: string,
-  opts?: { silentError?: boolean },
+  opts?: { silentError?: boolean; force?: boolean },
 ): Promise<InvoicePreviewTicket> {
-  const cached = getCachedInvoiceTicket(invoiceId)
-  if (cached) return cached
+  if (opts?.force) invalidateInvoicePdfCache(invoiceId)
+  else {
+    const cached = getCachedInvoiceTicket(invoiceId)
+    if (cached) return cached
+  }
 
   const inflight = invoiceTicketInflight.get(invoiceId)
   if (inflight) return inflight
@@ -531,7 +546,10 @@ async function fetchInvoicePreviewTicket(
     const fileName = String(res.data?.fileName || 'invoice.pdf')
     if (!ticket) throw new Error('未能创建 PDF 预览')
     const entry = { ticket, fileName, at: Date.now() }
-    setCachedInvoiceTicket(invoiceId, entry)
+    // 若期间已被 invalidate／force 换新任务，勿把旧预热结果写回缓存
+    if (invoiceTicketInflight.get(invoiceId) === task) {
+      setCachedInvoiceTicket(invoiceId, entry)
+    }
     return entry
   })()
 
@@ -539,7 +557,9 @@ async function fetchInvoicePreviewTicket(
   try {
     return await task
   } finally {
-    invoiceTicketInflight.delete(invoiceId)
+    if (invoiceTicketInflight.get(invoiceId) === task) {
+      invoiceTicketInflight.delete(invoiceId)
+    }
   }
 }
 
@@ -581,6 +601,7 @@ export function prefetchInvoicePdfApi(invoiceId: string) {
 /**
  * 在浏览器新标签页预览发票最终 PDF。
  * 走短时预览 URL，「另存为」为「发票编号-客户名称.pdf」。
+ * 有缓存则复用（悬停预热）；发票／服务细节变更处须调用 invalidateInvoicePdfCache。
  */
 export async function previewInvoicePdfApi(
   invoiceId: string,

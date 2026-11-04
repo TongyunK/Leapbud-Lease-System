@@ -29,9 +29,14 @@ export type ReceiptListQuery = {
   customerNames?: string[]
   paymentMethod?: string[]
   kinds?: string[]
+  receiptCodes?: string[]
   contractCodes?: string[]
   invoiceCodes?: string[]
   receivableCodes?: string[]
+  amounts?: string[]
+  remarks?: string[]
+  changeLogs?: string[]
+  createdBys?: string[]
   contractId?: string
   contractIds?: string[]
   invoiceId?: string
@@ -63,9 +68,14 @@ export function fetchReceipts(params?: ReceiptListQuery) {
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.paymentMethod?.length) query.paymentMethod = params.paymentMethod.join(',')
   if (params?.kinds?.length) query.kinds = params.kinds.join(',')
+  if (params?.receiptCodes?.length) query.receiptCodes = params.receiptCodes.join(',')
   if (params?.contractCodes?.length) query.contractCodes = params.contractCodes.join(',')
   if (params?.invoiceCodes?.length) query.invoiceCodes = params.invoiceCodes.join(',')
   if (params?.receivableCodes?.length) query.receivableCodes = params.receivableCodes.join(',')
+  if (params?.amounts?.length) query.amounts = params.amounts.join(',')
+  if (params?.remarks?.length) query.remarks = params.remarks.join(',')
+  if (params?.changeLogs?.length) query.changeLogs = params.changeLogs.join(',')
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
   if (params?.contractId) query.contractId = params.contractId
   if (params?.contractIds?.length) query.contractIds = params.contractIds.join(',')
   if (params?.invoiceId) query.invoiceId = params.invoiceId
@@ -87,8 +97,11 @@ export function fetchReceipt(id: string) {
   return request.get<ReceiptRecord>(`/receipts/${id}`)
 }
 
-export function createReceiptApi(payload: ReceiptWritePayload) {
-  return request.post<ReceiptRecord>('/receipts', payload)
+export function createReceiptApi(
+  payload: ReceiptWritePayload,
+  opts?: { silentError?: boolean },
+) {
+  return request.post<ReceiptRecord>('/receipts', payload, opts)
 }
 
 export function updateReceiptApi(id: string, payload: Partial<ReceiptWritePayload>) {

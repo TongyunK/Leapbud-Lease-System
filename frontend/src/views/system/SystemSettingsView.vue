@@ -77,7 +77,7 @@ function resetForm() {
 }
 
 async function save() {
-  if (!perms.update.value) return
+  if (!perms.update) return
   const days = Math.trunc(Number(form.rentInvoiceLeadDays))
   if (!Number.isFinite(days) || days < 1 || days > 90) {
     ElMessage.warning(t('systemSettings.leadDaysInvalid'))
@@ -152,7 +152,7 @@ onMounted(() => {
                   :min="1"
                   :max="90"
                   :step="1"
-                  :disabled="!perms.update.value"
+                  :disabled="!perms.update"
                   controls-position="right"
                   @change="markDirty"
                 />
@@ -175,7 +175,7 @@ onMounted(() => {
           </template>
           <span v-if="dirty" class="system-settings__dirty">{{ t('systemSettings.unsaved') }}</span>
         </div>
-        <div v-if="perms.update.value" class="system-settings__actions">
+        <div v-if="perms.update" class="system-settings__actions">
           <el-button :disabled="!dirty || saving" @click="resetForm">
             <el-icon class="el-icon--left"><RefreshRight /></el-icon>
             {{ t('systemSettings.reset') }}

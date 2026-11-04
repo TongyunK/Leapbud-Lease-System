@@ -25,6 +25,8 @@ import {
 } from '../common/pagination';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import { actorLabelsOrEmpty } from '../common/audit';
+import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -62,6 +64,11 @@ export class InvoiceServiceDetailsService {
   async findAll(params: {
     keyword?: string;
     invoiceId?: string;
+    invoiceCodes?: string[];
+    quantities?: string[];
+    unitAmounts?: string[];
+    subtotals?: string[];
+    createdBys?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     createdAtFrom?: string;
@@ -96,11 +103,37 @@ export class InvoiceServiceDetailsService {
   private buildListWhere(params: {
     keyword?: string;
     invoiceId?: string;
+    invoiceCodes?: string[];
+    quantities?: string[];
+    unitAmounts?: string[];
+    subtotals?: string[];
+    createdBys?: string[];
     createdAtFrom?: string;
     createdAtTo?: string;
   }): Prisma.InvoiceServiceDetailWhereInput {
     const where: Prisma.InvoiceServiceDetailWhereInput = {};
     if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim();
+
+    const and: Prisma.InvoiceServiceDetailWhereInput[] = [];
+
+    const invoiceCodeClause = stringFieldInOrEmpty('invoiceCode', params.invoiceCodes);
+    if (invoiceCodeClause) {
+      and.push({ invoice: invoiceCodeClause } as Prisma.InvoiceServiceDetailWhereInput);
+    }
+
+    const quantityClause = numberFieldInOrEmpty('quantity', params.quantities);
+    if (quantityClause) and.push(quantityClause as Prisma.InvoiceServiceDetailWhereInput);
+
+    const unitAmountClause = numberFieldInOrEmpty('unitAmount', params.unitAmounts);
+    if (unitAmountClause) and.push(unitAmountClause as Prisma.InvoiceServiceDetailWhereInput);
+
+    const subtotalClause = numberFieldInOrEmpty('subtotal', params.subtotals);
+    if (subtotalClause) and.push(subtotalClause as Prisma.InvoiceServiceDetailWhereInput);
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys);
+    if (createdByClause) and.push(createdByClause as Prisma.InvoiceServiceDetailWhereInput);
+
+    if (and.length) where.AND = and;
 
     const keyword = params.keyword?.trim();
     if (keyword) {

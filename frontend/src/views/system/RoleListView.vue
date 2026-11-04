@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ElTree } from 'element-plus'
 import { resolveMenuIcon } from '@/utils/menuIcons'
@@ -56,12 +56,12 @@ function permLabel(item: PermissionItem) {
 
 const roleActionWidth = computed(() => {
   void locale.value
-  return measureActionColWidth([
-    t('common.edit'),
-    t('role.menus'),
-    t('role.permissions'),
-    t('common.delete'),
-  ])
+  const labels: string[] = []
+  if (perms.update) {
+    labels.push(t('common.edit'), t('role.menus'), t('role.permissions'))
+  }
+  if (perms.delete) labels.push(t('common.delete'))
+  return measureActionColWidth(labels)
 })
 
 const loading = ref(false)
@@ -82,6 +82,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<RoleRecord>()
 
 const columnGetters = {
@@ -91,9 +92,18 @@ const columnGetters = {
   active: (o: RoleRecord) => String(o.active),
   menuCount: (o: RoleRecord) => o.menuCount,
   permissionCount: (o: RoleRecord) => o.permissionCount,
+  createdBy: (o: RoleRecord) => o.createdBy,
   createdAt: (o: RoleRecord) => o.createdAt,
 }
 
+const codeFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.code))
+const nameFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.name))
+const sortOrderFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.sortOrder))
+const menuCountFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.menuCount))
+const permissionCountFilterOptions = computed(() =>
+  uniqueOptions(list.value, (o) => o.permissionCount),
+)
+const createdByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.createdBy))
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
@@ -366,6 +376,7 @@ const permsLoading = ref(false)
 const permsSaving = ref(false)
 const permsCatalog = ref<PermissionModuleGroup[]>([])
 const checkedPermCodes = ref<string[]>([])
+const permsKeyword = ref('')
 /** 超级管理员角色：始终全权限，不可改 */
 const permsIsSuperAdminRole = computed(
   () => String(permsTarget.value?.code || '').trim().toLowerCase() === 'superadmin',
@@ -377,20 +388,74 @@ const permsReadOnly = computed(
 )
 const permsSelectedCount = computed(() => checkedPermCodes.value.length)
 
+/** 非超管：目录再与本人权限求交，搜索／勾选范围与登录用户可见范围一致 */
+function scopeCatalogByActor(catalog: PermissionModuleGroup[]): PermissionModuleGroup[] {
+  if (userStore.isSuperAdmin) return catalog
+  const allow = new Set(userStore.permissions)
+  return catalog
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((i) => allow.has(i.code)),
+    }))
+    .filter((g) => g.items.length > 0)
+}
+
+const scopedPermsCatalog = computed(() => scopeCatalogByActor(permsCatalog.value))
+
+const filteredPermsCatalog = computed(() => {
+  const q = permsKeyword.value.trim().toLowerCase()
+  const base = scopedPermsCatalog.value
+  if (!q) return base
+  const out: PermissionModuleGroup[] = []
+  for (const group of base) {
+    const moduleLabel = permissionModuleLabel(group.module, t, te, group.moduleName).toLowerCase()
+    const moduleHit =
+      moduleLabel.includes(q) ||
+      String(group.module || '')
+        .toLowerCase()
+        .includes(q) ||
+      String(group.moduleName || '')
+        .toLowerCase()
+        .includes(q)
+    const items = moduleHit
+      ? group.items
+      : group.items.filter((item) => {
+          const label = permLabel(item).toLowerCase()
+          return (
+            label.includes(q) ||
+            item.code.toLowerCase().includes(q) ||
+            String(item.action || '')
+              .toLowerCase()
+              .includes(q) ||
+            String(item.name || '')
+              .toLowerCase()
+              .includes(q)
+          )
+        })
+    if (items.length) out.push({ ...group, items })
+  }
+  return out
+})
+
 async function openPermissions(row: RoleRecord) {
   permsTarget.value = row
   permsDrawerVisible.value = true
   permsLoading.value = true
+  permsKeyword.value = ''
   checkedPermCodes.value = []
   try {
+    // 先刷新本人权限，保证目录／搜索可见范围与当前登录态一致
+    await userStore.loadPermissions()
     const [catalogRes, rolePermsRes] = await Promise.all([
       fetchPermissionCatalogApi(),
       fetchRolePermissionsApi(row.id),
     ])
-    const catalog = (catalogRes.data ?? []).filter((g) => (g.items?.length ?? 0) > 0)
+    const catalog = scopeCatalogByActor(
+      (catalogRes.data ?? []).filter((g) => (g.items?.length ?? 0) > 0),
+    )
     permsCatalog.value = catalog
     const allowed = new Set(catalog.flatMap((g) => g.items.map((i) => i.code)))
-    // 仅勾选目录内可见项；自身没有的码不展示，保存时由后端保留目标角色上这些码
+    // 仅勾选本人可见项；操作者没有的码不展示，保存时由后端保留
     checkedPermCodes.value = (rolePermsRes.data.codes ?? []).filter((c) => allowed.has(c))
   } catch {
     /* interceptor */
@@ -400,7 +465,8 @@ async function openPermissions(row: RoleRecord) {
 }
 
 function selectAllPerms() {
-  checkedPermCodes.value = permsCatalog.value.flatMap((g) => g.items.map((i) => i.code))
+  const visible = filteredPermsCatalog.value.flatMap((g) => g.items.map((i) => i.code))
+  checkedPermCodes.value = [...new Set([...checkedPermCodes.value, ...visible])]
 }
 
 function clearAllPerms() {
@@ -408,7 +474,12 @@ function clearAllPerms() {
 }
 
 function selectModulePerms(group: PermissionModuleGroup) {
-  const codes = group.items.map((i) => i.code)
+  const allow = userStore.isSuperAdmin
+    ? null
+    : new Set(userStore.permissions)
+  const codes = group.items
+    .map((i) => i.code)
+    .filter((c) => !allow || allow.has(c))
   checkedPermCodes.value = [...new Set([...checkedPermCodes.value, ...codes])]
 }
 
@@ -449,7 +520,7 @@ async function savePermissions() {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${roleActionWidth}`"
           :data="paged"
           row-key="id"
           height="100%"
@@ -483,8 +554,12 @@ async function savePermissions() {
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.code')"
+                filterable
                 sortable
+                :options="codeFilterOptions"
+                :model-value="filters.code || []"
                 :sort-order="sortOrderOf('code')"
+                @update:model-value="(v) => setFilter('code', v)"
                 @update:sort-order="(v) => setSort('code', v)"
               />
             </template>
@@ -496,8 +571,12 @@ async function savePermissions() {
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.name')"
+                filterable
                 sortable
+                :options="nameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -516,8 +595,12 @@ async function savePermissions() {
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.sortOrder')"
+                filterable
                 sortable
+                :options="sortOrderFilterOptions"
+                :model-value="filters.sortOrder || []"
                 :sort-order="sortOrderOf('sortOrder')"
+                @update:model-value="(v) => setFilter('sortOrder', v)"
                 @update:sort-order="(v) => setSort('sortOrder', v)"
               />
             </template>
@@ -529,8 +612,12 @@ async function savePermissions() {
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.menuCount')"
+                filterable
                 sortable
+                :options="menuCountFilterOptions"
+                :model-value="filters.menuCount || []"
                 :sort-order="sortOrderOf('menuCount')"
+                @update:model-value="(v) => setFilter('menuCount', v)"
                 @update:sort-order="(v) => setSort('menuCount', v)"
               />
             </template>
@@ -553,8 +640,12 @@ async function savePermissions() {
             <template #header>
               <TableColumnHeader
                 :label="t('role.fields.permissionCount')"
+                filterable
                 sortable
+                :options="permissionCountFilterOptions"
+                :model-value="filters.permissionCount || []"
                 :sort-order="sortOrderOf('permissionCount')"
+                @update:model-value="(v) => setFilter('permissionCount', v)"
                 @update:sort-order="(v) => setSort('permissionCount', v)"
               />
             </template>
@@ -591,11 +682,23 @@ async function savePermissions() {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="createdAt"
             :width="datetimeColWidth"
@@ -607,9 +710,11 @@ async function savePermissions() {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -803,6 +908,15 @@ async function savePermissions() {
         <p v-else-if="!userStore.isSuperAdmin && !permsReadOnly" class="perms-admin-hint">
           {{ t('role.permissionsAssignScopeHint') }}
         </p>
+        <div class="perms-search">
+          <el-input
+            v-model="permsKeyword"
+            clearable
+            :prefix-icon="Search"
+            :placeholder="t('role.permissionsSearchPlaceholder')"
+            class="perms-search__input"
+          />
+        </div>
         <div class="menus-toolbar">
           <span class="menus-selected">{{ t('role.permissionsSelected', { n: permsSelectedCount }) }}</span>
           <div class="menus-toolbar-actions">
@@ -825,7 +939,7 @@ async function savePermissions() {
           </div>
         </div>
         <div v-loading="permsLoading" class="perms-list-wrap">
-          <div v-for="group in permsCatalog" :key="group.module" class="perms-module">
+          <div v-for="group in filteredPermsCatalog" :key="group.module" class="perms-module">
             <div class="perms-module-head">
               <span class="perms-module-name">
                 {{ permissionModuleLabel(group.module, t, te, group.moduleName) }}
@@ -851,7 +965,9 @@ async function savePermissions() {
               </el-checkbox>
             </el-checkbox-group>
           </div>
-          <p v-if="!permsLoading && !permsCatalog.length" class="menus-empty">—</p>
+          <p v-if="!permsLoading && !filteredPermsCatalog.length" class="menus-empty">
+            {{ permsKeyword.trim() ? t('role.permissionsSearchEmpty') : '—' }}
+          </p>
         </div>
       </div>
       <template #footer>
@@ -893,6 +1009,53 @@ async function savePermissions() {
   color: #3d4f45;
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.perms-search {
+  flex-shrink: 0;
+  margin: 0 0 10px;
+}
+
+.perms-search__input {
+  width: 100%;
+}
+
+.perms-search__input :deep(.el-input__wrapper) {
+  min-height: 34px;
+  padding-inline: 12px 10px;
+  border-radius: 999px !important;
+  background: #fafbfa !important;
+  box-shadow: 0 0 0 1px #d7ded9 inset !important;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.perms-search__input :deep(.el-input__wrapper:hover) {
+  background: #fff !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d7ded9) inset !important;
+}
+
+.perms-search__input :deep(.el-input__wrapper.is-focus) {
+  background: #fff !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #d7ded9) inset,
+    0 0 0 3px rgba(15, 74, 50, 0.1) !important;
+}
+
+.perms-search__input :deep(.el-input__inner) {
+  color: #1a2a22;
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.perms-search__input :deep(.el-input__inner::placeholder) {
+  color: #8a9a92;
+}
+
+.perms-search__input :deep(.el-input__prefix),
+.perms-search__input :deep(.el-input__suffix) {
+  color: #5a6b62;
 }
 
 .perms-list-wrap {

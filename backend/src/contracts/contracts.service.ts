@@ -15,13 +15,17 @@ import {
   ImportContractsDto,
   OpenContractOrderDto,
 } from './dto/contract.dto';
-import { contractInclude, toContractDto } from './contract.mapper';
+import {
+  contractInclude,
+  toContractDto,
+  type ContractWithRelations,
+} from './contract.mapper';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { InvoiceAutoService } from '../invoices/invoice-auto.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import type { ContractExpiringSoonConfig } from '../system-settings/system-settings.constants';
-import { userWhereActorLabels } from '../common/audit';
+import { actorLabelsOrEmpty } from '../common/audit';
 import {
   dateRangeFilter,
   paginateArgs,
@@ -30,6 +34,14 @@ import {
   parseSortDir,
   type PaginatedResult,
 } from '../common/pagination';
+import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter';
+import {
+  contractWhereCollectedRent,
+  contractWhereUncollectedRent,
+  rentCollectionInvoiceFilter,
+  unpaidRentReceivableWhere,
+  type RentCollectionStatus,
+} from '../common/rent-collection';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 import {
@@ -343,6 +355,16 @@ export class ContractsService {
     return { count, config };
   }
 
+  /** 页头「当前应收>0」数量（下属应收金额合计意义上：存在应收金额 > 0 的应收） */
+  async countOutstandingReceivable(): Promise<{ count: number }> {
+    const where: Prisma.ContractWhereInput = {
+      receivables: { some: { receivableAmount: { gt: 0 } } },
+    };
+    await this.access.constrain(where, 'viaRoom');
+    const count = await this.prisma.contract.count({ where });
+    return { count };
+  }
+
   async findAll(params: {
     keyword?: string;
     status?: string;
@@ -351,12 +373,14 @@ export class ContractsService {
     roomId?: string;
     requirementId?: string;
     buildingIds?: string[];
+    contractCodes?: string[];
     roomCodes?: string[];
     customerNames?: string[];
     salesManagers?: string[];
     leaseTypes?: string[];
     /** 租赁方式筛选：whole | part | part:A */
     occupancyKeys?: string[];
+    monthlyRents?: string[];
     paymentCycles?: string[];
     paymentMethods?: string[];
     sortBy?: string;
@@ -367,8 +391,16 @@ export class ContractsService {
     endDateTo?: string;
     createdAtFrom?: string;
     createdAtTo?: string;
+    createdBys?: string[];
+    createdAtEmpty?: boolean;
+    startDateEmpty?: boolean;
+    endDateEmpty?: boolean;
     /** 页头「即将到期」：按系统设置套用到期窗与状态 */
     expiringSoon?: boolean;
+    /** 页头「当前应收>0」：存在应收金额大于 0 的下属应收 */
+    hasOutstandingReceivable?: boolean;
+    /** 收租情况：collected | uncollected */
+    rentCollectionStatuses?: string[];
     page?: number;
     pageSize?: number;
   }): Promise<PaginatedResult<ReturnType<typeof toContractDto>>> {
@@ -404,17 +436,15 @@ export class ContractsService {
       }
       await this.access.constrain(where, 'viaRoom');
       const { skip, take } = paginateArgs(page, pageSize);
-      const [total, rows] = await this.prisma.$transaction([
-        this.prisma.contract.count({ where }),
-        this.prisma.contract.findMany({
-          where,
-          include: contractInclude,
-          orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
-          ...(skip != null ? { skip, take } : {}),
-        }),
-      ]);
+      const { total, rows } = await this.findListRows(
+        where,
+        params.sortBy,
+        params.sortDir,
+        skip,
+        take,
+      );
       return {
-        items: rows.map((r) => toContractDto(r)),
+        items: (await this.attachListExtras(rows)).map((r) => toContractDto(r)),
         total,
         page,
         pageSize: pageSize ?? total,
@@ -424,22 +454,179 @@ export class ContractsService {
     await this.access.constrain(where, 'viaRoom');
     const { skip, take } = paginateArgs(page, pageSize);
 
+    const { total, rows } = await this.findListRows(
+      where,
+      params.sortBy,
+      params.sortDir,
+      skip,
+      take,
+    );
+
+    return {
+      items: (await this.attachListExtras(rows)).map((r) => toContractDto(r)),
+      total,
+      page: pageSize == null ? 1 : page,
+      pageSize: pageSize == null ? total : pageSize,
+    };
+  }
+
+  /** 列表附加：应收合计 + 收租情况 */
+  private async attachListExtras(
+    rows: ContractWithRelations[],
+  ): Promise<ContractWithRelations[]> {
+    await this.attachReceivableAmountTotals(rows);
+    await this.attachRentCollectionStatuses(rows);
+    return rows;
+  }
+
+  /** 按页附加各合约当前应收金额合计（所有下属应收的 receivableAmount 之和） */
+  private async attachReceivableAmountTotals(
+    rows: ContractWithRelations[],
+  ): Promise<ContractWithRelations[]> {
+    if (!rows.length) return rows;
+    const ids = rows.map((r) => r.id);
+    const grouped = await this.prisma.receivable.groupBy({
+      by: ['contractId'],
+      where: { contractId: { in: ids } },
+      _sum: { receivableAmount: true },
+    });
+    const sumById = new Map(
+      grouped
+        .filter((g) => g.contractId)
+        .map((g) => [g.contractId as string, Number(g._sum.receivableAmount ?? 0)]),
+    );
+    for (const row of rows) {
+      row.receivableAmountTotal = sumById.get(row.id) ?? 0;
+    }
+    return rows;
+  }
+
+  /**
+   * 收租情况：按金（Deposit）+ 租金期（1, Charging Period）发票对应应收是否缴清。
+   * 有未缴清或尚无此类发票 → 未收租；全部缴清 → 已收租。
+   */
+  private async attachRentCollectionStatuses(
+    rows: ContractWithRelations[],
+  ): Promise<ContractWithRelations[]> {
+    if (!rows.length) return rows;
+    const ids = rows.map((r) => r.id);
+
+    const [unpaidRows, invoiceRows] = await Promise.all([
+      this.prisma.receivable.findMany({
+        where: unpaidRentReceivableWhere(ids),
+        select: { contractId: true },
+        distinct: ['contractId'],
+      }),
+      this.prisma.invoice.findMany({
+        where: {
+          contractId: { in: ids },
+          ...rentCollectionInvoiceFilter(),
+        },
+        select: { contractId: true },
+        distinct: ['contractId'],
+      }),
+    ]);
+    const unpaidSet = new Set(
+      unpaidRows.map((r) => r.contractId).filter((id): id is string => Boolean(id)),
+    );
+    const hasInvoiceSet = new Set(
+      invoiceRows.map((r) => r.contractId).filter((id): id is string => Boolean(id)),
+    );
+    for (const row of rows) {
+      const status: RentCollectionStatus =
+        unpaidSet.has(row.id) || !hasInvoiceSet.has(row.id) ? 'uncollected' : 'collected';
+      row.rentCollectionStatus = status;
+    }
+    return rows;
+  }
+
+  private async findListRows(
+    where: Prisma.ContractWhereInput,
+    sortBy?: string,
+    sortDir?: string,
+    skip?: number,
+    take?: number,
+  ): Promise<{ total: number; rows: ContractWithRelations[] }> {
+    const dir = parseSortDir(sortDir) ?? 'desc';
+    const sortKey = (sortBy || '').trim();
+
+    if (sortKey === 'receivableAmountTotal' || sortKey === 'rentCollectionStatus') {
+      const total = await this.prisma.contract.count({ where });
+      const allIds = (
+        await this.prisma.contract.findMany({ where, select: { id: true } })
+      ).map((r) => r.id);
+      if (!allIds.length) return { total, rows: [] };
+
+      let sortedIds: string[];
+      if (sortKey === 'rentCollectionStatus') {
+        const unpaidRows = await this.prisma.receivable.findMany({
+          where: unpaidRentReceivableWhere(allIds),
+          select: { contractId: true },
+          distinct: ['contractId'],
+        });
+        const invoiceRows = await this.prisma.invoice.findMany({
+          where: {
+            contractId: { in: allIds },
+            ...rentCollectionInvoiceFilter(),
+          },
+          select: { contractId: true },
+          distinct: ['contractId'],
+        });
+        const unpaidSet = new Set(
+          unpaidRows.map((r) => r.contractId).filter((id): id is string => Boolean(id)),
+        );
+        const hasInvoiceSet = new Set(
+          invoiceRows.map((r) => r.contractId).filter((id): id is string => Boolean(id)),
+        );
+        const rank = (id: string) =>
+          unpaidSet.has(id) || !hasInvoiceSet.has(id) ? 0 : 1; // uncollected < collected
+        sortedIds = [...allIds].sort((a, b) => {
+          const da = rank(a);
+          const db = rank(b);
+          return dir === 'asc' ? da - db : db - da;
+        });
+      } else {
+        const grouped = await this.prisma.receivable.groupBy({
+          by: ['contractId'],
+          where: { contractId: { in: allIds } },
+          _sum: { receivableAmount: true },
+        });
+        const sumById = new Map(
+          grouped
+            .filter((g) => g.contractId)
+            .map((g) => [g.contractId as string, Number(g._sum.receivableAmount ?? 0)]),
+        );
+        sortedIds = [...allIds].sort((a, b) => {
+          const da = sumById.get(a) ?? 0;
+          const db = sumById.get(b) ?? 0;
+          return dir === 'asc' ? da - db : db - da;
+        });
+      }
+      const pageIds =
+        skip != null && take != null ? sortedIds.slice(skip, skip + take) : sortedIds;
+      if (!pageIds.length) return { total, rows: [] };
+
+      const unordered = await this.prisma.contract.findMany({
+        where: { id: { in: pageIds } },
+        include: contractInclude,
+      });
+      const byId = new Map(unordered.map((r) => [r.id, r]));
+      const rows = pageIds
+        .map((id) => byId.get(id))
+        .filter((r): r is NonNullable<typeof r> => Boolean(r));
+      return { total, rows };
+    }
+
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.contract.count({ where }),
       this.prisma.contract.findMany({
         where,
         include: contractInclude,
-        orderBy: this.buildListOrderBy(params.sortBy, params.sortDir),
+        orderBy: this.buildListOrderBy(sortBy, dir),
         ...(skip != null ? { skip, take } : {}),
       }),
     ]);
-
-    return {
-      items: rows.map(toContractDto),
-      total,
-      page: pageSize == null ? 1 : page,
-      pageSize: pageSize == null ? total : pageSize,
-    };
+    return { total, rows };
   }
 
   private buildListWhere(params: {
@@ -450,11 +637,13 @@ export class ContractsService {
     roomId?: string;
     requirementId?: string;
     buildingIds?: string[];
+    contractCodes?: string[];
     roomCodes?: string[];
     customerNames?: string[];
     salesManagers?: string[];
     leaseTypes?: string[];
     occupancyKeys?: string[];
+    monthlyRents?: string[];
     paymentCycles?: string[];
     paymentMethods?: string[];
     startDateFrom?: string;
@@ -463,9 +652,38 @@ export class ContractsService {
     endDateTo?: string;
     createdAtFrom?: string;
     createdAtTo?: string;
+    createdBys?: string[];
+    createdAtEmpty?: boolean;
+    startDateEmpty?: boolean;
+    endDateEmpty?: boolean;
+    hasOutstandingReceivable?: boolean;
+    rentCollectionStatuses?: string[];
   }): Prisma.ContractWhereInput {
     const where: Prisma.ContractWhereInput = {};
     const and: Prisma.ContractWhereInput[] = [];
+
+    if (params.hasOutstandingReceivable) {
+      and.push({ receivables: { some: { receivableAmount: { gt: 0 } } } });
+    }
+
+    const rentStatuses = [
+      ...new Set(
+        (params.rentCollectionStatuses || [])
+          .map((v) => s(v).toLowerCase())
+          .filter((v): v is RentCollectionStatus => v === 'collected' || v === 'uncollected'),
+      ),
+    ];
+    if (rentStatuses.length === 1) {
+      and.push(
+        rentStatuses[0] === 'collected'
+          ? contractWhereCollectedRent()
+          : contractWhereUncollectedRent(),
+      );
+    } else if (rentStatuses.length > 1) {
+      and.push({
+        OR: [contractWhereCollectedRent(), contractWhereUncollectedRent()],
+      });
+    }
 
     if (params.customerId?.trim()) where.customerId = params.customerId.trim();
     if (params.roomId?.trim()) where.roomId = params.roomId.trim();
@@ -477,34 +695,36 @@ export class ContractsService {
       and.push({ room: { buildingId: { in: buildingIds } } });
     }
 
-    const statuses = [
-      ...new Set(
-        [...(params.statuses || []), params.status?.trim() || '']
-          .map((v) => s(v))
-          .filter(Boolean),
-      ),
-    ];
-    if (statuses.length === 1) where.status = statuses[0];
-    else if (statuses.length > 1) where.status = { in: statuses };
+    const statusClause = stringFieldInOrEmpty('status', [
+      ...(params.statuses || []),
+      ...(params.status?.trim() ? [params.status.trim()] : []),
+    ]);
+    if (statusClause) and.push(statusClause as Prisma.ContractWhereInput);
 
-    const roomCodes = (params.roomCodes || []).map((v) => s(v)).filter(Boolean);
-    if (roomCodes.length) {
-      and.push({ room: { roomCode: { in: roomCodes } } });
+    const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes);
+    if (contractCodeClause) and.push(contractCodeClause as Prisma.ContractWhereInput);
+
+    const roomCodeClause = stringFieldInOrEmpty('roomCode', params.roomCodes);
+    if (roomCodeClause) and.push({ room: roomCodeClause } as Prisma.ContractWhereInput);
+
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames);
+    if (customerNameClause) {
+      and.push({ customer: customerNameClause } as Prisma.ContractWhereInput);
     }
 
-    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
-    if (customerNames.length) {
-      and.push({ customer: { name: { in: customerNames } } });
-    }
+    const monthlyRentClause = numberFieldInOrEmpty('monthlyRent', params.monthlyRents, {
+      nullable: true,
+    });
+    if (monthlyRentClause) and.push(monthlyRentClause as Prisma.ContractWhereInput);
 
-    const salesManagers = (params.salesManagers || []).map((v) => s(v)).filter(Boolean);
-    if (salesManagers.length) {
-      and.push({ salesManagerUser: userWhereActorLabels(salesManagers) });
-    }
+    const salesManagerClause = actorLabelsOrEmpty('salesManager', params.salesManagers);
+    if (salesManagerClause) and.push(salesManagerClause as Prisma.ContractWhereInput);
 
-    const leaseTypes = (params.leaseTypes || []).map((v) => s(v)).filter(Boolean);
-    if (leaseTypes.length === 1) where.leaseType = leaseTypes[0];
-    else if (leaseTypes.length > 1) where.leaseType = { in: leaseTypes };
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys);
+    if (createdByClause) and.push(createdByClause as Prisma.ContractWhereInput);
+
+    const leaseTypeClause = stringFieldInOrEmpty('leaseType', params.leaseTypes);
+    if (leaseTypeClause) and.push(leaseTypeClause as Prisma.ContractWhereInput);
 
     const occupancyKeys = [...new Set((params.occupancyKeys || []).map((v) => s(v)).filter(Boolean))];
     if (occupancyKeys.length) {
@@ -526,13 +746,11 @@ export class ContractsService {
       else if (occOr.length > 1) and.push({ OR: occOr });
     }
 
-    const paymentCycles = (params.paymentCycles || []).map((v) => s(v)).filter(Boolean);
-    if (paymentCycles.length === 1) where.paymentCycle = paymentCycles[0];
-    else if (paymentCycles.length > 1) where.paymentCycle = { in: paymentCycles };
+    const paymentCycleClause = stringFieldInOrEmpty('paymentCycle', params.paymentCycles);
+    if (paymentCycleClause) and.push(paymentCycleClause as Prisma.ContractWhereInput);
 
-    const paymentMethods = (params.paymentMethods || []).map((v) => s(v)).filter(Boolean);
-    if (paymentMethods.length === 1) where.paymentMethod = paymentMethods[0];
-    else if (paymentMethods.length > 1) where.paymentMethod = { in: paymentMethods };
+    const paymentMethodClause = stringFieldInOrEmpty('paymentMethod', params.paymentMethods);
+    if (paymentMethodClause) and.push(paymentMethodClause as Prisma.ContractWhereInput);
 
     const keyword = s(params.keyword);
     if (keyword) {
@@ -554,12 +772,24 @@ export class ContractsService {
       });
     }
 
-    const startDate = dateRangeFilter(params.startDateFrom, params.startDateTo);
-    if (startDate) where.startDate = startDate;
-    const endDate = dateRangeFilter(params.endDateFrom, params.endDateTo);
-    if (endDate) where.endDate = endDate;
-    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
-    if (createdAt) where.createdAt = createdAt;
+    if (params.startDateEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const startDate = dateRangeFilter(params.startDateFrom, params.startDateTo);
+      if (startDate) where.startDate = startDate;
+    }
+    if (params.endDateEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const endDate = dateRangeFilter(params.endDateFrom, params.endDateTo);
+      if (endDate) where.endDate = endDate;
+    }
+    if (params.createdAtEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+      if (createdAt) where.createdAt = createdAt;
+    }
 
     if (and.length) where.AND = and;
     return where;
@@ -599,6 +829,13 @@ export class ContractsService {
     if (key === 'depositDeductionCount') return [{ otherFees: { _count: dir } }];
     if (key === 'depositRefundCount') return [{ depositRefunds: { _count: dir } }];
     if (key === 'createdAt') return [{ createdAt: dir }];
+    if (key === 'createdBy') {
+      return [
+        { createdByUser: { displayName: dir } },
+        { createdByUser: { account: dir } },
+        { createdAt: 'desc' },
+      ];
+    }
     return [{ startDate: 'desc' }, { createdAt: 'desc' }];
   }
 
@@ -609,7 +846,8 @@ export class ContractsService {
     });
     if (!row) throw new NotFoundException(`Contract ${id} not found`);
     await this.access.assertContractId(row.id);
-    return toContractDto(row);
+    const [enriched] = await this.attachListExtras([row]);
+    return toContractDto(enriched);
   }
 
   /** 香港日历下的 YYYYMMDD / HHmmss（合约编号用） */

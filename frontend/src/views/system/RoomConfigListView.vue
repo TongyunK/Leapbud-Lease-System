@@ -31,7 +31,10 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+)
 const { colW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const activeTab = ref<RoomConfigType>('size')
@@ -59,6 +62,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<RoomConfigOption>()
 
 const columnGetters = {
@@ -67,10 +71,27 @@ const columnGetters = {
   active: (o: RoomConfigOption) => String(o.active),
   brand: (o: RoomConfigOption) => o.brand,
   minSqft: (o: RoomConfigOption) => o.minSqft ?? -Infinity,
+  createdBy: (o: RoomConfigOption) => o.createdBy,
+  updatedBy: (o: RoomConfigOption) => o.updatedBy,
   createdAt: (o: RoomConfigOption) => o.createdAt,
   updatedAt: (o: RoomConfigOption) => o.updatedAt,
 }
 
+const tabRows = computed(() => list.value.filter((o) => o.type === activeTab.value))
+const labelFilterOptions = computed(() => uniqueOptions(tabRows.value, (o) => o.label))
+const sortOrderFilterOptions = computed(() => uniqueOptions(tabRows.value, (o) => o.sortOrder))
+const minSqftFilterOptions = computed(() =>
+  uniqueOptions(
+    tabRows.value,
+    (o) => (o.minSqft == null ? '' : String(o.minSqft)),
+    (v) => {
+      const row = tabRows.value.find((o) => String(o.minSqft ?? '') === v)
+      return row ? rangeText(row) : v
+    },
+  ),
+)
+const updatedByFilterOptions = computed(() => uniqueOptions(tabRows.value, (r) => r.updatedBy))
+const createdByFilterOptions = computed(() => uniqueOptions(tabRows.value, (r) => r.createdBy))
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
@@ -315,7 +336,7 @@ async function toggleActive(row: RoomConfigOption) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           :data="paged"
           row-key="id"
           height="100%"
@@ -340,8 +361,12 @@ async function toggleActive(row: RoomConfigOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('roomConfig.fields.label')"
+                filterable
                 sortable
+                :options="labelFilterOptions"
+                :model-value="filters.label || []"
                 :sort-order="sortOrderOf('label')"
+                @update:model-value="(v) => setFilter('label', v)"
                 @update:sort-order="(v) => setSort('label', v)"
               />
             </template>
@@ -359,8 +384,12 @@ async function toggleActive(row: RoomConfigOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('roomConfig.fields.range')"
+                filterable
                 sortable
+                :options="minSqftFilterOptions"
+                :model-value="filters.minSqft || []"
                 :sort-order="sortOrderOf('minSqft')"
+                @update:model-value="(v) => setFilter('minSqft', v)"
                 @update:sort-order="(v) => setSort('minSqft', v)"
               />
             </template>
@@ -397,8 +426,12 @@ async function toggleActive(row: RoomConfigOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('roomConfig.fields.sortOrder')"
+                filterable
                 sortable
+                :options="sortOrderFilterOptions"
+                :model-value="filters.sortOrder || []"
                 :sort-order="sortOrderOf('sortOrder')"
+                @update:model-value="(v) => setFilter('sortOrder', v)"
                 @update:sort-order="(v) => setSort('sortOrder', v)"
               />
             </template>
@@ -427,11 +460,23 @@ async function toggleActive(row: RoomConfigOption) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="createdAt"
             :width="datetimeColWidth"
@@ -443,19 +488,33 @@ async function toggleActive(row: RoomConfigOption) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="updatedAt"
             :width="datetimeColWidth"
@@ -467,16 +526,18 @@ async function toggleActive(row: RoomConfigOption) {
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"

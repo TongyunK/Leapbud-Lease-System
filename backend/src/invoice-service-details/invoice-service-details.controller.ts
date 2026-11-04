@@ -25,6 +25,7 @@ import { RequirePermissions } from '../permissions/require-permissions.decorator
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
 import { BatchDeleteDto } from '../common/batch-delete';
+import { splitCsv } from '../common/pagination';
 
 @ApiTags('invoice-service-details')
 @Controller('invoice-service-details')
@@ -37,6 +38,11 @@ export class InvoiceServiceDetailsController {
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'invoiceId', required: false })
+  @ApiQuery({ name: 'invoiceCodes', required: false })
+  @ApiQuery({ name: 'quantities', required: false })
+  @ApiQuery({ name: 'unitAmounts', required: false })
+  @ApiQuery({ name: 'subtotals', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
@@ -47,6 +53,11 @@ export class InvoiceServiceDetailsController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('invoiceId') invoiceId?: string,
+    @Query('invoiceCodes') invoiceCodes?: string,
+    @Query('quantities') quantities?: string,
+    @Query('unitAmounts') unitAmounts?: string,
+    @Query('subtotals') subtotals?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('createdAtFrom') createdAtFrom?: string,
@@ -57,6 +68,11 @@ export class InvoiceServiceDetailsController {
     return this.invoiceServiceDetailsService.findAll({
       keyword,
       invoiceId,
+      invoiceCodes: splitCsv(invoiceCodes),
+      quantities: splitCsv(quantities),
+      unitAmounts: splitCsv(unitAmounts),
+      subtotals: splitCsv(subtotals),
+      createdBys: splitCsv(createdBys),
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
       createdAtFrom,

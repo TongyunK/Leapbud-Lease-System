@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { ContractPeriodListRecord } from '@/types/contract-period'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -52,10 +53,17 @@ function durationLabel(row: ContractPeriodListRecord) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('contractPeriod.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('contractPeriod.detailTitle')"
+        :code="period?.contractCode"
+      />
+    </template>
     <template v-if="period">
       <section class="detail-section">
         <h3>{{ t('contractPeriod.sections.basic') }}</h3>

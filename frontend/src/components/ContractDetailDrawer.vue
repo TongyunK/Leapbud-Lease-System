@@ -8,6 +8,7 @@ import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentLink from '@/components/AttachmentLink.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { contractOccupancyTone, contractStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -117,8 +118,12 @@ function emitIfCount(
     class="responsive-drawer"
   >
     <template #header="{ titleId, titleClass }">
-      <div class="drawer-header-with-action">
-        <h4 :id="titleId" :class="titleClass">{{ t('contract.detailTitle') }}</h4>
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('contract.detailTitle')"
+        :code="contract?.contractCode"
+      >
         <el-button
           v-if="contract"
           type="primary"
@@ -130,7 +135,7 @@ function emitIfCount(
         >
           {{ t('contract.printAgreement') }}
         </el-button>
-      </div>
+      </DrawerDetailHeader>
     </template>
     <template v-if="contract">
       <section class="detail-section">
@@ -298,7 +303,7 @@ function emitIfCount(
             }}</dd>
           </div>
           <div>
-            <dt>{{ t('contract.fields.paymentMethod') }}</dt>
+            <dt>{{ t('receipt.fields.paymentMethod') }}</dt>
             <dd>{{ dash(contract.paymentMethod) }}</dd>
           </div>
           <div>

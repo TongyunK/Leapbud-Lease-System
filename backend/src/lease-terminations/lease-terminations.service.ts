@@ -27,6 +27,8 @@ import {
 } from '../common/pagination';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
+import { actorLabelsOrEmpty } from '../common/audit';
+import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter';
 import {
   contractByRoomSelect,
   pickContractFromRoomCandidates,
@@ -80,7 +82,13 @@ export class LeaseTerminationsService {
     contractId?: string;
     customerId?: string;
     roomId?: string;
+    terminationCodes?: string[];
+    contractCodes?: string[];
     customerNames?: string[];
+    roomCodes?: string[];
+    doorKeyReturnedQtys?: string[];
+    smartCardReturnedQtys?: string[];
+    createdBys?: string[];
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     terminationDateFrom?: string;
@@ -119,7 +127,13 @@ export class LeaseTerminationsService {
     contractId?: string;
     customerId?: string;
     roomId?: string;
+    terminationCodes?: string[];
+    contractCodes?: string[];
     customerNames?: string[];
+    roomCodes?: string[];
+    doorKeyReturnedQtys?: string[];
+    smartCardReturnedQtys?: string[];
+    createdBys?: string[];
     terminationDateFrom?: string;
     terminationDateTo?: string;
     createdAtFrom?: string;
@@ -129,10 +143,45 @@ export class LeaseTerminationsService {
     if (params.contractId?.trim()) where.contractId = params.contractId.trim();
     if (params.customerId?.trim()) where.customerId = params.customerId.trim();
     if (params.roomId?.trim()) where.roomId = params.roomId.trim();
-    const customerNames = (params.customerNames || []).map((v) => (v ?? '').trim()).filter(Boolean);
-    if (customerNames.length) {
-      where.customer = { name: { in: customerNames } };
+
+    const and: Prisma.LeaseTerminationWhereInput[] = [];
+
+    const terminationCodeClause = stringFieldInOrEmpty(
+      'terminationCode',
+      params.terminationCodes,
+    );
+    if (terminationCodeClause) {
+      and.push(terminationCodeClause as Prisma.LeaseTerminationWhereInput);
     }
+
+    const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes);
+    if (contractCodeClause) {
+      and.push({ contract: contractCodeClause } as Prisma.LeaseTerminationWhereInput);
+    }
+
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames);
+    if (customerNameClause) {
+      and.push({ customer: customerNameClause } as Prisma.LeaseTerminationWhereInput);
+    }
+
+    const roomCodeClause = stringFieldInOrEmpty('roomCode', params.roomCodes);
+    if (roomCodeClause) {
+      and.push({ room: roomCodeClause } as Prisma.LeaseTerminationWhereInput);
+    }
+
+    const doorKeyClause = numberFieldInOrEmpty('doorKeyReturnedQty', params.doorKeyReturnedQtys);
+    if (doorKeyClause) and.push(doorKeyClause as Prisma.LeaseTerminationWhereInput);
+
+    const smartCardClause = numberFieldInOrEmpty(
+      'smartCardReturnedQty',
+      params.smartCardReturnedQtys,
+    );
+    if (smartCardClause) and.push(smartCardClause as Prisma.LeaseTerminationWhereInput);
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys);
+    if (createdByClause) and.push(createdByClause as Prisma.LeaseTerminationWhereInput);
+
+    if (and.length) where.AND = and;
 
     const keyword = params.keyword?.trim();
     if (keyword) {

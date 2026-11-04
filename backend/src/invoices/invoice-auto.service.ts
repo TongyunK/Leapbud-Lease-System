@@ -455,10 +455,15 @@ export class InvoiceAutoService {
     return created.id
   }
 
-  private async ensureReceivableForInvoice(
+  /**
+   * 开票即建应收（幂等）：已有下属应收则直接返回。
+   * @param opts.remark 备注；省略时写「自動開票 …」（定时/签约自动开票）；手动开票可传空串。
+   */
+  async ensureReceivableForInvoice(
     invoiceId: string,
     actorId?: string | null,
     db: DbClient = this.prisma,
+    opts?: { remark?: string },
   ): Promise<string | null> {
     const existing = await db.receivable.findFirst({
       where: { invoiceId },
@@ -483,6 +488,12 @@ export class InvoiceAutoService {
     const receivableCode = await this.nextReceivableCode(db)
     const amount = invoice.amount ?? dec(0)
     const actor = actorId || null
+    const remark =
+      opts?.remark !== undefined
+        ? s(opts.remark)
+        : invoice.invoiceCode
+          ? `自動開票 ${invoice.invoiceCode}`
+          : `自動開票 ${formatDateYmd(utcToday())}`
     const row = await db.receivable.create({
       data: {
         receivableCode,
@@ -494,9 +505,7 @@ export class InvoiceAutoService {
         invoiceAmount: amount,
         receivedAmount: dec(0),
         receivableAmount: amount,
-        remark: invoice.invoiceCode
-          ? `自動開票 ${invoice.invoiceCode}`
-          : `自動開票 ${formatDateYmd(utcToday())}`,
+        remark,
         createdById: actor,
         updatedById: actor,
       },

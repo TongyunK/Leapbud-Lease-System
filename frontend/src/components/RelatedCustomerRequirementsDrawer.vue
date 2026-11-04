@@ -236,9 +236,11 @@ function onRowClick(row: CustomerRequirementRecord, column?: { type?: string }, 
                 :label="t('customerRequirement.fields.requirementDate')"
                 sortable
                 date-range
+                :model-value="filters.requirementDate || []"
                 :sort-order="sortOrderOf('requirementDate')"
                 :date-range-value="dateRangeOf('requirementDate')"
                 @update:sort-order="(v) => setSort('requirementDate', v)"
+                @update:model-value="(v) => setFilter('requirementDate', v)"
                 @update:date-range-value="(v) => setDateRange('requirementDate', v)"
               />
             </template>
@@ -272,9 +274,11 @@ function onRowClick(row: CustomerRequirementRecord, column?: { type?: string }, 
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>

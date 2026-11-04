@@ -34,6 +34,7 @@ import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { depositRefundStatusTone } from '@/constants/statusBadges'
@@ -41,6 +42,7 @@ import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { packFilterValues } from '@/utils/columnFilter'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -58,7 +60,10 @@ const { t } = useI18n()
 const userStore = useUserStore()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('depositRefunds')
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+)
 const {
   colW,
   textColW,
@@ -94,6 +99,7 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<DepositRefundRecord>()
 
 const {
@@ -117,8 +123,15 @@ const {
     const refund = range('refundDate')
     return {
       keyword: kw,
-      customerNames: f.customerName?.length ? [...f.customerName] : undefined,
-      status: f.status?.[0],
+      refundCodes: packFilterValues(f.refundCode),
+      contractCodes: packFilterValues(f.contractCode),
+      customerNames: packFilterValues(f.customerName),
+      roomNames: packFilterValues(f.roomName),
+      totalDeposits: packFilterValues(f.totalDeposit),
+      actualRefundAmounts: packFilterValues(f.actualRefundAmount),
+      handlers: packFilterValues(f.handler),
+      createdBys: packFilterValues(f.createdBy),
+      status: packFilterValues(f.status)?.join(','),
       sortBy,
       sortDir,
       terminationDateFrom: termination.from,
@@ -186,7 +199,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -214,6 +227,33 @@ async function onBatchDelete() {
     batchDeleting.value = false
   }
 }
+
+function uniqueListOptions(
+  get: (row: DepositRefundRecord) => string | number | null | undefined,
+  labelOf?: (value: string) => string,
+) {
+  return uniqueOptions(list.value, get, labelOf)
+}
+
+const refundCodeFilterOptions = computed(() => uniqueListOptions((r) => r.refundCode))
+const contractCodeFilterOptions = computed(() => uniqueListOptions((r) => r.contractCode))
+const roomNameFilterOptions = computed(() =>
+  uniqueListOptions((r) => r.roomName || r.roomCode),
+)
+const totalDepositFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.totalDeposit == null ? '' : String(r.totalDeposit)),
+    (v) => moneyOrDash(Number(v)),
+  ),
+)
+const actualRefundAmountFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.actualRefundAmount == null ? '' : String(r.actualRefundAmount)),
+    (v) => moneyOrDash(Number(v)),
+  ),
+)
+const handlerFilterOptions = computed(() => uniqueListOptions((r) => r.handler))
+const createdByFilterOptions = computed(() => uniqueListOptions((r) => r.createdBy))
 
 const statusFilterOptions = computed(() =>
   DEPOSIT_REFUND_STATUSES.map((s) => ({
@@ -484,7 +524,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('depositRefund.importAdminOnly'))
     return
   }
@@ -565,6 +605,7 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.depositRefunds') }}</h2>
       <div class="head-actions">
         <el-input
@@ -618,6 +659,7 @@ async function onImportFile(ev: Event) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -632,7 +674,7 @@ async function onImportFile(ev: Event) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="`${tableLayoutKey}-${codeLayoutKey}`"
+          :key="`${tableLayoutKey}-${codeLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
           height="100%"
@@ -669,8 +711,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('depositRefund.fields.refundCode')"
+                filterable
                 sortable
+                :options="refundCodeFilterOptions"
+                :model-value="filters.refundCode || []"
                 :sort-order="sortOrderOf('refundCode')"
+                @update:model-value="(v) => setFilter('refundCode', v)"
                 @update:sort-order="(v) => setSort('refundCode', v)"
               />
             </template>
@@ -684,8 +730,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('depositRefund.fields.contractCode')"
+                filterable
                 sortable
+                :options="contractCodeFilterOptions"
+                :model-value="filters.contractCode || []"
                 :sort-order="sortOrderOf('contractCode')"
+                @update:model-value="(v) => setFilter('contractCode', v)"
                 @update:sort-order="(v) => setSort('contractCode', v)"
               />
             </template>
@@ -709,8 +759,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('depositRefund.fields.roomName')"
+                filterable
                 sortable
+                :options="roomNameFilterOptions"
+                :model-value="filters.roomName || []"
                 :sort-order="sortOrderOf('roomName')"
+                @update:model-value="(v) => setFilter('roomName', v)"
                 @update:sort-order="(v) => setSort('roomName', v)"
               />
             </template>
@@ -791,9 +845,11 @@ async function onImportFile(ev: Event) {
                 :label="t('depositRefund.fields.terminationDate')"
                 sortable
                 date-range
+                :model-value="filters.terminationDate || []"
                 :sort-order="sortOrderOf('terminationDate')"
                 :date-range-value="dateRangeOf('terminationDate')"
                 @update:sort-order="(v) => setSort('terminationDate', v)"
+                @update:model-value="(v) => setFilter('terminationDate', v)"
                 @update:date-range-value="(v) => setDateRange('terminationDate', v)"
               />
             </template>
@@ -807,9 +863,11 @@ async function onImportFile(ev: Event) {
                 :label="t('depositRefund.fields.refundDate')"
                 sortable
                 date-range
+                :model-value="filters.refundDate || []"
                 :sort-order="sortOrderOf('refundDate')"
                 :date-range-value="dateRangeOf('refundDate')"
                 @update:sort-order="(v) => setSort('refundDate', v)"
+                @update:model-value="(v) => setFilter('refundDate', v)"
                 @update:date-range-value="(v) => setDateRange('refundDate', v)"
               />
             </template>
@@ -823,8 +881,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('depositRefund.fields.totalDeposit')"
+                filterable
                 sortable
+                :options="totalDepositFilterOptions"
+                :model-value="filters.totalDeposit || []"
                 :sort-order="sortOrderOf('totalDeposit')"
+                @update:model-value="(v) => setFilter('totalDeposit', v)"
                 @update:sort-order="(v) => setSort('totalDeposit', v)"
               />
             </template>
@@ -838,8 +900,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('depositRefund.fields.actualRefundAmount')"
+                filterable
                 sortable
+                :options="actualRefundAmountFilterOptions"
+                :model-value="filters.actualRefundAmount || []"
                 :sort-order="sortOrderOf('actualRefundAmount')"
+                @update:model-value="(v) => setFilter('actualRefundAmount', v)"
                 @update:sort-order="(v) => setSort('actualRefundAmount', v)"
               />
             </template>
@@ -852,8 +918,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('depositRefund.fields.handler')"
+                filterable
                 sortable
+                :options="handlerFilterOptions"
+                :model-value="filters.handler || []"
                 :sort-order="sortOrderOf('handler')"
+                @update:model-value="(v) => setFilter('handler', v)"
                 @update:sort-order="(v) => setSort('handler', v)"
               />
             </template>
@@ -903,8 +973,12 @@ async function onImportFile(ev: Event) {
             <template #header>
               <TableColumnHeader
                 :label="t('common.createdBy')"
+                filterable
                 sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
                 :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
                 @update:sort-order="(v) => setSort('createdBy', v)"
               />
             </template>
@@ -920,9 +994,11 @@ async function onImportFile(ev: Event) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -931,7 +1007,7 @@ async function onImportFile(ev: Event) {
           <el-table-column
             v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -939,6 +1015,8 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
                 <button
+                  v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="button"
                   class="action-pill action-pill--edit"
                   @click.stop="openEdit(row)"
@@ -946,6 +1024,8 @@ async function onImportFile(ev: Event) {
                   {{ t('common.edit') }}
                 </button>
                 <button
+                  v-if="perms.delete"
+                  v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click.stop="onDelete(row)"
@@ -1050,8 +1130,7 @@ async function onImportFile(ev: Event) {
             >
               <el-input
                 :model-value="selectedContract?.customerName || editing?.customerName || ''"
-                readonly
-                :placeholder="t('depositRefund.autoFromContract')"
+                disabled
               />
             </SelectWithViewAction>
           </el-form-item>
@@ -1069,8 +1148,7 @@ async function onImportFile(ev: Event) {
                       ? `${editing.roomCode}${editing.roomName ? ' · ' + editing.roomName : ''}`
                       : ''
                 "
-                readonly
-                :placeholder="t('depositRefund.autoFromContract')"
+                disabled
               />
             </SelectWithViewAction>
           </el-form-item>

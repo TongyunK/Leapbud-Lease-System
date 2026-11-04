@@ -44,22 +44,39 @@ export class InvoicesController {
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'roomId', required: false })
+  @ApiQuery({ name: 'invoiceCodes', required: false, description: 'Comma-separated invoice codes' })
+  @ApiQuery({ name: 'contractCodes', required: false, description: 'Comma-separated contract / short-term codes' })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
+  @ApiQuery({ name: 'buildingNames', required: false, description: 'Comma-separated building names' })
+  @ApiQuery({ name: 'roomNames', required: false, description: 'Comma-separated room names / codes' })
+  @ApiQuery({ name: 'invoiceTypes', required: false, description: 'Comma-separated invoice types' })
+  @ApiQuery({ name: 'amounts', required: false, description: 'Comma-separated amounts' })
   @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'source', required: false, description: 'contract | short_term' })
+  @ApiQuery({ name: 'salesManagers', required: false, description: 'Comma-separated sales manager labels' })
+  @ApiQuery({ name: 'sources', required: false, description: 'Comma-separated: contract | short_term' })
+  @ApiQuery({ name: 'source', required: false, description: 'contract | short_term（页头快捷）' })
   @ApiQuery({
     name: 'billingKind',
     required: false,
     description: 'manual | auto',
   })
+  @ApiQuery({ name: 'createdBys', required: false, description: 'Comma-separated creator labels' })
+  @ApiQuery({
+    name: 'depositOnly',
+    required: false,
+    description: 'true=仅按金发票（invoiceType=Deposit）；可与 source=contract 叠加',
+  })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'invoiceDateFrom', required: false })
   @ApiQuery({ name: 'invoiceDateTo', required: false })
+  @ApiQuery({ name: 'invoiceDateEmpty', required: false })
   @ApiQuery({ name: 'paymentDueDateFrom', required: false })
   @ApiQuery({ name: 'paymentDueDateTo', required: false })
+  @ApiQuery({ name: 'paymentDueDateEmpty', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
   @ApiQuery({ name: 'createdAtTo', required: false })
+  @ApiQuery({ name: 'createdAtEmpty', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiOkResponse({ description: 'Paginated invoice list' })
@@ -68,38 +85,67 @@ export class InvoicesController {
     @Query('contractId') contractId?: string,
     @Query('customerId') customerId?: string,
     @Query('roomId') roomId?: string,
+    @Query('invoiceCodes') invoiceCodes?: string,
+    @Query('contractCodes') contractCodes?: string,
     @Query('customerNames') customerNames?: string,
+    @Query('buildingNames') buildingNames?: string,
+    @Query('roomNames') roomNames?: string,
+    @Query('invoiceTypes') invoiceTypes?: string,
+    @Query('amounts') amounts?: string,
     @Query('status') status?: string,
+    @Query('salesManagers') salesManagers?: string,
+    @Query('sources') sources?: string,
     @Query('source') source?: string,
     @Query('billingKind') billingKind?: string,
+    @Query('createdBys') createdBys?: string,
+    @Query('depositOnly') depositOnly?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('invoiceDateFrom') invoiceDateFrom?: string,
     @Query('invoiceDateTo') invoiceDateTo?: string,
+    @Query('invoiceDateEmpty') invoiceDateEmpty?: string,
     @Query('paymentDueDateFrom') paymentDueDateFrom?: string,
     @Query('paymentDueDateTo') paymentDueDateTo?: string,
+    @Query('paymentDueDateEmpty') paymentDueDateEmpty?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
     @Query('createdAtTo') createdAtTo?: string,
+    @Query('createdAtEmpty') createdAtEmpty?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    const flag = (v?: string) =>
+      ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase())
+    const depositFlag = flag(depositOnly)
     return this.invoicesService.findAll({
       keyword,
       contractId,
       customerId,
       roomId,
+      invoiceCodes: splitCsv(invoiceCodes),
+      contractCodes: splitCsv(contractCodes),
       customerNames: splitCsv(customerNames),
+      buildingNames: splitCsv(buildingNames),
+      roomNames: splitCsv(roomNames),
+      invoiceTypes: splitCsv(invoiceTypes),
+      amounts: splitCsv(amounts),
       status,
+      salesManagers: splitCsv(salesManagers),
+      sources: splitCsv(sources),
       source,
       billingKind,
+      createdBys: splitCsv(createdBys),
+      depositOnly: depositFlag || undefined,
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
       invoiceDateFrom,
       invoiceDateTo,
+      invoiceDateEmpty: flag(invoiceDateEmpty) || undefined,
       paymentDueDateFrom,
       paymentDueDateTo,
+      paymentDueDateEmpty: flag(paymentDueDateEmpty) || undefined,
       createdAtFrom,
       createdAtTo,
+      createdAtEmpty: flag(createdAtEmpty) || undefined,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     })
@@ -128,10 +174,14 @@ export class InvoicesController {
   }
 
   @Get('code-preview')
-  @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'contractId', required: false, description: '合约票：带合约房间后缀' })
+  @ApiQuery({ name: 'roomId', required: false, description: '短租票：带房间编号后缀' })
   @ApiOkResponse({ description: 'Preview next invoice code without consuming sequence' })
-  previewCode(@Query('contractId') contractId?: string) {
-    return this.invoicesService.previewInvoiceCode(contractId)
+  previewCode(
+    @Query('contractId') contractId?: string,
+    @Query('roomId') roomId?: string,
+  ) {
+    return this.invoicesService.previewInvoiceCode(contractId, roomId)
   }
 
   @Get('stats/source')

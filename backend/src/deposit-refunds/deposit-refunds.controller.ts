@@ -40,7 +40,14 @@ export class DepositRefundsController {
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'roomId', required: false })
+  @ApiQuery({ name: 'refundCodes', required: false })
+  @ApiQuery({ name: 'contractCodes', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
+  @ApiQuery({ name: 'roomNames', required: false })
+  @ApiQuery({ name: 'totalDeposits', required: false })
+  @ApiQuery({ name: 'actualRefundAmounts', required: false })
+  @ApiQuery({ name: 'handlers', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
@@ -58,7 +65,14 @@ export class DepositRefundsController {
     @Query('contractId') contractId?: string,
     @Query('customerId') customerId?: string,
     @Query('roomId') roomId?: string,
+    @Query('refundCodes') refundCodes?: string,
+    @Query('contractCodes') contractCodes?: string,
     @Query('customerNames') customerNames?: string,
+    @Query('roomNames') roomNames?: string,
+    @Query('totalDeposits') totalDeposits?: string,
+    @Query('actualRefundAmounts') actualRefundAmounts?: string,
+    @Query('handlers') handlers?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('status') status?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
@@ -76,7 +90,14 @@ export class DepositRefundsController {
       contractId,
       customerId,
       roomId,
+      refundCodes: splitCsv(refundCodes),
+      contractCodes: splitCsv(contractCodes),
       customerNames: splitCsv(customerNames),
+      roomNames: splitCsv(roomNames),
+      totalDeposits: splitCsv(totalDeposits),
+      actualRefundAmounts: splitCsv(actualRefundAmounts),
+      handlers: splitCsv(handlers),
+      createdBys: splitCsv(createdBys),
       status,
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,

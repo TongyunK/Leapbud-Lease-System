@@ -1,0 +1,47 @@
+---
+description: 权限功能按钮必须加 v-admin-glow（超管独占描边）
+alwaysApply: true
+---
+
+# 功能按钮必须加 `v-admin-glow`
+
+凡受角色权限控制的功能按钮（新增／编辑／删除／批量删除／导入／跟进／取消／开单／收款等），**必须**挂上 `v-admin-glow`，以便超级管理员在「仅超管拥有该权限」时看到发光描边。
+
+指令：`frontend/src/directives/adminGlow.ts`（全局注册为 `admin-glow`）。样式类：`.lb-admin-only-glow`。
+
+## 写法
+
+```vue
+<button
+  v-if="perms.update"
+  v-admin-glow="perms.codes.update"
+  type="button"
+  class="action-pill action-pill--edit"
+  @click="openEdit(row)"
+>
+  {{ t('common.edit') }}
+</button>
+```
+
+- `v-if` 用权限开关；`v-admin-glow` 传**同一权限码**（`perms.codes.create|update|delete|batchDelete|import|…`）。
+- 其它资源权限对象同理：`v-admin-glow="receiptPerms.codes.create"`。
+- `el-button` / `el-dropdown-item` / `lb-pager__batch-btn` / 更多菜单内按钮，只要门控权限，一律加。
+
+## 新增功能按钮清单
+
+1. 按钮加 `v-if="perms.xxx"` + `v-admin-glow="perms.codes.xxx"`
+2. 若新增权限动作：同步权限目录与按钮文案（见 `permission-button-labels.mdc`）
+
+## 不要加
+
+- 纯导航／查看详情、搜索、清空筛选、刷新、分页、导出模板（无写权限码）等
+- 无权限码门控的占位按钮（如尚未接入权限的「退租」）— 接入权限码后再加
+
+## 反例
+
+```vue
+<!-- ❌ 有权限门控却漏描边 -->
+<button v-if="perms.delete" type="button" class="action-pill action-pill--danger" @click="onDelete(row)">
+  {{ t('common.delete') }}
+</button>
+```

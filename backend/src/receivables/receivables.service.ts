@@ -12,7 +12,11 @@ import {
   ImportReceivablesDto,
   UpdateReceivableDto,
 } from './dto/receivable.dto'
-import { receivableInclude, toReceivableDto } from './receivable.mapper'
+import {
+  receivableDetailInclude,
+  receivableInclude,
+  toReceivableDto,
+} from './receivable.mapper'
 import {
   dateRangeFilter,
   paginateArgs,
@@ -23,6 +27,8 @@ import {
 } from '../common/pagination'
 import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
+import { actorLabelsOrEmpty } from '../common/audit'
+import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter'
 
 function s(v?: string | null) {
   return (v ?? '').trim()
@@ -57,6 +63,36 @@ function amountDupKey(
   return `${invoiceId}|${invoiceAmount.toString()}|${receivedAmount.toString()}|${receivableAmount.toString()}`
 }
 
+/** Asia/Hong_Kong 今日（YYYY-MM-DD），用于逾期判定 */
+function hkTodayYmd(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+/** 待收款：应收额 > 0（含部分收款、待收款） */
+function outstandingWhereClause(): Prisma.ReceivableWhereInput {
+  return { receivableAmount: { gt: 0 } }
+}
+
+/** 已逾期：收款期限 < 今日，且应收额 > 0 */
+function overdueWhereClause(): Prisma.ReceivableWhereInput {
+  const today = new Date(`${hkTodayYmd()}T00:00:00.000Z`)
+  return {
+    paymentDueDate: { lt: today },
+    receivableAmount: { gt: 0 },
+  }
+}
+
+function pushAndClause(where: Prisma.ReceivableWhereInput, clause: Prisma.ReceivableWhereInput) {
+  const and = Array.isArray(where.AND) ? [...where.AND] : where.AND ? [where.AND] : []
+  and.push(clause)
+  where.AND = and
+}
+
 @Injectable()
 export class ReceivablesService {
   constructor(
@@ -64,13 +100,35 @@ export class ReceivablesService {
     private readonly access: BuildingAccessService,
   ) {}
 
+  /** 页头快捷筛选计数（全部 / 待收款 / 已逾期） */
+  async countQuickFilters(): Promise<{ all: number; outstanding: number; overdue: number }> {
+    const base: Prisma.ReceivableWhereInput = {}
+    await this.access.constrain(base, 'viaCustomer')
+    const [all, outstanding, overdue] = await this.prisma.$transaction([
+      this.prisma.receivable.count({ where: base }),
+      this.prisma.receivable.count({
+        where: { AND: [base, outstandingWhereClause()] },
+      }),
+      this.prisma.receivable.count({
+        where: { AND: [base, overdueWhereClause()] },
+      }),
+    ])
+    return { all, outstanding, overdue }
+  }
+
   async findAll(params: {
     keyword?: string
     invoiceId?: string
+    invoiceCodes?: string[]
     contractId?: string
+    contractCodes?: string[]
     customerId?: string
     depositRefundId?: string
     customerNames?: string[]
+    invoiceAmounts?: string[]
+    receivedAmounts?: string[]
+    receivableAmounts?: string[]
+    createdBys?: string[]
     sortBy?: string
     sortDir?: 'asc' | 'desc'
     invoiceDateFrom?: string
@@ -79,6 +137,10 @@ export class ReceivablesService {
     paymentDueDateTo?: string
     createdAtFrom?: string
     createdAtTo?: string
+    /** 快捷筛选：待收款（应收额>0） */
+    outstanding?: boolean
+    /** 快捷筛选：已逾期（超过收款期限且应收额>0）；可与待收款叠加 */
+    overdue?: boolean
     page?: number
     pageSize?: number
   }): Promise<PaginatedResult<ReturnType<typeof toReceivableDto>>> {
@@ -109,25 +171,72 @@ export class ReceivablesService {
   private buildListWhere(params: {
     keyword?: string
     invoiceId?: string
+    invoiceCodes?: string[]
     contractId?: string
+    contractCodes?: string[]
     customerId?: string
     depositRefundId?: string
     customerNames?: string[]
+    invoiceAmounts?: string[]
+    receivedAmounts?: string[]
+    receivableAmounts?: string[]
+    createdBys?: string[]
     invoiceDateFrom?: string
     invoiceDateTo?: string
     paymentDueDateFrom?: string
     paymentDueDateTo?: string
     createdAtFrom?: string
     createdAtTo?: string
+    outstanding?: boolean
+    overdue?: boolean
   }): Prisma.ReceivableWhereInput {
     const where: Prisma.ReceivableWhereInput = {}
     if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim()
     if (params.contractId?.trim()) where.contractId = params.contractId.trim()
     if (params.customerId?.trim()) where.customerId = params.customerId.trim()
     if (params.depositRefundId?.trim()) where.depositRefundId = params.depositRefundId.trim()
-    const customerNames = (params.customerNames || []).map((v) => v.trim()).filter(Boolean)
-    if (customerNames.length) {
-      where.customer = { name: { in: customerNames } }
+
+    const and: Prisma.ReceivableWhereInput[] = []
+
+    const invoiceCodeClause = stringFieldInOrEmpty('invoiceCode', params.invoiceCodes)
+    if (invoiceCodeClause) {
+      and.push({ invoice: invoiceCodeClause } as Prisma.ReceivableWhereInput)
+    }
+
+    const contractCodeClause = stringFieldInOrEmpty('contractCode', params.contractCodes)
+    if (contractCodeClause) {
+      and.push({ contract: contractCodeClause } as Prisma.ReceivableWhereInput)
+    }
+
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames)
+    if (customerNameClause) {
+      and.push({ customer: customerNameClause } as Prisma.ReceivableWhereInput)
+    }
+
+    const invoiceAmountClause = numberFieldInOrEmpty('invoiceAmount', params.invoiceAmounts)
+    if (invoiceAmountClause) and.push(invoiceAmountClause as Prisma.ReceivableWhereInput)
+
+    const receivedAmountClause = numberFieldInOrEmpty('receivedAmount', params.receivedAmounts)
+    if (receivedAmountClause) and.push(receivedAmountClause as Prisma.ReceivableWhereInput)
+
+    const receivableAmountClause = numberFieldInOrEmpty(
+      'receivableAmount',
+      params.receivableAmounts,
+    )
+    if (receivableAmountClause) {
+      and.push(receivableAmountClause as Prisma.ReceivableWhereInput)
+    }
+
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys)
+    if (createdByClause) and.push(createdByClause as Prisma.ReceivableWhereInput)
+
+    if (and.length) {
+      const existing = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : []
+      where.AND = [...existing, ...and]
     }
 
     const keyword = params.keyword?.trim()
@@ -150,6 +259,9 @@ export class ReceivablesService {
     if (dueRange) where.paymentDueDate = dueRange
     const createdRange = dateRangeFilter(params.createdAtFrom, params.createdAtTo)
     if (createdRange) where.createdAt = createdRange
+
+    if (params.outstanding) pushAndClause(where, outstandingWhereClause())
+    if (params.overdue) pushAndClause(where, overdueWhereClause())
 
     return where
   }
@@ -180,11 +292,64 @@ export class ReceivablesService {
   async findOne(id: string) {
     const row = await this.prisma.receivable.findUnique({
       where: { id },
-      include: receivableInclude,
+      include: receivableDetailInclude,
     })
     if (!row) throw new NotFoundException('Receivable not found')
     await this.access.assertCustomerId(row.customerId)
     return toReceivableDto(row)
+  }
+
+  /** 同步应收 ↔ 收据一对多：以 receiptIds 为准挂接 / 解绑，并回写 relatedReceiptRef */
+  private async syncReceiptIds(
+    receivableId: string,
+    receiptIds: string[] | undefined,
+    actorId?: string | null,
+  ) {
+    if (receiptIds === undefined) return
+    const orderedIds = [
+      ...new Set(receiptIds.map((id) => s(id)).filter(Boolean)),
+    ]
+    if (orderedIds.length) {
+      const found = await this.prisma.receipt.findMany({
+        where: { id: { in: orderedIds } },
+        select: { id: true, receiptCode: true },
+      })
+      if (found.length !== orderedIds.length) {
+        throw new BadRequestException('Invalid receiptIds')
+      }
+      const codeById = new Map(found.map((r) => [r.id, r.receiptCode]))
+      await this.prisma.$transaction([
+        this.prisma.receipt.updateMany({
+          where: { receivableId, id: { notIn: orderedIds } },
+          data: { receivableId: null, updatedById: actorId || null },
+        }),
+        this.prisma.receipt.updateMany({
+          where: { id: { in: orderedIds } },
+          data: { receivableId, updatedById: actorId || null },
+        }),
+        this.prisma.receivable.update({
+          where: { id: receivableId },
+          data: {
+            relatedReceiptRef: orderedIds
+              .map((id) => codeById.get(id) || '')
+              .filter(Boolean)
+              .join(', '),
+            updatedById: actorId || null,
+          },
+        }),
+      ])
+      return
+    }
+    await this.prisma.$transaction([
+      this.prisma.receipt.updateMany({
+        where: { receivableId },
+        data: { receivableId: null, updatedById: actorId || null },
+      }),
+      this.prisma.receivable.update({
+        where: { id: receivableId },
+        data: { relatedReceiptRef: '', updatedById: actorId || null },
+      }),
+    ])
   }
 
   private async resolveInvoice(dto: { invoiceId?: string; invoiceCode?: string }) {
@@ -325,9 +490,10 @@ export class ReceivablesService {
           createdById: actorId || null,
           updatedById: actorId || null,
         },
-        include: receivableInclude,
+        select: { id: true },
       })
-      return toReceivableDto(row)
+      await this.syncReceiptIds(row.id, dto.receiptIds, actorId)
+      return this.findOne(row.id)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`应收编号「${receivableCode}」已存在`)
@@ -409,7 +575,7 @@ export class ReceivablesService {
     if (!receivableCode) throw new BadRequestException('receivableCode is required')
 
     try {
-      const row = await this.prisma.receivable.update({
+      await this.prisma.receivable.update({
         where: { id },
         data: {
           receivableCode,
@@ -423,13 +589,15 @@ export class ReceivablesService {
           receivableAmount,
           remark: dto.remark !== undefined ? s(dto.remark) : undefined,
           relatedReceiptRef:
-            dto.relatedReceiptRef !== undefined ? s(dto.relatedReceiptRef) : undefined,
+            dto.receiptIds === undefined && dto.relatedReceiptRef !== undefined
+              ? s(dto.relatedReceiptRef)
+              : undefined,
           depositRefundId,
           updatedById: actorId || null,
         },
-        include: receivableInclude,
       })
-      return toReceivableDto(row)
+      await this.syncReceiptIds(id, dto.receiptIds, actorId)
+      return this.findOne(id)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`应收编号「${receivableCode}」已存在`)

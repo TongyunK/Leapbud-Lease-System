@@ -5,6 +5,7 @@ import type { LeaseTerminationRecord } from '@/types/lease-termination'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import { formatMoney } from '@/utils/format'
 
 const visible = defineModel<boolean>({ default: false })
@@ -47,10 +48,17 @@ function money(v: number | null | undefined) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('leaseTermination.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('leaseTermination.detailTitle')"
+        :code="termination?.terminationCode"
+      />
+    </template>
     <template v-if="termination">
       <section class="detail-section">
         <h3>{{ t('leaseTermination.sections.basic') }}</h3>

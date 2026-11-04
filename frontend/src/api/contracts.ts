@@ -63,12 +63,14 @@ export type ContractListQuery = {
   roomId?: string
   requirementId?: string
   buildingIds?: string[]
+  contractCodes?: string[]
   roomCodes?: string[]
   customerNames?: string[]
   salesManagers?: string[]
   leaseTypes?: string[]
   /** whole | part | part:A */
   occupancyKeys?: string[]
+  monthlyRents?: string[]
   paymentCycles?: string[]
   paymentMethods?: string[]
   sortBy?: string
@@ -79,8 +81,16 @@ export type ContractListQuery = {
   endDateTo?: string
   createdAtFrom?: string
   createdAtTo?: string
+  createdBys?: string[]
+  createdAtEmpty?: boolean
+  startDateEmpty?: boolean
+  endDateEmpty?: boolean
   /** 頁頭「即將到期」：後端按系統設置套用 */
   expiringSoon?: boolean
+  /** 頁頭「當前應收>0」 */
+  hasOutstandingReceivable?: boolean
+  /** 收租情况：collected | uncollected */
+  rentCollectionStatuses?: string[]
   page?: number
   pageSize?: number
 }
@@ -96,11 +106,13 @@ export function fetchContracts(params?: ContractListQuery) {
   if (params?.roomId) query.roomId = params.roomId
   if (params?.requirementId) query.requirementId = params.requirementId
   if (params?.buildingIds?.length) query.buildingIds = params.buildingIds.join(',')
+  if (params?.contractCodes?.length) query.contractCodes = params.contractCodes.join(',')
   if (params?.roomCodes?.length) query.roomCodes = params.roomCodes.join(',')
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.salesManagers?.length) query.salesManagers = params.salesManagers.join(',')
   if (params?.leaseTypes?.length) query.leaseTypes = params.leaseTypes.join(',')
   if (params?.occupancyKeys?.length) query.occupancyKeys = params.occupancyKeys.join(',')
+  if (params?.monthlyRents?.length) query.monthlyRents = params.monthlyRents.join(',')
   if (params?.paymentCycles?.length) query.paymentCycles = params.paymentCycles.join(',')
   if (params?.paymentMethods?.length) query.paymentMethods = params.paymentMethods.join(',')
   if (params?.sortBy) query.sortBy = params.sortBy
@@ -111,7 +123,15 @@ export function fetchContracts(params?: ContractListQuery) {
   if (params?.endDateTo) query.endDateTo = params.endDateTo
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
   if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.createdBys?.length) query.createdBys = params.createdBys.join(',')
+  if (params?.createdAtEmpty) query.createdAtEmpty = 'true'
+  if (params?.startDateEmpty) query.startDateEmpty = 'true'
+  if (params?.endDateEmpty) query.endDateEmpty = 'true'
   if (params?.expiringSoon) query.expiringSoon = 1
+  if (params?.hasOutstandingReceivable) query.hasOutstandingReceivable = 1
+  if (params?.rentCollectionStatuses?.length) {
+    query.rentCollectionStatuses = params.rentCollectionStatuses.join(',')
+  }
   if (params?.page != null) query.page = params.page
   if (params?.pageSize != null) query.pageSize = params.pageSize
   return request.get<ContractListPage>('/contracts', {
@@ -150,6 +170,10 @@ export type ContractExpiringSoonCount = {
 
 export function fetchContractExpiringSoonCount() {
   return request.get<ContractExpiringSoonCount>('/contracts/stats/expiring-soon')
+}
+
+export function fetchContractOutstandingReceivableCount() {
+  return request.get<{ count: number }>('/contracts/stats/outstanding-receivable')
 }
 
 export type IssueBlockedAlertItem = {

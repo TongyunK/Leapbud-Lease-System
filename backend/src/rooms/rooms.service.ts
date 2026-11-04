@@ -28,6 +28,11 @@ import {
   type PaginatedResult,
 } from '../common/pagination';
 import {
+  numberFieldInOrEmpty,
+  stringFieldInOrEmpty,
+} from '../common/column-filter';
+import { actorRelationInOrEmpty } from '../common/audit';
+import {
   BatchUpdateRoomsDto,
   CreateRoomDto,
   ImportRoomsDto,
@@ -218,12 +223,23 @@ export class RoomsService {
     statuses?: string[];
     leaseCapability?: string;
     leaseCapabilities?: string[];
+    roomCodes?: string[];
+    names?: string[];
+    monthlyRents?: string[];
+    dailyRents?: string[];
+    hourlyRents?: string[];
     /** 租用填充态：idle | whole | partial | full（状态列筛选） */
     occupancySummaries?: string[];
     roomTypes?: string[];
     sizeRangeIds?: string[];
     windowConfigs?: string[];
     acConfigs?: string[];
+    /** 仅列出已开启「允许短租」的房间 */
+    allowShortTerm?: boolean;
+    createdBys?: string[];
+    updatedBys?: string[];
+    createdAtEmpty?: boolean;
+    updatedAtEmpty?: boolean;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
     createdAtFrom?: string;
@@ -389,10 +405,20 @@ export class RoomsService {
     statuses?: string[];
     leaseCapability?: string;
     leaseCapabilities?: string[];
+    roomCodes?: string[];
+    names?: string[];
+    monthlyRents?: string[];
+    dailyRents?: string[];
+    hourlyRents?: string[];
     roomTypes?: string[];
     sizeRangeIds?: string[];
     windowConfigs?: string[];
     acConfigs?: string[];
+    allowShortTerm?: boolean;
+    createdBys?: string[];
+    updatedBys?: string[];
+    createdAtEmpty?: boolean;
+    updatedAtEmpty?: boolean;
     createdAtFrom?: string;
     createdAtTo?: string;
     updatedAtFrom?: string;
@@ -400,6 +426,9 @@ export class RoomsService {
   }): Promise<Prisma.RoomWhereInput> {
     const where: Prisma.RoomWhereInput = {};
     const and: Prisma.RoomWhereInput[] = [];
+
+    if (params.allowShortTerm === true) where.allowShortTerm = true;
+    else if (params.allowShortTerm === false) where.allowShortTerm = false;
 
     const buildingIds = [
       ...new Set(
@@ -423,6 +452,18 @@ export class RoomsService {
     if (leaseCaps.length === 1) where.leaseCapability = leaseCaps[0];
     else if (leaseCaps.length > 1) where.leaseCapability = { in: leaseCaps };
 
+    const roomCodeClause = stringFieldInOrEmpty('roomCode', params.roomCodes);
+    if (roomCodeClause) and.push(roomCodeClause as Prisma.RoomWhereInput);
+    const nameClause = stringFieldInOrEmpty('name', params.names);
+    if (nameClause) and.push(nameClause as Prisma.RoomWhereInput);
+
+    const monthlyClause = numberFieldInOrEmpty('monthlyRent', params.monthlyRents);
+    if (monthlyClause) and.push(monthlyClause as Prisma.RoomWhereInput);
+    const dailyClause = numberFieldInOrEmpty('dailyRent', params.dailyRents);
+    if (dailyClause) and.push(dailyClause as Prisma.RoomWhereInput);
+    const hourlyClause = numberFieldInOrEmpty('hourlyRent', params.hourlyRents);
+    if (hourlyClause) and.push(hourlyClause as Prisma.RoomWhereInput);
+
     const statuses = [
       ...parseRoomStatuses(params.statuses),
       ...parseRoomStatuses(params.status ? [params.status] : undefined),
@@ -431,14 +472,25 @@ export class RoomsService {
     if (uniqStatuses.length === 1) where.status = uniqStatuses[0];
     else if (uniqStatuses.length > 1) where.status = { in: uniqStatuses };
 
-    const roomTypes = (params.roomTypes || []).map((v) => s(v)).filter(Boolean);
-    if (roomTypes.length) where.roomType = { in: roomTypes };
+    const roomTypeClause = stringFieldInOrEmpty('roomType', params.roomTypes);
+    if (roomTypeClause) and.push(roomTypeClause as Prisma.RoomWhereInput);
+    const windowClause = stringFieldInOrEmpty('windowConfig', params.windowConfigs);
+    if (windowClause) and.push(windowClause as Prisma.RoomWhereInput);
+    const acClause = stringFieldInOrEmpty('acConfig', params.acConfigs);
+    if (acClause) and.push(acClause as Prisma.RoomWhereInput);
 
-    const windowConfigs = (params.windowConfigs || []).map((v) => s(v)).filter(Boolean);
-    if (windowConfigs.length) where.windowConfig = { in: windowConfigs };
-
-    const acConfigs = (params.acConfigs || []).map((v) => s(v)).filter(Boolean);
-    if (acConfigs.length) where.acConfig = { in: acConfigs };
+    const createdByClause = actorRelationInOrEmpty(
+      'createdByUser',
+      'createdById',
+      params.createdBys,
+    );
+    if (createdByClause) and.push(createdByClause as Prisma.RoomWhereInput);
+    const updatedByClause = actorRelationInOrEmpty(
+      'updatedByUser',
+      'updatedById',
+      params.updatedBys,
+    );
+    if (updatedByClause) and.push(updatedByClause as Prisma.RoomWhereInput);
 
     const sizeRangeIds = (params.sizeRangeIds || []).map((v) => s(v)).filter(Boolean);
     if (sizeRangeIds.length) {
@@ -474,10 +526,19 @@ export class RoomsService {
       });
     }
 
-    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
-    if (createdAt) where.createdAt = createdAt;
-    const updatedAt = dateRangeFilter(params.updatedAtFrom, params.updatedAtTo, true);
-    if (updatedAt) where.updatedAt = updatedAt;
+    // createdAt/updatedAt 为必填时间戳，空值筛选无匹配行（仍接受参数以免前端报错）
+    if (params.createdAtEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+      if (createdAt) where.createdAt = createdAt;
+    }
+    if (params.updatedAtEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const updatedAt = dateRangeFilter(params.updatedAtFrom, params.updatedAtTo, true);
+      if (updatedAt) where.updatedAt = updatedAt;
+    }
 
     if (and.length) where.AND = and;
     return where;
@@ -515,6 +576,20 @@ export class RoomsService {
     }
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'updatedAt') return [{ updatedAt: dir }];
+    if (key === 'createdBy') {
+      return [
+        { createdByUser: { displayName: dir } },
+        { createdByUser: { account: dir } },
+        { roomCode: 'asc' },
+      ];
+    }
+    if (key === 'updatedBy') {
+      return [
+        { updatedByUser: { displayName: dir } },
+        { updatedByUser: { account: dir } },
+        { roomCode: 'asc' },
+      ];
+    }
     return [{ roomCode: 'asc' }];
   }
 

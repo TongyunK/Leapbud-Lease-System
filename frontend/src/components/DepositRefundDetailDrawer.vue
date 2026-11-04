@@ -5,6 +5,7 @@ import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { depositRefundStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
@@ -54,10 +55,17 @@ function statusLabel(status: string) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('depositRefund.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('depositRefund.detailTitle')"
+        :code="record?.refundCode"
+      />
+    </template>
     <template v-if="record">
       <section class="detail-section">
         <h3>{{ t('depositRefund.sections.basic') }}</h3>

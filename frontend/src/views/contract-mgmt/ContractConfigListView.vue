@@ -29,7 +29,10 @@ import { useBatchProgress } from '@/composables/useBatchProgress'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
+const listActionColWidth = computed(() =>
+  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+)
 const { colW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const activeTab = ref<ContractConfigType>('periodType')
@@ -63,6 +66,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<ContractConfigOption>()
 
 const columnGetters = {
@@ -71,10 +75,20 @@ const columnGetters = {
   unitPrice: (o: ContractConfigOption) => o.unitPrice ?? -Infinity,
   sortOrder: (o: ContractConfigOption) => o.sortOrder,
   active: (o: ContractConfigOption) => String(o.active),
+  createdBy: (o: ContractConfigOption) => o.createdBy,
+  updatedBy: (o: ContractConfigOption) => o.updatedBy,
   createdAt: (o: ContractConfigOption) => o.createdAt,
   updatedAt: (o: ContractConfigOption) => o.updatedAt,
 }
 
+const tabRows = computed(() => list.value.filter((o) => o.type === activeTab.value))
+const labelFilterOptions = computed(() => uniqueOptions(tabRows.value, (o) => o.label))
+const sortOrderFilterOptions = computed(() => uniqueOptions(tabRows.value, (o) => o.sortOrder))
+const unitPriceFilterOptions = computed(() =>
+  uniqueOptions(tabRows.value, (o) => (o.unitPrice == null ? '' : String(o.unitPrice))),
+)
+const updatedByFilterOptions = computed(() => uniqueOptions(tabRows.value, (r) => r.updatedBy))
+const createdByFilterOptions = computed(() => uniqueOptions(tabRows.value, (r) => r.createdBy))
 const activeFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
   { value: 'false', label: t('user.status.disabled') },
@@ -302,7 +316,7 @@ async function toggleActive(row: ContractConfigOption) {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${listActionColWidth}`"
           :data="paged"
           row-key="id"
           height="100%"
@@ -327,8 +341,12 @@ async function toggleActive(row: ContractConfigOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('contractConfig.fields.label')"
+                filterable
                 sortable
+                :options="labelFilterOptions"
+                :model-value="filters.label || []"
                 :sort-order="sortOrderOf('label')"
+                @update:model-value="(v) => setFilter('label', v)"
                 @update:sort-order="(v) => setSort('label', v)"
               />
             </template>
@@ -350,8 +368,12 @@ async function toggleActive(row: ContractConfigOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('contractConfig.fields.unitPrice')"
+                filterable
                 sortable
+                :options="unitPriceFilterOptions"
+                :model-value="filters.unitPrice || []"
                 :sort-order="sortOrderOf('unitPrice')"
+                @update:model-value="(v) => setFilter('unitPrice', v)"
                 @update:sort-order="(v) => setSort('unitPrice', v)"
               />
             </template>
@@ -368,8 +390,12 @@ async function toggleActive(row: ContractConfigOption) {
             <template #header>
               <TableColumnHeader
                 :label="t('contractConfig.fields.sortOrder')"
+                filterable
                 sortable
+                :options="sortOrderFilterOptions"
+                :model-value="filters.sortOrder || []"
                 :sort-order="sortOrderOf('sortOrder')"
+                @update:model-value="(v) => setFilter('sortOrder', v)"
                 @update:sort-order="(v) => setSort('sortOrder', v)"
               />
             </template>
@@ -401,11 +427,23 @@ async function toggleActive(row: ContractConfigOption) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="createdAt"
             :width="datetimeColWidth"
@@ -417,19 +455,33 @@ async function toggleActive(row: ContractConfigOption) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="updatedAt"
             :width="datetimeColWidth"
@@ -441,16 +493,18 @@ async function toggleActive(row: ContractConfigOption) {
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>
           </el-table-column>
           <el-table-column
             :label="t('common.actions')"
-            :width="actionColWidth.two"
+            :width="listActionColWidth"
             fixed="right"
             class-name="col-actions"
             label-class-name="col-actions"
@@ -461,7 +515,8 @@ async function toggleActive(row: ContractConfigOption) {
                   {{ t('common.edit') }}
                 </button>
                 <button
-                  v-if="!isProtectedCode(row.code)"
+                  v-if="perms.delete && !isProtectedCode(row.code)"
+                  v-admin-glow="perms.codes.delete"
                   type="button"
                   class="action-pill action-pill--danger"
                   @click="onDelete(row)"

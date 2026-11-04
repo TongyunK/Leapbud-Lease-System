@@ -7,6 +7,7 @@ import { previewDocumentTemplateApi } from '@/api/document-templates'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -73,10 +74,17 @@ async function onPreviewTemplate(id?: string | null) {
   <el-drawer
     v-model="visible"
     :size="drawerSize"
-    :title="t('building.detailTitle')"
     :direction="direction"
     class="responsive-drawer"
   >
+    <template #header="{ titleId, titleClass }">
+      <DrawerDetailHeader
+        :title-id="titleId"
+        :title-class="titleClass"
+        :title="t('building.detailTitle')"
+        :code="building?.name"
+      />
+    </template>
     <template v-if="building">
       <section class="detail-section">
         <h3>{{ t('building.sections.basic') }}</h3>

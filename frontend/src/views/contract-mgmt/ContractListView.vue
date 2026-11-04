@@ -11,6 +11,7 @@ import {
   fetchContract,
   fetchContractExpiringSoonCount,
   fetchContractOccupancyCounts,
+  fetchContractOutstandingReceivableCount,
   fetchContracts,
   fetchIssueBlockedAlerts,
   importContractsApi,
@@ -48,7 +49,6 @@ import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import {
   CONTRACT_PAYMENT_CYCLES,
-  CONTRACT_PAYMENT_METHODS,
   CONTRACT_PERIOD_UNITS,
   CONTRACT_STATUSES,
   coerceContractFormStatus,
@@ -58,6 +58,7 @@ import {
   formatContractOccupancyLabel,
   isSigningContractStatus,
 } from '@/types/contract'
+import { RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
 import type { ContractConfigOption } from '@/types/contract-config'
 import { KEY_DEPOSIT_CODES } from '@/types/contract-config'
 import type { CustomerRecord } from '@/types/customer'
@@ -86,6 +87,7 @@ import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ContractReceivePaymentDialog from '@/components/ContractReceivePaymentDialog.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import {
@@ -102,6 +104,7 @@ import { useUserStore } from '@/stores/user'
 import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
 import {
   addDaysYmd,
   endDateFromDuration,
@@ -165,7 +168,7 @@ function messageBoxOpts(base: Record<string, unknown> = {}) {
 
 /** @returns 是否已完成删除（确认并成功）；取消 MessageBox 时为 false，面板应保持打开 */
 async function onDeleteContract(row: ContractRecord): Promise<boolean> {
-  if (!perms.delete.value) return false
+  if (!perms.delete) return false
   try {
     await ElMessageBox.confirm(
       t('contract.deleteConfirm', { code: row.contractCode }),
@@ -214,7 +217,7 @@ async function onOpenOrderClick(row: ContractRecord): Promise<boolean> {
     }
     return false
   }
-  if (!perms.update.value) return false
+  if (!perms.update) return false
   openOrderTarget.value = row
   openOrderAttachment.value = row.attachment || ''
   openOrderVisible.value = true
@@ -390,6 +393,7 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<ContractRecord>()
 
 /** 页头快捷筛选：null=全部，whole/part 对应占用方式 */
@@ -405,6 +409,9 @@ const expiringSoonConfig = ref<ContractExpiringSoonConfig>({
   statusMode: 'include',
   statuses: ['租賃中', '退租中'],
 })
+/** 与整租/分租/即将到期并行：当前应收金额 > 0 */
+const outstandingReceivableFilter = ref(false)
+const outstandingReceivableCount = ref(0)
 const expiringEditVisible = ref(false)
 const expiringEditSaving = ref(false)
 const expiringEditForm = reactive({
@@ -423,12 +430,18 @@ const expiringEditStatusOptions = computed(() =>
 
 const expiringEditAmountMax = computed(() => (expiringEditForm.unit === 'month' ? 36 : 365))
 
+/**
+ * 「全部」= 整表不过滤（占用 / 需收款 / 即将到期皆未开）。
+ * 整租·分租 与 需收款、即将到期 分属 | 组，组间可并行；与「全部」互斥。
+ */
+const allChipActive = computed(
+  () =>
+    occupancyModeFilter.value === null &&
+    !outstandingReceivableFilter.value &&
+    !expiringSoonFilter.value,
+)
+
 const occupancyModeChips = computed(() => [
-  {
-    key: null as 'whole' | 'part' | null,
-    label: t('contract.occupancyFilterAll'),
-    count: occupancyModeCounts.value.all,
-  },
   {
     key: 'whole' as const,
     label: t('contract.occupancyWhole'),
@@ -547,8 +560,25 @@ async function saveExpiringEdit() {
   }
 }
 
+async function loadOutstandingReceivableCount() {
+  try {
+    const { data } = await fetchContractOutstandingReceivableCount()
+    outstandingReceivableCount.value = data.count
+  } catch {
+    /* interceptor */
+  }
+}
+
 async function loadHeadChipCounts() {
-  await Promise.all([loadOccupancyModeCounts(), loadExpiringSoonCount()])
+  await Promise.all([
+    loadOccupancyModeCounts(),
+    loadExpiringSoonCount(),
+    loadOutstandingReceivableCount(),
+  ])
+}
+
+async function onRefreshList() {
+  await Promise.all([loadList(), loadHeadChipCounts()])
 }
 
 const {
@@ -573,22 +603,20 @@ const {
     const created = range('createdAt')
     const chipKey = occupancyModeFilter.value
     const soon = expiringSoonFilter.value
+    const outstanding = outstandingReceivableFilter.value
     return {
       keyword: kw,
-      buildingIds: f.buildingId?.length ? [...f.buildingId] : undefined,
+      buildingIds: packFilterValues(f.buildingId),
       // 即将到期时状态由系统设置接管，避免与表头状态互斥
-      statuses: soon ? undefined : f.status?.length ? [...f.status] : undefined,
-      roomCodes: f.roomCode?.length ? [...f.roomCode] : undefined,
-      customerNames: f.customerName?.length ? [...f.customerName] : undefined,
-      salesManagers: f.salesManager?.length ? [...f.salesManager] : undefined,
+      statuses: soon ? undefined : packFilterValues(f.status),
+      contractCodes: packFilterValues(f.contractCode),
+      roomCodes: packFilterValues(f.roomCode),
+      customerNames: packFilterValues(f.customerName),
+      salesManagers: packFilterValues(f.salesManager),
       // 页头胶囊优先；未选时才用表头「租賃方式」细筛
-      occupancyKeys: chipKey
-        ? [chipKey]
-        : f.leaseType?.length
-          ? [...f.leaseType]
-          : undefined,
-      paymentCycles: f.paymentCycle?.length ? [...f.paymentCycle] : undefined,
-      paymentMethods: f.paymentMethod?.length ? [...f.paymentMethod] : undefined,
+      occupancyKeys: chipKey ? [chipKey] : packFilterValues(f.leaseType),
+      monthlyRents: packFilterValues(f.monthlyRent),
+      paymentCycles: packFilterValues(f.paymentCycle),
       sortBy,
       sortDir,
       startDateFrom: start.from,
@@ -597,7 +625,13 @@ const {
       endDateTo: end.to,
       createdAtFrom: created.from,
       createdAtTo: created.to,
+      createdAtEmpty: (f.createdAt || []).includes(EMPTY_FILTER_VALUE) || undefined,
+      startDateEmpty: (f.startDate || []).includes(EMPTY_FILTER_VALUE) || undefined,
+      endDateEmpty: (f.endDate || []).includes(EMPTY_FILTER_VALUE) || undefined,
+      createdBys: packFilterValues(f.createdBy),
       expiringSoon: soon || undefined,
+      hasOutstandingReceivable: outstanding || undefined,
+      rentCollectionStatuses: packFilterValues(f.rentCollectionStatus),
       page: p,
       pageSize: ps,
     }
@@ -605,10 +639,20 @@ const {
   fetchPage: fetchContracts,
 })
 
-function setOccupancyModeFilter(key: 'whole' | 'part' | null) {
-  if (occupancyModeFilter.value === key) return
-  occupancyModeFilter.value = key
-  // 与页头粗筛互斥：清掉表头份位细筛，避免叠加
+/** 点「全部」：清除所有页头快捷筛选（整表不过滤） */
+function selectAllChip() {
+  if (allChipActive.value) return
+  occupancyModeFilter.value = null
+  outstandingReceivableFilter.value = false
+  expiringSoonFilter.value = false
+  if (filters.leaseType?.length) setFilter('leaseType', [])
+  resetPage()
+  void loadList()
+}
+
+function setOccupancyModeFilter(key: 'whole' | 'part') {
+  // 再点已选 → 取消占用筛选（仍可保留需收款 / 即将到期）
+  occupancyModeFilter.value = occupancyModeFilter.value === key ? null : key
   if (filters.leaseType?.length) setFilter('leaseType', [])
   resetPage()
   void loadList()
@@ -616,6 +660,12 @@ function setOccupancyModeFilter(key: 'whole' | 'part' | null) {
 
 function toggleExpiringSoonFilter() {
   expiringSoonFilter.value = !expiringSoonFilter.value
+  resetPage()
+  void loadList()
+}
+
+function toggleOutstandingReceivableFilter() {
+  outstandingReceivableFilter.value = !outstandingReceivableFilter.value
   resetPage()
   void loadList()
 }
@@ -737,7 +787,7 @@ const formReadonly = computed(
 const contractActionColWidth = computed(() => {
   void locale.value
   // 按实际主列按钮测宽，勿再 Math.max(three)：否则会多出右侧空白
-  const labels = perms.update.value
+  const labels = perms.update
     ? [
         t('common.edit'),
         t('contract.receivePayment'),
@@ -748,7 +798,9 @@ const contractActionColWidth = computed(() => {
   return measureActionColWidth(labels)
 })
 
-const contractTableKey = computed(() => tableLayoutKey.value)
+const contractTableKey = computed(
+  () => `${tableLayoutKey.value}-${contractActionColWidth.value}`,
+)
 
 const tableHeaderConditionCount = computed(() => {
   let n = 0
@@ -760,11 +812,13 @@ const tableHeaderConditionCount = computed(() => {
   }
   if (sortKey.value && sortOrder.value) n += 1
   if (expiringSoonFilter.value) n += 1
+  if (outstandingReceivableFilter.value) n += 1
   return n
 })
 
 function onClearTableHeaderFilters() {
   expiringSoonFilter.value = false
+  outstandingReceivableFilter.value = false
   onClearFilters()
 }
 
@@ -803,7 +857,7 @@ async function onSelectAll() {
 }
 
 async function onBatchDelete() {
-  if (!perms.batchDelete.value || !selectedIds.value.length) return
+  if (!perms.batchDelete || !selectedIds.value.length) return
   try {
     await ElMessageBox.confirm(
       t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
@@ -836,6 +890,27 @@ const statusFilterOptions = computed(() =>
   })),
 )
 
+const RENT_COLLECTION_STATUSES = ['collected', 'uncollected'] as const
+
+const rentCollectionFilterOptions = computed(() =>
+  RENT_COLLECTION_STATUSES.map((s) => ({
+    value: s,
+    label: t(`contract.rentCollection.${s}`),
+  })),
+)
+
+function rentCollectionLabel(status?: string | null) {
+  const key = String(status || '').trim()
+  if (key === 'collected' || key === 'uncollected') {
+    return t(`contract.rentCollection.${key}`)
+  }
+  return t('contract.rentCollection.uncollected')
+}
+
+function rentCollectionTone(status?: string | null): string {
+  return String(status || '') === 'collected' ? 'leased' : 'terminating'
+}
+
 /** 行内改状态：普通用户非签约中不提供「已取消」；superAdmin 可选全部状态 */
 function statusEditOptionsForRow(row: ContractRecord) {
   const statuses = userStore.isSuperAdmin
@@ -846,6 +921,10 @@ function statusEditOptionsForRow(row: ContractRecord) {
     label: t(`contract.status.${s}`),
   }))
 }
+
+const contractCodeFilterOptions = computed(() =>
+  uniqueOptions(list.value, (r) => r.contractCode),
+)
 
 const roomCodeFilterOptions = computed(() => {
   const seen = new Set<string>()
@@ -858,6 +937,14 @@ const roomCodeFilterOptions = computed(() => {
   }
   return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 })
+
+const monthlyRentFilterOptions = computed(() =>
+  uniqueOptions(
+    list.value,
+    (r) => (r.monthlyRent == null ? '' : String(r.monthlyRent)),
+    (v) => formatMoney(Number(v)),
+  ),
+)
 
 const customerNameFilterOptions = computed(() => {
   const seen = new Set<string>()
@@ -920,13 +1007,7 @@ const paymentCycleFilterOptions = computed(() =>
     label: s,
   })),
 )
-
-const paymentMethodFilterOptions = computed(() =>
-  CONTRACT_PAYMENT_METHODS.map((s) => ({
-    value: s,
-    label: s,
-  })),
-)
+const createdByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.createdBy))
 
 function userLabel(u: UserRecord) {
   return u.displayName?.trim() || u.account
@@ -1070,7 +1151,7 @@ const emptyForm = () => ({
   bookingDeposit: null as number | null,
   paymentDate: todayDateStr(),
   paymentCycle: CONTRACT_PAYMENT_CYCLES[0],
-  /** 收款方式可选，新增不默认选中 */
+  /** 定金收据收款方式（写入定金收据，非合约固定字段） */
   paymentMethod: null as string | null,
   paymentVoucher: '',
   electricityRate: 0 as number | null,
@@ -1708,7 +1789,7 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!perms.import.value) {
+  if (!perms.import) {
     ElMessage.warning(t('contract.importAdminOnly'))
     return
   }
@@ -1816,6 +1897,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearContractMoreCloseTimer()
   document.removeEventListener('pointerdown', onContractMoreDocPointer, true)
   window.removeEventListener('scroll', onContractMoreScrollOrResize, true)
   window.removeEventListener('resize', onContractMoreScrollOrResize)
@@ -1831,7 +1913,7 @@ watch(
 )
 
 function openCreate() {
-  if (!perms.create.value) return
+  if (!perms.create) return
   editing.value = null
   roomDepositTouched.value = false
   Object.assign(form, emptyForm())
@@ -2362,7 +2444,7 @@ function onLoanItemDragEnd() {
 }
 
 async function openEdit(row: ContractRecord) {
-  if (!perms.update.value) return
+  if (!perms.update) return
   editing.value = row
   roomDepositTouched.value = true
   Object.assign(form, {
@@ -2524,6 +2606,10 @@ async function saveForm(mode: 'save' | 'issue' = 'save') {
     ElMessage.warning(t('contract.fields.bookingDepositRequired'))
     return
   }
+  if (!(form.paymentMethod || '').trim()) {
+    ElMessage.warning(t('contract.fields.paymentMethodRequired'))
+    return
+  }
   if (!form.paymentVoucher.trim()) {
     ElMessage.warning(t('contract.fields.paymentVoucherRequired'))
     return
@@ -2583,7 +2669,7 @@ async function saveForm(mode: 'save' | 'issue' = 'save') {
 
 /** @returns 是否已取消成功；MessageBox 未确认或状态不允许时为 false */
 async function onCancelContract(row: ContractRecord): Promise<boolean> {
-  if (!perms.update.value) return false
+  if (!perms.update) return false
   if (!isSigningContractStatus(row.status)) {
     try {
       await ElMessageBox.alert(
@@ -2695,18 +2781,22 @@ function openInvoicesFromAction(row: ContractRecord) {
 }
 
 /** 整頁共用「更多」菜單（避免每行 el-dropdown 在 fixed 操作列卡死渲染） */
+const MORE_HOVER_CLOSE_MS = 180
+let contractMoreCloseTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearContractMoreCloseTimer() {
+  if (contractMoreCloseTimer == null) return
+  clearTimeout(contractMoreCloseTimer)
+  contractMoreCloseTimer = null
+}
+
 function closeContractMoreMenu() {
+  clearContractMoreCloseTimer()
   contractMoreVisible.value = false
   contractMoreRow.value = null
 }
 
-function openContractMoreMenu(row: ContractRecord, ev: MouseEvent) {
-  const btn = ev.currentTarget as HTMLElement | null
-  if (!btn) return
-  if (contractMoreVisible.value && contractMoreRow.value?.id === row.id) {
-    closeContractMoreMenu()
-    return
-  }
+function positionContractMoreMenu(btn: HTMLElement, row: ContractRecord) {
   const rect = btn.getBoundingClientRect()
   // 右缘对齐「…」按钮右缘；中/英宽度不同时向左伸展，右侧距离保持一致
   contractMoreRow.value = row
@@ -2718,6 +2808,43 @@ function openContractMoreMenu(row: ContractRecord, ev: MouseEvent) {
     zIndex: String(CONTRACT_MORE_MENU_Z),
   }
   contractMoreVisible.value = true
+}
+
+/** 悬停打开面板（同列切换时直接换行） */
+function onContractMoreHoverEnter(row: ContractRecord, ev: MouseEvent) {
+  clearContractMoreCloseTimer()
+  const btn = ev.currentTarget as HTMLElement | null
+  if (!btn) return
+  positionContractMoreMenu(btn, row)
+}
+
+/** 离开按钮或面板：短暂延迟关闭，便于移入面板 */
+function scheduleCloseContractMoreMenu() {
+  clearContractMoreCloseTimer()
+  contractMoreCloseTimer = setTimeout(() => {
+    contractMoreCloseTimer = null
+    // MessageBox 打开期间保持面板，避免确认框失去上下文
+    if (
+      document.querySelector(
+        '.el-message-box__wrapper, .el-overlay-message-box, .el-overlay.is-message-box',
+      )
+    ) {
+      return
+    }
+    closeContractMoreMenu()
+  }, MORE_HOVER_CLOSE_MS)
+}
+
+/** 点击：同按钮再点关闭；否则打开（键盘/触控仍可用） */
+function openContractMoreMenu(row: ContractRecord, ev: MouseEvent) {
+  clearContractMoreCloseTimer()
+  const btn = ev.currentTarget as HTMLElement | null
+  if (!btn) return
+  if (contractMoreVisible.value && contractMoreRow.value?.id === row.id) {
+    closeContractMoreMenu()
+    return
+  }
+  positionContractMoreMenu(btn, row)
 }
 
 /**
@@ -2861,12 +2988,26 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head admin-page-head--with-chips">
+      <RefreshListButton :loading="loading" @refresh="() => void onRefreshList()" />
       <h2>{{ t('menu.contracts') }}</h2>
       <div class="building-chips-rail">
         <div class="building-chips" role="tablist" :aria-label="t('contract.occupancyFilterAria')">
           <button
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': allChipActive }"
+            :aria-selected="allChipActive"
+            :title="t('contract.occupancyFilterAllTip')"
+            @click="selectAllChip"
+          >
+            <span class="building-chip__name">{{ t('contract.occupancyFilterAll') }}</span>
+            <span class="building-chip__count">({{ occupancyModeCounts.all }})</span>
+          </button>
+          <span class="building-chips__sep" aria-hidden="true">|</span>
+          <button
             v-for="chip in occupancyModeChips"
-            :key="chip.key ?? 'all'"
+            :key="chip.key"
             type="button"
             class="building-chip"
             role="tab"
@@ -2876,6 +3017,19 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           >
             <span class="building-chip__name">{{ chip.label }}</span>
             <span class="building-chip__count">({{ chip.count }})</span>
+          </button>
+          <span class="building-chips__sep" aria-hidden="true">|</span>
+          <button
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': outstandingReceivableFilter }"
+            :aria-selected="outstandingReceivableFilter"
+            :title="t('contract.outstandingReceivableTip')"
+            @click="toggleOutstandingReceivableFilter"
+          >
+            <span class="building-chip__name">{{ t('contract.outstandingReceivable') }}</span>
+            <span class="building-chip__count">({{ outstandingReceivableCount }})</span>
           </button>
           <span class="building-chips__sep" aria-hidden="true">|</span>
           <div class="building-chip-group">
@@ -3052,6 +3206,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 </div>
                 <el-button
                   v-if="perms.update"
+                  v-admin-glow="perms.codes.update"
                   type="warning"
                   size="small"
                   plain
@@ -3117,6 +3272,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
         <input
           ref="importInputRef"
           type="file"
@@ -3127,8 +3283,12 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
           :key="contractTableKey"
@@ -3168,8 +3328,12 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             <template #header>
               <TableColumnHeader
                 :label="t('contract.fields.contractCode')"
+                filterable
                 sortable
+                :options="contractCodeFilterOptions"
+                :model-value="filters.contractCode || []"
                 :sort-order="sortOrderOf('contractCode')"
+                @update:model-value="(v) => setFilter('contractCode', v)"
                 @update:sort-order="(v) => setSort('contractCode', v)"
               />
             </template>
@@ -3256,9 +3420,11 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 :label="t('contract.fields.startDate')"
                 sortable
                 date-range
+                :model-value="filters.startDate || []"
                 :sort-order="sortOrderOf('startDate')"
                 :date-range-value="dateRangeOf('startDate')"
                 @update:sort-order="(v) => setSort('startDate', v)"
+                @update:model-value="(v) => setFilter('startDate', v)"
                 @update:date-range-value="(v) => setDateRange('startDate', v)"
               />
             </template>
@@ -3279,9 +3445,11 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 :label="t('contract.fields.endDate')"
                 sortable
                 date-range
+                :model-value="filters.endDate || []"
                 :sort-order="sortOrderOf('endDate')"
                 :date-range-value="dateRangeOf('endDate')"
                 @update:sort-order="(v) => setSort('endDate', v)"
+                @update:model-value="(v) => setFilter('endDate', v)"
                 @update:date-range-value="(v) => setDateRange('endDate', v)"
               />
             </template>
@@ -3342,6 +3510,49 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           </el-table-column>
           <el-table-column
             :min-width="
+              statusColW(
+                t('contract.fields.rentCollectionStatus'),
+                rentCollectionFilterOptions.map((o) => o.label),
+              )
+            "
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.rentCollectionStatus')"
+                filterable
+                sortable
+                :options="rentCollectionFilterOptions"
+                :model-value="filters.rentCollectionStatus || []"
+                :sort-order="sortOrderOf('rentCollectionStatus')"
+                @update:model-value="(v) => setFilter('rentCollectionStatus', v)"
+                @update:sort-order="(v) => setSort('rentCollectionStatus', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="rentCollectionTone(row.rentCollectionStatus)"
+                :label="rentCollectionLabel(row.rentCollectionStatus)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.receivableAmountTotal'), { interactive: true, contentMin: 120 })"
+            align="right"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.receivableAmountTotal')"
+                sortable
+                :sort-order="sortOrderOf('receivableAmountTotal')"
+                @update:sort-order="(v) => setSort('receivableAmountTotal', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              {{ formatMoney(row.receivableAmountTotal ?? 0) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="
               statusColW(t('contract.fields.leaseType'), occupancyStatusSamples, {
                 interactive: true,
               })
@@ -3373,8 +3584,12 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             <template #header>
               <TableColumnHeader
                 :label="t('contract.fields.monthlyRent')"
+                filterable
                 sortable
+                :options="monthlyRentFilterOptions"
+                :model-value="filters.monthlyRent || []"
                 :sort-order="sortOrderOf('monthlyRent')"
+                @update:model-value="(v) => setFilter('monthlyRent', v)"
                 @update:sort-order="(v) => setSort('monthlyRent', v)"
               />
             </template>
@@ -3413,31 +3628,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   row.paymentCycle ? coerceContractPaymentCycle(row.paymentCycle) : '—'
                 "
                 @save="(v) => onContractInlineSave(row, 'paymentCycle', v)"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column
-            :min-width="colW(t('contract.fields.paymentMethod'), { interactive: true, contentMin: 100 })"
-          >
-            <template #header>
-              <TableColumnHeader
-                :label="t('contract.fields.paymentMethod')"
-                filterable
-                sortable
-                :options="paymentMethodFilterOptions"
-                :model-value="filters.paymentMethod || []"
-                :sort-order="sortOrderOf('paymentMethod')"
-                @update:model-value="(v) => setFilter('paymentMethod', v)"
-                @update:sort-order="(v) => setSort('paymentMethod', v)"
-              />
-            </template>
-            <template #default="{ row }">
-              <SuperAdminInlineCell
-                :value="row.paymentMethod || ''"
-                type="select"
-                :options="paymentMethodFilterOptions"
-                :display-text="row.paymentMethod || '—'"
-                @save="(v) => onContractInlineSave(row, 'paymentMethod', v)"
               />
             </template>
           </el-table-column>
@@ -3585,11 +3775,23 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             :width="datetimeColWidth"
             class-name="col-datetime"
@@ -3600,9 +3802,11 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
@@ -3655,6 +3859,10 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   :aria-expanded="
                     contractMoreVisible && contractMoreRow?.id === (row as ContractRecord).id
                   "
+                  @mouseenter="onContractMoreHoverEnter(row as ContractRecord, $event)"
+                  @mouseleave="scheduleCloseContractMoreMenu"
+                  @focus="onContractMoreHoverEnter(row as ContractRecord, $event)"
+                  @blur="scheduleCloseContractMoreMenu"
                   @click.stop="openContractMoreMenu(row as ContractRecord, $event)"
                 >
                   …
@@ -3699,6 +3907,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
         role="menu"
         :aria-label="t('contract.moreActions')"
         @click.stop
+        @mouseenter="clearContractMoreCloseTimer"
+        @mouseleave="scheduleCloseContractMoreMenu"
       >
         <header class="contract-more-menu__head">
           <span class="contract-more-menu__head-label">{{ t('contract.fields.contractCode') }}</span>
@@ -3710,6 +3920,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           <div class="contract-more-menu__label">{{ t('contract.moreGroupProcess') }}</div>
           <div class="contract-more-menu__pills">
             <button
+              v-if="perms.update"
+              v-admin-glow="perms.codes.update"
               type="button"
               class="action-pill action-pill--info"
               role="menuitem"
@@ -3753,6 +3965,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </button>
             <button
               v-if="perms.update && canOpenOrderSign(contractMoreRow)"
+              v-admin-glow="perms.codes.update"
               type="button"
               class="action-pill action-pill--muted"
               role="menuitem"
@@ -3810,6 +4023,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       desktop-direction="ltr"
       @open-invoice="onOpenInvoiceFromList"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-room="(id) => openRoomSide(id, 'ltr')"
       @changed="loadList"
     />
     <RelatedReceivablesDrawer
@@ -3883,6 +4098,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       <template #footer>
         <el-button @click="openOrderVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button
+          v-admin-glow="perms.codes.update"
           type="primary"
           class="lb-btn-primary"
           :loading="openOrderSaving"
@@ -4560,23 +4776,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
         <section class="form-section">
           <h3>{{ t('contract.sections.payment') }}</h3>
           <div class="form-grid form-grid--finance">
-            <el-form-item :label="t('contract.fields.paymentMethod')">
-              <el-select
-                v-model="form.paymentMethod"
-                filterable
-                clearable
-                :value-on-clear="null"
-                style="width: 100%"
-                :placeholder="t('common.pleaseSelect')"
-              >
-                <el-option
-                  v-for="pm in CONTRACT_PAYMENT_METHODS"
-                  :key="pm"
-                  :label="pm"
-                  :value="pm"
-                />
-              </el-select>
-            </el-form-item>
             <el-form-item :label="t('contract.fields.bookingDeposit')" required>
               <el-input-number
                 v-model="form.bookingDeposit"
@@ -4593,6 +4792,24 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 value-format="YYYY-MM-DD"
                 style="width: 100%"
               />
+            </el-form-item>
+            <el-form-item :label="t('receipt.fields.paymentMethod')" required>
+              <el-select
+                v-model="form.paymentMethod"
+                filterable
+                clearable
+                :value-on-clear="null"
+                style="width: 100%"
+                :placeholder="t('common.pleaseSelect')"
+                :disabled="formReadonly"
+              >
+                <el-option
+                  v-for="pm in RECEIPT_PAYMENT_METHODS"
+                  :key="pm"
+                  :label="pm"
+                  :value="pm"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item :label="t('contract.fields.paymentVoucher')" required class="span-3">
               <AttachmentField v-model="form.paymentVoucher" :disabled="formReadonly" />

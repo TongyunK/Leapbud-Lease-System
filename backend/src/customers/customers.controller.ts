@@ -33,6 +33,7 @@ export class CustomersController {
 
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
+  @ApiQuery({ name: 'customerCodes', required: false, description: 'Comma-separated customer codes' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'statuses', required: false, description: 'Comma-separated statuses' })
   @ApiQuery({ name: 'accountManagers', required: false, description: 'Comma-separated manager labels' })
@@ -48,6 +49,7 @@ export class CustomersController {
   @ApiOkResponse({ description: 'Paginated customer list' })
   findAll(
     @Query('keyword') keyword?: string,
+    @Query('customerCodes') customerCodes?: string,
     @Query('status') status?: string,
     @Query('statuses') statuses?: string,
     @Query('accountManagers') accountManagers?: string,
@@ -63,6 +65,7 @@ export class CustomersController {
   ) {
     return this.customersService.findAll({
       keyword,
+      customerCodes: splitCsv(customerCodes),
       status,
       statuses: splitCsv(statuses),
       accountManagers: splitCsv(accountManagers),

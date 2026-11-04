@@ -169,5 +169,17 @@ export function useActionColWidth() {
     }
   })
 
-  return { actionColWidth }
+  /**
+   * 按「当前实际会渲染的按钮文案」测宽。
+   * 须在 computed 内调用，并读取 perms.xxx，权限变化后列宽才会跟着变。
+   * 假值（false / null / ''）会被忽略，便于 `perms.update && t('common.edit')` 写法。
+   */
+  function actionColW(labels: Array<string | false | null | undefined | 0>): number {
+    void locale.value
+    return measureActionColWidth(
+      labels.filter((x): x is string => typeof x === 'string' && Boolean(x.trim())),
+    )
+  }
+
+  return { actionColWidth, actionColW }
 }

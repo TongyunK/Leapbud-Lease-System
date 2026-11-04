@@ -37,8 +37,13 @@ export class BuildingsController {
   @Roles(UserRole.admin, UserRole.user)
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'activeOnly', required: false })
+  @ApiQuery({ name: 'names', required: false, description: 'Comma-separated building names' })
   @ApiQuery({ name: 'managers', required: false, description: 'Comma-separated manager names' })
   @ApiQuery({ name: 'active', required: false, description: 'Comma-separated true/false' })
+  @ApiQuery({ name: 'createdBys', required: false })
+  @ApiQuery({ name: 'updatedBys', required: false })
+  @ApiQuery({ name: 'createdAtEmpty', required: false })
+  @ApiQuery({ name: 'updatedAtEmpty', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
@@ -51,8 +56,13 @@ export class BuildingsController {
   findAll(
     @Query('keyword') keyword?: string,
     @Query('activeOnly') activeOnly?: string,
+    @Query('names') names?: string,
     @Query('managers') managers?: string,
     @Query('active') active?: string,
+    @Query('createdBys') createdBys?: string,
+    @Query('updatedBys') updatedBys?: string,
+    @Query('createdAtEmpty') createdAtEmpty?: string,
+    @Query('updatedAtEmpty') updatedAtEmpty?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
@@ -63,11 +73,18 @@ export class BuildingsController {
     @Query('pageSize') pageSize?: string,
   ) {
     const onlyActive = activeOnly === undefined ? false : activeOnly !== 'false';
+    const flag = (v?: string) =>
+      ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase());
     return this.buildingsService.findAll({
       keyword,
       activeOnly: onlyActive,
+      names: splitCsv(names),
       managers: splitCsv(managers),
       active: splitCsv(active),
+      createdBys: splitCsv(createdBys),
+      updatedBys: splitCsv(updatedBys),
+      createdAtEmpty: flag(createdAtEmpty) || undefined,
+      updatedAtEmpty: flag(updatedAtEmpty) || undefined,
       sortBy,
       sortDir: parseSortDir(sortDir),
       createdAtFrom,

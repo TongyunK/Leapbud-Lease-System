@@ -31,7 +31,7 @@ import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { measureActionColWidth, useActionColWidth } from '@/composables/useActionColWidth'
+import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
@@ -39,7 +39,7 @@ import { formatDateTime } from '@/utils/format'
 
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
-const { actionColWidth } = useActionColWidth()
+const { actionColW } = useActionColWidth()
 const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const TEMPLATE_TYPES: DocumentTemplateType[] = ['agreement', 'invoice', 'receipt']
@@ -70,6 +70,7 @@ const {
   apply: applySortFilter,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<DocumentTemplateRecord>()
 
 const columnGetters = {
@@ -78,16 +79,22 @@ const columnGetters = {
   fileName: (o: DocumentTemplateRecord) => o.fileName,
   enabled: (o: DocumentTemplateRecord) => String(o.enabled),
   remark: (o: DocumentTemplateRecord) => o.remark,
+  createdBy: (o: DocumentTemplateRecord) => o.createdBy,
+  updatedBy: (o: DocumentTemplateRecord) => o.updatedBy,
   createdAt: (o: DocumentTemplateRecord) => o.createdAt,
   updatedAt: (o: DocumentTemplateRecord) => o.updatedAt,
 }
 
+const nameFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.name))
+const fileNameFilterOptions = computed(() => uniqueOptions(list.value, (o) => o.fileName))
 const typeFilterOptions = computed(() =>
   TEMPLATE_TYPES.map((type) => ({
     value: type,
     label: t(`documentTemplate.types.${type}`),
   })),
 )
+const updatedByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.updatedBy))
+const createdByFilterOptions = computed(() => uniqueOptions(list.value, (r) => r.createdBy))
 
 const enabledFilterOptions = computed(() => [
   { value: 'true', label: t('user.status.active') },
@@ -135,17 +142,13 @@ watch([filters, dateRanges, sortKey, sortOrder, filterType], () => {
   clearSelection()
 }, { deep: true })
 
-const rowActionWidth = computed(() => {
-  void locale.value
-  return Math.max(
-    actionColWidth.value.two,
-    measureActionColWidth([
-      t('documentTemplate.actions.download'),
-      t('common.edit'),
-      t('common.delete'),
-    ]),
-  )
-})
+const rowActionWidth = computed(() =>
+  actionColW([
+    t('documentTemplate.actions.download'),
+    perms.update && t('common.edit'),
+    perms.delete && t('common.delete'),
+  ]),
+)
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '560px'))
 const fieldGuideWidth = computed(() => (isMobile.value ? '96%' : '720px'))
@@ -477,7 +480,7 @@ function onClearFilters() {
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :key="tableLayoutKey"
+          :key="`${tableLayoutKey}-${rowActionWidth}`"
           :data="paged"
           row-key="id"
           height="100%"
@@ -509,8 +512,12 @@ function onClearFilters() {
             <template #header>
               <TableColumnHeader
                 :label="t('documentTemplate.fields.name')"
+                filterable
                 sortable
+                :options="nameFilterOptions"
+                :model-value="filters.name || []"
                 :sort-order="sortOrderOf('name')"
+                @update:model-value="(v) => setFilter('name', v)"
                 @update:sort-order="(v) => setSort('name', v)"
               />
             </template>
@@ -536,8 +543,12 @@ function onClearFilters() {
             <template #header>
               <TableColumnHeader
                 :label="t('documentTemplate.fields.fileName')"
+                filterable
                 sortable
+                :options="fileNameFilterOptions"
+                :model-value="filters.fileName || []"
                 :sort-order="sortOrderOf('fileName')"
+                @update:model-value="(v) => setFilter('fileName', v)"
                 @update:sort-order="(v) => setSort('fileName', v)"
               />
             </template>
@@ -588,11 +599,23 @@ function onClearFilters() {
             <template #default="{ row }">{{ row.remark || '—' }}</template>
           </el-table-column>
           <el-table-column
-            prop="createdBy"
-            :label="t('common.createdBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.createdBy')"
+                filterable
+                sortable
+                :options="createdByFilterOptions"
+                :model-value="filters.createdBy || []"
+                :sort-order="sortOrderOf('createdBy')"
+                @update:model-value="(v) => setFilter('createdBy', v)"
+                @update:sort-order="(v) => setSort('createdBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.createdBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="createdAt"
             :width="datetimeColWidth"
@@ -604,20 +627,34 @@ function onClearFilters() {
                 :label="t('common.createdAt')"
                 sortable
                 date-range
+                :model-value="filters.createdAt || []"
                 :sort-order="sortOrderOf('createdAt')"
                 :date-range-value="dateRangeOf('createdAt')"
                 @update:sort-order="(v) => setSort('createdAt', v)"
+                @update:model-value="(v) => setFilter('createdAt', v)"
                 @update:date-range-value="(v) => setDateRange('createdAt', v)"
               />
             </template>
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            prop="updatedBy"
-            :label="t('common.updatedBy')"
             :min-width="auditUserColWidth"
             show-overflow-tooltip
-          />
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('common.updatedBy')"
+                filterable
+                sortable
+                :options="updatedByFilterOptions"
+                :model-value="filters.updatedBy || []"
+                :sort-order="sortOrderOf('updatedBy')"
+                @update:model-value="(v) => setFilter('updatedBy', v)"
+                @update:sort-order="(v) => setSort('updatedBy', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ row.updatedBy || '—' }}</template>
+          </el-table-column>
           <el-table-column
             prop="updatedAt"
             :width="datetimeColWidth"
@@ -629,9 +666,11 @@ function onClearFilters() {
                 :label="t('common.updatedAt')"
                 sortable
                 date-range
+                :model-value="filters.updatedAt || []"
                 :sort-order="sortOrderOf('updatedAt')"
                 :date-range-value="dateRangeOf('updatedAt')"
                 @update:sort-order="(v) => setSort('updatedAt', v)"
+                @update:model-value="(v) => setFilter('updatedAt', v)"
                 @update:date-range-value="(v) => setDateRange('updatedAt', v)"
               />
             </template>

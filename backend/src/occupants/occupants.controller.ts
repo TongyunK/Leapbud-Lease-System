@@ -39,6 +39,8 @@ export class OccupantsController {
   @ApiQuery({ name: 'keyword', required: false })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
+  @ApiQuery({ name: 'names', required: false })
+  @ApiQuery({ name: 'mobilePhones', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
@@ -56,6 +58,8 @@ export class OccupantsController {
     @Query('keyword') keyword?: string,
     @Query('customerId') customerId?: string,
     @Query('customerNames') customerNames?: string,
+    @Query('names') names?: string,
+    @Query('mobilePhones') mobilePhones?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
@@ -70,6 +74,8 @@ export class OccupantsController {
       keyword,
       customerId,
       customerNames: splitCsv(customerNames),
+      names: splitCsv(names),
+      mobilePhones: splitCsv(mobilePhones),
       sortBy,
       sortDir: parseSortDir(sortDir),
       createdAtFrom,

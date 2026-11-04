@@ -17,7 +17,7 @@ import {
   customerRequirementInclude,
   toCustomerRequirementDto,
 } from './customer-requirement.mapper';
-import { userWhereActorLabels } from '../common/audit';
+import { actorLabelsOrEmpty } from '../common/audit';
 import {
   dateRangeFilter,
   paginateArgs,
@@ -25,6 +25,11 @@ import {
   parsePageSize,
   parseSortDir,
 } from '../common/pagination';
+import {
+  numberFieldInOrEmpty,
+  splitEmptyFilter,
+  stringFieldInOrEmpty,
+} from '../common/column-filter';
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
@@ -95,6 +100,9 @@ export class CustomerRequirementsService {
     customerId?: string;
     customerNames?: string[];
     salesManagers?: string[];
+    requirementCodes?: string[];
+    leaseDurations?: string[];
+    budgets?: string[];
     sizeConfigLabels?: string[];
     acConfigLabels?: string[];
     windowConfigLabels?: string[];
@@ -102,8 +110,11 @@ export class CustomerRequirementsService {
     sortDir?: 'asc' | 'desc';
     requirementDateFrom?: string;
     requirementDateTo?: string;
+    requirementDateEmpty?: boolean;
     createdAtFrom?: string;
     createdAtTo?: string;
+    createdAtEmpty?: boolean;
+    createdBys?: string[];
     page?: number;
     pageSize?: number;
   }) {
@@ -138,57 +149,94 @@ export class CustomerRequirementsService {
     customerId?: string;
     customerNames?: string[];
     salesManagers?: string[];
+    requirementCodes?: string[];
+    leaseDurations?: string[];
+    budgets?: string[];
     sizeConfigLabels?: string[];
     acConfigLabels?: string[];
     windowConfigLabels?: string[];
     requirementDateFrom?: string;
     requirementDateTo?: string;
+    requirementDateEmpty?: boolean;
     createdAtFrom?: string;
     createdAtTo?: string;
+    createdAtEmpty?: boolean;
+    createdBys?: string[];
   }): Prisma.CustomerRequirementWhereInput {
     const where: Prisma.CustomerRequirementWhereInput = {};
     const and: Prisma.CustomerRequirementWhereInput[] = [];
 
     if (params.customerId) where.customerId = params.customerId;
 
-    const statuses = [
-      ...new Set(
-        [...(params.statuses || []), params.status?.trim() || '']
-          .map((v) => s(v))
-          .filter(Boolean),
-      ),
-    ];
-    if (statuses.length === 1) where.status = statuses[0];
-    else if (statuses.length > 1) where.status = { in: statuses };
+    const statusClause = stringFieldInOrEmpty('status', [
+      ...(params.statuses || []),
+      ...(params.status?.trim() ? [params.status.trim()] : []),
+    ]);
+    if (statusClause) and.push(statusClause as Prisma.CustomerRequirementWhereInput);
 
+    const { values: rentalTypeRaw, includeEmpty: includeEmptyRental } = splitEmptyFilter(
+      params.rentalTypes,
+    );
     const rentalTypes = [
       ...new Set(
-        (params.rentalTypes || [])
+        rentalTypeRaw
           .map((v) => this.tryNormalizeRentalType(v))
           .filter((v): v is string => Boolean(v)),
       ),
     ];
-    if (rentalTypes.length === 1) where.rentalType = rentalTypes[0];
-    else if (rentalTypes.length > 1) where.rentalType = { in: rentalTypes };
-
-    const customerNames = (params.customerNames || []).map((v) => s(v)).filter(Boolean);
-    if (customerNames.length) {
-      and.push({ customer: { name: { in: customerNames } } });
+    if (rentalTypes.length || includeEmptyRental) {
+      const or: Prisma.CustomerRequirementWhereInput[] = [];
+      if (rentalTypes.length === 1) or.push({ rentalType: rentalTypes[0] });
+      else if (rentalTypes.length > 1) or.push({ rentalType: { in: rentalTypes } });
+      if (includeEmptyRental) {
+        or.push({ rentalType: '' });
+      }
+      and.push(or.length === 1 ? or[0]! : { OR: or });
     }
 
-    const salesManagers = (params.salesManagers || []).map((v) => s(v)).filter(Boolean);
-    if (salesManagers.length) {
-      and.push({ salesManagerUser: userWhereActorLabels(salesManagers) });
+    const customerNameClause = stringFieldInOrEmpty('name', params.customerNames);
+    if (customerNameClause) {
+      and.push({ customer: customerNameClause } as Prisma.CustomerRequirementWhereInput);
     }
 
-    const sizeLabels = (params.sizeConfigLabels || []).map((v) => s(v)).filter(Boolean);
-    if (sizeLabels.length) and.push({ sizeConfig: { label: { in: sizeLabels } } });
+    const salesManagerClause = actorLabelsOrEmpty('salesManager', params.salesManagers);
+    if (salesManagerClause) {
+      and.push(salesManagerClause as Prisma.CustomerRequirementWhereInput);
+    }
 
-    const acLabels = (params.acConfigLabels || []).map((v) => s(v)).filter(Boolean);
-    if (acLabels.length) and.push({ acConfig: { label: { in: acLabels } } });
+    const createdByClause = actorLabelsOrEmpty('createdBy', params.createdBys);
+    if (createdByClause) {
+      and.push(createdByClause as Prisma.CustomerRequirementWhereInput);
+    }
 
-    const windowLabels = (params.windowConfigLabels || []).map((v) => s(v)).filter(Boolean);
-    if (windowLabels.length) and.push({ windowConfig: { label: { in: windowLabels } } });
+    const requirementCodeClause = stringFieldInOrEmpty(
+      'requirementCode',
+      params.requirementCodes,
+    );
+    if (requirementCodeClause) {
+      and.push(requirementCodeClause as Prisma.CustomerRequirementWhereInput);
+    }
+
+    const leaseDurationClause = stringFieldInOrEmpty('leaseDuration', params.leaseDurations);
+    if (leaseDurationClause) {
+      and.push(leaseDurationClause as Prisma.CustomerRequirementWhereInput);
+    }
+
+    const budgetClause = numberFieldInOrEmpty('budget', params.budgets, { nullable: true });
+    if (budgetClause) and.push(budgetClause as Prisma.CustomerRequirementWhereInput);
+
+    const sizeLabelClause = stringFieldInOrEmpty('label', params.sizeConfigLabels);
+    if (sizeLabelClause) {
+      and.push({ sizeConfig: sizeLabelClause } as Prisma.CustomerRequirementWhereInput);
+    }
+    const acLabelClause = stringFieldInOrEmpty('label', params.acConfigLabels);
+    if (acLabelClause) {
+      and.push({ acConfig: acLabelClause } as Prisma.CustomerRequirementWhereInput);
+    }
+    const windowLabelClause = stringFieldInOrEmpty('label', params.windowConfigLabels);
+    if (windowLabelClause) {
+      and.push({ windowConfig: windowLabelClause } as Prisma.CustomerRequirementWhereInput);
+    }
 
     const keyword = s(params.keyword);
     if (keyword) {
@@ -206,14 +254,22 @@ export class CustomerRequirementsService {
       });
     }
 
-    const requirementDate = dateRangeFilter(
-      params.requirementDateFrom,
-      params.requirementDateTo,
-    );
-    if (requirementDate) where.requirementDate = requirementDate;
+    if (params.requirementDateEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const requirementDate = dateRangeFilter(
+        params.requirementDateFrom,
+        params.requirementDateTo,
+      );
+      if (requirementDate) where.requirementDate = requirementDate;
+    }
 
-    const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
-    if (createdAt) where.createdAt = createdAt;
+    if (params.createdAtEmpty) {
+      and.push({ id: '__no_match__' });
+    } else {
+      const createdAt = dateRangeFilter(params.createdAtFrom, params.createdAtTo, true);
+      if (createdAt) where.createdAt = createdAt;
+    }
 
     if (and.length) where.AND = and;
     return where;
@@ -253,6 +309,13 @@ export class CustomerRequirementsService {
     if (key === 'contractCount') return [{ contracts: { _count: dir } }, { requirementDate: 'desc' }];
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'updatedAt') return [{ updatedAt: dir }];
+    if (key === 'createdBy') {
+      return [
+        { createdByUser: { displayName: dir } },
+        { createdByUser: { account: dir } },
+        { createdAt: 'desc' },
+      ];
+    }
     return [{ requirementDate: 'desc' }, { createdAt: 'desc' }];
   }
 

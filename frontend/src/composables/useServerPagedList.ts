@@ -1,7 +1,8 @@
-import { ref, watch, type Ref } from 'vue'
+import { nextTick, ref, watch, type Ref } from 'vue'
 import { LIST_PAGE_SIZES, EXPORT_PAGE_SIZE } from '@/types/pagination'
 import type { PaginatedResult } from '@/types/pagination'
 import type { DateRangeValue } from '@/composables/useTableSortFilter'
+import { LIST_MIN_LOADING_MS } from '@/utils/listLoading'
 
 type FetchPage<T, Q> = (query: Q) => Promise<{ data: PaginatedResult<T> }>
 
@@ -42,6 +43,8 @@ export function useServerPagedList<T, Q extends { page?: number; pageSize?: numb
 
   let keywordTimer: ReturnType<typeof setTimeout> | null = null
   let suppressWatch = false
+  /** 并发 loadList 序号：只让最后一次结束时关掉 loading */
+  let loadSeq = 0
 
   function rowIndex(indexOnPage: number) {
     return (page.value - 1) * pageSize.value + indexOnPage + 1
@@ -70,10 +73,22 @@ export function useServerPagedList<T, Q extends { page?: number; pageSize?: numb
     return { ...q, ...overrides }
   }
 
+  async function paintLoadingFrame() {
+    await nextTick()
+    // 双 rAF：确保浏览器先画出遮罩，再发起请求
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    })
+  }
+
   async function loadList() {
+    const seq = ++loadSeq
+    const started = Date.now()
     loading.value = true
+    await paintLoadingFrame()
     try {
       const { data } = await options.fetchPage(buildListQuery())
+      if (seq !== loadSeq) return
       list.value = data.items
       total.value = data.total
       const maxPage = Math.max(1, Math.ceil(data.total / pageSize.value) || 1)
@@ -83,7 +98,9 @@ export function useServerPagedList<T, Q extends { page?: number; pageSize?: numb
         suppressWatch = false
       }
     } finally {
-      loading.value = false
+      const wait = LIST_MIN_LOADING_MS - (Date.now() - started)
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+      if (seq === loadSeq) loading.value = false
     }
   }
 

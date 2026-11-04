@@ -41,7 +41,13 @@ export class ReceivablesController {
   @ApiQuery({ name: 'contractId', required: false })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'depositRefundId', required: false })
+  @ApiQuery({ name: 'invoiceCodes', required: false })
+  @ApiQuery({ name: 'contractCodes', required: false })
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
+  @ApiQuery({ name: 'invoiceAmounts', required: false })
+  @ApiQuery({ name: 'receivedAmounts', required: false })
+  @ApiQuery({ name: 'receivableAmounts', required: false })
+  @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false })
   @ApiQuery({ name: 'invoiceDateFrom', required: false })
@@ -50,16 +56,32 @@ export class ReceivablesController {
   @ApiQuery({ name: 'paymentDueDateTo', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
   @ApiQuery({ name: 'createdAtTo', required: false })
+  @ApiQuery({
+    name: 'outstanding',
+    required: false,
+    description: 'true=待收款（应收额>0）',
+  })
+  @ApiQuery({
+    name: 'overdue',
+    required: false,
+    description: 'true=已逾期（收款期限早于今日且应收额>0）；可与 outstanding 叠加',
+  })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiOkResponse({ description: 'Paginated receivable list' })
   findAll(
     @Query('keyword') keyword?: string,
     @Query('invoiceId') invoiceId?: string,
+    @Query('invoiceCodes') invoiceCodes?: string,
     @Query('contractId') contractId?: string,
+    @Query('contractCodes') contractCodes?: string,
     @Query('customerId') customerId?: string,
     @Query('depositRefundId') depositRefundId?: string,
     @Query('customerNames') customerNames?: string,
+    @Query('invoiceAmounts') invoiceAmounts?: string,
+    @Query('receivedAmounts') receivedAmounts?: string,
+    @Query('receivableAmounts') receivableAmounts?: string,
+    @Query('createdBys') createdBys?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('invoiceDateFrom') invoiceDateFrom?: string,
@@ -68,16 +90,25 @@ export class ReceivablesController {
     @Query('paymentDueDateTo') paymentDueDateTo?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
     @Query('createdAtTo') createdAtTo?: string,
+    @Query('outstanding') outstanding?: string,
+    @Query('overdue') overdue?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    const flag = (v?: string) => ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase())
     return this.receivablesService.findAll({
       keyword,
       invoiceId,
+      invoiceCodes: splitCsv(invoiceCodes),
       contractId,
+      contractCodes: splitCsv(contractCodes),
       customerId,
       depositRefundId,
       customerNames: splitCsv(customerNames),
+      invoiceAmounts: splitCsv(invoiceAmounts),
+      receivedAmounts: splitCsv(receivedAmounts),
+      receivableAmounts: splitCsv(receivableAmounts),
+      createdBys: splitCsv(createdBys),
       sortBy,
       sortDir: sortDir === 'desc' ? 'desc' : sortDir === 'asc' ? 'asc' : undefined,
       invoiceDateFrom,
@@ -86,9 +117,17 @@ export class ReceivablesController {
       paymentDueDateTo,
       createdAtFrom,
       createdAtTo,
+      outstanding: flag(outstanding) || undefined,
+      overdue: flag(overdue) || undefined,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     })
+  }
+
+  @Get('stats/quick')
+  @ApiOkResponse({ description: 'Receivable quick filter counts (all / outstanding / overdue)' })
+  countQuickFilters() {
+    return this.receivablesService.countQuickFilters()
   }
 
   @RequirePermissions('receivables:import')

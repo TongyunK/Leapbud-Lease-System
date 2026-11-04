@@ -49,6 +49,10 @@ export type ContractWithRelations = Contract & {
     otherFees?: number;
     depositRefunds?: number;
   };
+  /** 下属应收「应收金额」合计（列表附加，非 Prisma 字段） */
+  receivableAmountTotal?: number;
+  /** 收租情况（列表附加）：collected=已收租 / uncollected=未收租 */
+  rentCollectionStatus?: 'collected' | 'uncollected';
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
 };
@@ -163,6 +167,8 @@ export function toContractDto(row: ContractWithRelations) {
     otherFees: (row.otherFees ?? []).map(toContractOtherFeeNestedDto),
     invoiceCount: row._count?.invoices ?? 0,
     receivableCount: row._count?.receivables ?? 0,
+    receivableAmountTotal: row.receivableAmountTotal ?? 0,
+    rentCollectionStatus: row.rentCollectionStatus ?? 'uncollected',
     receiptCount: row._count?.receipts ?? 0,
     periodCount: row._count?.periods ?? row.periods?.length ?? 0,
     terminationCount: row._count?.terminations ?? 0,
