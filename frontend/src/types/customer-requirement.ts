@@ -29,7 +29,7 @@ export interface CustomerRequirementRecord {
 }
 
 /** 客户需求状态（图2） */
-export const CUSTOMER_REQUIREMENT_STATUSES = ['跟進中', '已簽約', '已取消'] as const
+export const CUSTOMER_REQUIREMENT_STATUSES = ['未跟進', '跟進中', '已簽約', '已取消'] as const
 
 export type CustomerRequirementStatus = (typeof CUSTOMER_REQUIREMENT_STATUSES)[number]
 

@@ -51,7 +51,11 @@ import RelatedServiceDetailsDrawer from '@/components/RelatedServiceDetailsDrawe
 import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
 import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-detail'
+import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
+import RelatedCashFlowsDrawer from '@/components/RelatedCashFlowsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import type { CashFlowRecord } from '@/types/cash-flow'
+import { fetchCashFlow } from '@/api/cash-flows'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -64,7 +68,8 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
-import { measureActionColWidth } from '@/composables/useActionColWidth'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
+import { ACTION_COL_ICON, measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   invoiceIoTemplateExampleRow,
@@ -114,7 +119,7 @@ const {
 const invoiceActionColWidth = computed(() => {
   void locale.value
   // 按实际主列按钮测宽（与合约表同一套 CELL_PAD_RIGHT），勿再 Math.max 无关文案
-  const labels = [t('invoice.printInvoice'), t('invoice.resendInvoice')]
+  const labels = [ACTION_COL_ICON, t('invoice.printInvoice'), t('invoice.resendInvoice')]
   if (perms.update) labels.push(t('common.edit'))
   if (perms.delete) labels.push(t('common.delete'))
   return measureActionColWidth(labels)
@@ -160,7 +165,10 @@ const drawerVisible = ref(false)
 const relatedReceivablesDrawer = ref(false)
 const relatedReceiptsDrawer = ref(false)
 const relatedServiceDetailsDrawer = ref(false)
+const relatedCashFlowsVisible = ref(false)
 const relatedListInvoice = ref<InvoiceRecord | null>(null)
+const cashFlowDrawer = ref(false)
+const cashFlowRecord = ref<CashFlowRecord | null>(null)
 const current = ref<InvoiceRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
@@ -396,6 +404,7 @@ const invoiceTypeWidthLabels = computed(() => [
   t('invoice.types.deposit'),
   t('invoice.types.others'),
   t('invoice.types.chargingPeriod'),
+  t('invoice.types.electricity'),
 ])
 
 const billingKindFilterOptions = computed(() => [
@@ -1832,6 +1841,20 @@ function openReceiptsSide(row: InvoiceRecord) {
   relatedListInvoice.value = row
   relatedReceiptsDrawer.value = true
 }
+function openCashFlowsSide(row: InvoiceRecord) {
+  if (!(row.cashFlowCount ?? 0)) return
+  relatedListInvoice.value = row
+  relatedCashFlowsVisible.value = true
+}
+async function openCashFlowSide(row: CashFlowRecord) {
+  try {
+    const { data } = await fetchCashFlow(row.id)
+    cashFlowRecord.value = data
+  } catch {
+    cashFlowRecord.value = row
+  }
+  cashFlowDrawer.value = true
+}
 function openServiceDetailsSide(row: InvoiceRecord) {
   if (!row.serviceDetailCount) return
   relatedListInvoice.value = row
@@ -2494,6 +2517,17 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('invoice.fields.cashFlowCount'), { interactive: true, contentMin: 88 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader :label="t('invoice.fields.cashFlowCount')" />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.cashFlowCount ?? 0" @click="openCashFlowsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="
               statusColW(
                 t('invoice.fields.billingKind'),
@@ -2567,6 +2601,7 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row)" />
                 <button
                   type="button"
                   class="action-pill action-pill--leave"
@@ -2642,6 +2677,7 @@ async function onImportFile(ev: Event) {
       @open-room="(id) => openRoomSide(id, 'ltr')"
       @open-receivables="openReceivablesSide"
       @open-receipts="openReceiptsSide"
+      @open-cash-flows="openCashFlowsSide"
       @open-service-details="openServiceDetailsSide"
     />
     <RelatedServiceDetailsDrawer
@@ -2667,12 +2703,28 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListInvoice?.invoiceCode || ''"
       desktop-direction="ltr"
       @open-receipt="onOpenReceiptFromRelated"
+      @open-receipt-by-id="(id) => relationDrawers?.openReceiptSide(id)"
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
       @changed="reloadListAndCounts"
     />
     <RelatedEntityDrawers ref="relationDrawers" @changed="reloadListAndCounts" />
+    <RelatedCashFlowsDrawer
+      v-model="relatedCashFlowsVisible"
+      :invoice-id="relatedListInvoice?.id"
+      :title-context="relatedListInvoice?.invoiceCode || ''"
+      desktop-direction="ltr"
+      @open-cash-flow="openCashFlowSide"
+    />
+    <CashFlowDetailDrawer
+      v-model="cashFlowDrawer"
+      :record="cashFlowRecord"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id)"
+      @open-receipt="(id) => relationDrawers?.openReceiptSide(id)"
+      @open-refund-order="(id) => relationDrawers?.openRefundOrderSide(id)"
+    />
 
     <el-dialog
       v-model="formVisible"
@@ -2768,7 +2820,6 @@ async function onImportFile(ev: Event) {
                 filterable
                 remote
                 reserve-keyword
-                fit-input-width
                 style="width: 100%"
                 popper-class="invoice-short-room-select-popper"
                 :remote-method="searchShortRoomsRemote"

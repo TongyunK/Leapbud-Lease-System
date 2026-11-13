@@ -33,7 +33,7 @@ export class CreateCustomerRequirementDto {
   @IsString()
   requirementDate?: string | null;
 
-  @ApiPropertyOptional({ example: '跟進中' })
+  @ApiPropertyOptional({ example: '未跟進', description: '未跟進 / 跟進中 / 已簽約 / 已取消' })
   @IsOptional()
   @IsString()
   status?: string;
@@ -194,7 +194,7 @@ export class ImportCustomerRequirementItemDto {
   @IsString()
   requirementDate?: string | null;
 
-  @ApiPropertyOptional({ example: '跟進中' })
+  @ApiPropertyOptional({ example: '未跟進', description: '未跟進 / 跟進中 / 已簽約 / 已取消' })
   @IsOptional()
   @IsString()
   status?: string;

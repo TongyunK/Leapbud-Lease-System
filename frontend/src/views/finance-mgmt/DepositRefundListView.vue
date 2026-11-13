@@ -1,23 +1,32 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
+import { Plus, QuestionFilled, Search, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import {
   createDepositRefundApi,
   deleteDepositRefundApi,
   batchDeleteDepositRefundsApi,
+  deleteDepositRefundAttachmentApi,
   fetchDepositRefund,
+  fetchDepositRefundAttachmentBlob,
   fetchDepositRefunds,
   importDepositRefundsApi,
   updateDepositRefundApi,
+  uploadDepositRefundAttachmentsApi,
 } from '@/api/deposit-refunds'
 import type { DepositRefundWritePayload, DepositRefundListQuery } from '@/api/deposit-refunds'
 import { fetchContracts } from '@/api/contracts'
 import { fetchUsers } from '@/api/users'
-import type { DepositRefundRecord } from '@/types/deposit-refund'
+import { fetchBookingDepositByContractApi } from '@/api/receipts'
+import type {
+  DepositRefundAttachmentRecord,
+  DepositRefundRecord,
+} from '@/types/deposit-refund'
 import { DEPOSIT_REFUND_STATUSES } from '@/types/deposit-refund'
+import MultiAttachmentField from '@/components/MultiAttachmentField.vue'
+import type { MultiAttachmentExisting } from '@/components/MultiAttachmentField.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { UserRecord } from '@/types/user'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -43,7 +52,8 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { packFilterValues } from '@/utils/columnFilter'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
+import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   depositRefundIoTemplateExampleRow,
@@ -62,7 +72,12 @@ const isMobile = useIsMobile()
 const perms = useResourcePermissions('depositRefunds')
 const { actionColW } = useActionColWidth()
 const listActionColWidth = computed(() =>
-  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+  actionColW([
+    ACTION_COL_ICON,
+    perms.update && t('depositRefund.conductRefund'),
+    perms.update && t('common.edit'),
+    perms.delete && t('common.delete'),
+  ]),
 )
 const {
   colW,
@@ -79,6 +94,29 @@ const formVisible = ref(false)
 const editing = ref<DepositRefundRecord | null>(null)
 const contracts = ref<ContractRecord[]>([])
 const users = ref<UserRecord[]>([])
+
+/** 办理退还（未退 → 已退） */
+const conductVisible = ref(false)
+const conducting = ref<DepositRefundRecord | null>(null)
+const conductSaving = ref(false)
+const conductBookingBalance = ref(0)
+const conductForm = reactive({
+  refundDate: '' as string,
+  actualRefundAmount: null as number | null,
+  bookingDepositRefundAmount: null as number | null,
+  remark: '',
+})
+const conductPendingAttachments = ref<Array<{ key: string; file: File }>>([])
+
+function todayYmd() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function isPendingRefundStatus(status: string | null | undefined) {
+  const s = (status || '').trim()
+  return s === '未退' || s === '未退按金'
+}
 
 const drawerVisible = ref(false)
 const relatedReceivablesDrawer = ref(false)
@@ -288,10 +326,6 @@ const userFilterOptions = computed(() =>
   })),
 )
 
-const selectedContract = computed(() =>
-  contracts.value.find((c) => c.id === form.contractId) || null,
-)
-
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
 
 const emptyForm = () => ({
@@ -302,13 +336,86 @@ const emptyForm = () => ({
   refundDate: '',
   totalDeposit: null as number | null,
   actualRefundAmount: null as number | null,
+  bookingDepositRefundAmount: null as number | null,
   handlerId: '' as string,
-  voucherImage: '',
-  voucherAttachment: '',
   remark: '',
 })
 
 const form = reactive(emptyForm())
+const formExistingAttachments = ref<DepositRefundAttachmentRecord[]>([])
+const formPendingAttachments = ref<Array<{ key: string; file: File }>>([])
+const formRemovedAttachmentIds = ref<string[]>([])
+const saving = ref(false)
+
+function resetFormAttachments() {
+  formExistingAttachments.value = []
+  formPendingAttachments.value = []
+  formRemovedAttachmentIds.value = []
+}
+
+function onAddAttachments(files: File[]) {
+  for (const file of files) {
+    formPendingAttachments.value.push({
+      key: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      file,
+    })
+  }
+}
+
+function removePendingAttachment(key: string) {
+  formPendingAttachments.value = formPendingAttachments.value.filter((p) => p.key !== key)
+}
+
+function removeExistingAttachment(id: string) {
+  formExistingAttachments.value = formExistingAttachments.value.filter((a) => a.id !== id)
+  if (!formRemovedAttachmentIds.value.includes(id)) {
+    formRemovedAttachmentIds.value.push(id)
+  }
+}
+
+async function resolveFormAttachmentUrl(att: MultiAttachmentExisting) {
+  const hit = formExistingAttachments.value.find((a) => a.id === att.id)
+  if (hit?.publicUrl) return hit.publicUrl
+  const refundId = editing.value?.id
+  if (!refundId) return ''
+  const blob = await fetchDepositRefundAttachmentBlob(refundId, att.id)
+  return URL.createObjectURL(blob)
+}
+
+const selectedContract = computed(() =>
+  contracts.value.find((c) => c.id === form.contractId) || null,
+)
+
+/** 所选合约定金可用余额（编辑时含本单已记退还） */
+const bookingDepositBalance = ref(0)
+
+async function refreshBookingDepositBalance(contractId: string) {
+  const id = contractId.trim()
+  if (!id) {
+    bookingDepositBalance.value = 0
+    if (!editing.value) form.bookingDepositRefundAmount = null
+    return
+  }
+  try {
+    const { data } = await fetchBookingDepositByContractApi(id)
+    let bal = Number(data?.balance ?? 0)
+    if (editing.value?.contractId === id) {
+      bal += Number(editing.value.bookingDepositRefundAmount ?? 0)
+    }
+    bookingDepositBalance.value = Math.max(0, Math.round(bal * 100) / 100)
+    // 按金与定金同退：一并退还定金强制为全部可用余额
+    form.bookingDepositRefundAmount = bookingDepositBalance.value
+  } catch {
+    bookingDepositBalance.value = 0
+  }
+}
+
+watch(
+  () => form.contractId,
+  (id) => {
+    void refreshBookingDepositBalance(id || '')
+  },
+)
 
 function userOptionLabel(u: UserRecord) {
   const name = u.displayName?.trim()
@@ -337,10 +444,113 @@ onMounted(async () => {
 function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
+  resetFormAttachments()
+  bookingDepositBalance.value = 0
   formVisible.value = true
 }
 
-function openEdit(row: DepositRefundRecord) {
+async function openConductRefund(row: DepositRefundRecord) {
+  conducting.value = row
+  conductForm.refundDate = todayYmd()
+  conductForm.actualRefundAmount = row.actualRefundAmount
+  conductForm.bookingDepositRefundAmount = row.bookingDepositRefundAmount ?? 0
+  conductForm.remark = row.remark || ''
+  conductPendingAttachments.value = []
+  conductBookingBalance.value = 0
+  conductVisible.value = true
+  try {
+    const { data } = await fetchBookingDepositByContractApi(row.contractId)
+    let bal = Number(data?.balance ?? 0)
+    bal += Number(row.bookingDepositRefundAmount ?? 0)
+    conductBookingBalance.value = Math.max(0, Math.round(bal * 100) / 100)
+    conductForm.bookingDepositRefundAmount = conductBookingBalance.value
+  } catch {
+    conductBookingBalance.value = Math.max(0, Number(row.bookingDepositRefundAmount ?? 0))
+    conductForm.bookingDepositRefundAmount = conductBookingBalance.value
+  }
+}
+
+function onAddConductAttachments(files: File[]) {
+  for (const file of files) {
+    conductPendingAttachments.value.push({
+      key: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      file,
+    })
+  }
+}
+
+function removeConductPendingAttachment(key: string) {
+  conductPendingAttachments.value = conductPendingAttachments.value.filter((p) => p.key !== key)
+}
+
+async function saveConductRefund() {
+  const row = conducting.value
+  if (!row) return
+  if (!conductForm.refundDate) {
+    await ElMessageBox.alert(
+      t('depositRefund.conductNeedRefundDate'),
+      t('depositRefund.conductRefund'),
+      { type: 'warning', confirmButtonText: t('common.confirm') },
+    )
+    return
+  }
+  conductSaving.value = true
+  try {
+    await updateDepositRefundApi(
+      row.id,
+      {
+        status: '已退',
+        refundDate: conductForm.refundDate,
+        actualRefundAmount:
+          conductForm.actualRefundAmount == null
+            ? undefined
+            : Number(conductForm.actualRefundAmount) || 0,
+        bookingDepositRefundAmount: conductBookingBalance.value,
+        remark: conductForm.remark.trim() || undefined,
+      },
+      { silentError: true },
+    )
+    const pending = conductPendingAttachments.value.map((p) => p.file)
+    if (pending.length) {
+      try {
+        await uploadDepositRefundAttachmentsApi(row.id, pending)
+      } catch {
+        await ElMessageBox.alert(
+          t('depositRefund.attachmentsUploadFailed'),
+          t('depositRefund.conductRefund'),
+          { type: 'warning', confirmButtonText: t('common.confirm') },
+        )
+        conductVisible.value = false
+        conducting.value = null
+        conductPendingAttachments.value = []
+        await loadList()
+        return
+      }
+    }
+    conductVisible.value = false
+    conducting.value = null
+    conductPendingAttachments.value = []
+    await ElMessageBox.alert(t('depositRefund.conductDone'), t('depositRefund.conductRefund'), {
+      type: 'success',
+      confirmButtonText: t('common.confirm'),
+    })
+    await loadList()
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('common.failed')
+    try {
+      await ElMessageBox.alert(msg, t('depositRefund.conductRefund'), {
+        type: 'error',
+        confirmButtonText: t('common.confirm'),
+      })
+    } catch {
+      /* dismiss */
+    }
+  } finally {
+    conductSaving.value = false
+  }
+}
+
+async function openEdit(row: DepositRefundRecord) {
   editing.value = row
   Object.assign(form, {
     contractId: row.contractId || '',
@@ -350,12 +560,21 @@ function openEdit(row: DepositRefundRecord) {
     refundDate: row.refundDate || '',
     totalDeposit: row.totalDeposit,
     actualRefundAmount: row.actualRefundAmount,
+    bookingDepositRefundAmount: row.bookingDepositRefundAmount ?? 0,
     handlerId: row.handlerId || '',
-    voucherImage: row.voucherImage || '',
-    voucherAttachment: row.voucherAttachment || '',
     remark: row.remark || '',
   })
+  resetFormAttachments()
+  formExistingAttachments.value = [...(row.attachments || [])]
   formVisible.value = true
+  void refreshBookingDepositBalance(row.contractId || '')
+  try {
+    const { data } = await fetchDepositRefund(row.id)
+    editing.value = data
+    formExistingAttachments.value = [...(data.attachments || [])]
+  } catch {
+    /* list row 已回填；详情拉取失败时沿用列表 attachments */
+  }
 }
 
 function payloadFromForm(): DepositRefundWritePayload {
@@ -368,31 +587,80 @@ function payloadFromForm(): DepositRefundWritePayload {
     totalDeposit: form.totalDeposit == null ? undefined : Number(form.totalDeposit) || 0,
     actualRefundAmount:
       form.actualRefundAmount == null ? undefined : Number(form.actualRefundAmount) || 0,
+    bookingDepositRefundAmount: bookingDepositBalance.value,
     handlerId: form.handlerId.trim() || null,
-    voucherImage: form.voucherImage.trim() || undefined,
-    voucherAttachment: form.voucherAttachment.trim() || undefined,
     remark: form.remark.trim() || undefined,
+  }
+}
+
+async function syncFormAttachments(depositRefundId: string) {
+  for (const id of formRemovedAttachmentIds.value) {
+    await deleteDepositRefundAttachmentApi(depositRefundId, id)
+  }
+  const pending = formPendingAttachments.value.map((p) => p.file)
+  if (pending.length) {
+    await uploadDepositRefundAttachmentsApi(depositRefundId, pending)
   }
 }
 
 async function saveForm() {
   if (!form.contractId.trim()) {
-    ElMessage.warning(t('depositRefund.contractRequired'))
+    await ElMessageBox.alert(
+      t('depositRefund.contractRequired'),
+      editing.value ? t('depositRefund.edit') : t('depositRefund.create'),
+      { type: 'warning', confirmButtonText: t('common.confirm') },
+    )
     return
   }
+  saving.value = true
   try {
     const payload = payloadFromForm()
+    let refundId = editing.value?.id || ''
     if (editing.value) {
-      await updateDepositRefundApi(editing.value.id, payload)
-      ElMessage.success(t('depositRefund.updated'))
+      await updateDepositRefundApi(editing.value.id, payload, { silentError: true })
+      refundId = editing.value.id
+      await syncFormAttachments(refundId)
+      await ElMessageBox.alert(t('depositRefund.updated'), t('depositRefund.edit'), {
+        type: 'success',
+        confirmButtonText: t('common.confirm'),
+      })
     } else {
-      await createDepositRefundApi(payload)
-      ElMessage.success(t('depositRefund.created'))
+      const { data } = await createDepositRefundApi(payload, { silentError: true })
+      refundId = data.id
+      try {
+        await syncFormAttachments(refundId)
+      } catch {
+        await ElMessageBox.alert(
+          t('depositRefund.attachmentsUploadFailed'),
+          t('depositRefund.create'),
+          { type: 'warning', confirmButtonText: t('common.confirm') },
+        )
+        formVisible.value = false
+        resetFormAttachments()
+        await loadList()
+        return
+      }
+      await ElMessageBox.alert(t('depositRefund.created'), t('depositRefund.create'), {
+        type: 'success',
+        confirmButtonText: t('common.confirm'),
+      })
     }
     formVisible.value = false
+    resetFormAttachments()
     await loadList()
-  } catch {
-    /* interceptor */
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('common.failed')
+    try {
+      await ElMessageBox.alert(
+        msg,
+        editing.value ? t('depositRefund.edit') : t('depositRefund.create'),
+        { type: 'error', confirmButtonText: t('common.confirm') },
+      )
+    } catch {
+      /* dismiss */
+    }
+  } finally {
+    saving.value = false
   }
 }
 
@@ -912,6 +1180,16 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ moneyOrDash(row.actualRefundAmount) }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('depositRefund.fields.bookingDepositRefundAmount'), { contentMin: 110 })"
+            align="right"
+            header-align="right"
+          >
+            <template #header>
+              {{ t('depositRefund.fields.bookingDepositRefundAmount') }}
+            </template>
+            <template #default="{ row }">{{ moneyOrDash(row.bookingDepositRefundAmount) }}</template>
+          </el-table-column>
+          <el-table-column
             :min-width="colW(t('depositRefund.fields.handler'), { interactive: true, contentMin: 100 })"
             show-overflow-tooltip
           >
@@ -930,18 +1208,18 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ row.handler || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('depositRefund.fields.voucherImage')"
-            :min-width="textColW(t('depositRefund.fields.voucherImage'), { kind: 'long' })"
-            show-overflow-tooltip
+            :min-width="colW(t('depositRefund.fields.attachments'), { contentMin: 80 })"
+            align="center"
           >
-            <template #default="{ row }">{{ row.voucherImage || '—' }}</template>
-          </el-table-column>
-          <el-table-column
-            :label="t('depositRefund.fields.voucherAttachment')"
-            :min-width="textColW(t('depositRefund.fields.voucherAttachment'), { kind: 'long' })"
-            show-overflow-tooltip
-          >
-            <template #default="{ row }">{{ row.voucherAttachment || '—' }}</template>
+            <template #header>
+              <TableColumnHeader :label="t('depositRefund.fields.attachments')" />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.attachments?.length ?? 0"
+                @click="openDetail(row)"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             :label="t('depositRefund.fields.remark')"
@@ -1005,7 +1283,6 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
             :width="listActionColWidth"
             fixed="right"
@@ -1014,6 +1291,16 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row)" />
+                <button
+                  v-if="perms.update && isPendingRefundStatus(row.status)"
+                  v-admin-glow="perms.codes.update"
+                  type="button"
+                  class="action-pill action-pill--edit"
+                  @click.stop="openConductRefund(row)"
+                >
+                  {{ t('depositRefund.conductRefund') }}
+                </button>
                 <button
                   v-if="perms.update"
                   v-admin-glow="perms.codes.update"
@@ -1086,6 +1373,86 @@ async function onImportFile(ev: Event) {
     <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
 
     <el-dialog
+      v-model="conductVisible"
+      :title="t('depositRefund.conductRefund')"
+      :width="dialogWidth"
+      :fullscreen="isMobile"
+      destroy-on-close
+      class="lb-dialog"
+    >
+      <el-form v-if="conducting" label-position="top" class="fee-form">
+        <div class="form-grid">
+          <el-form-item :label="t('depositRefund.fields.refundCode')">
+            <el-input :model-value="conducting.refundCode" disabled />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.contractCode')">
+            <el-input :model-value="conducting.contractCode" disabled />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.refundDate')" required>
+            <el-date-picker
+              v-model="conductForm.refundDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.totalDeposit')">
+            <el-input :model-value="moneyOrDash(conducting.totalDeposit)" disabled />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.actualRefundAmount')">
+            <el-input-number
+              v-model="conductForm.actualRefundAmount"
+              :min="0"
+              :precision="2"
+              :controls="false"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item>
+            <template #label>
+              <span class="form-label-with-tip">
+                {{ t('depositRefund.fields.bookingDepositRefundAmount') }}
+                <el-tooltip
+                  :content="t('depositRefund.fields.bookingDepositMustFullHint')"
+                  placement="top"
+                >
+                  <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
+            </template>
+            <el-input :model-value="formatMoney(conductBookingBalance)" disabled />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.attachments')" class="span-2">
+            <MultiAttachmentField
+              :pending="conductPendingAttachments"
+              :disabled="conductSaving"
+              @add="onAddConductAttachments"
+              @remove-pending="removeConductPendingAttachment"
+            />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.remark')" class="span-2">
+            <el-input v-model="conductForm.remark" type="textarea" :rows="2" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button :disabled="conductSaving" @click="conductVisible = false">
+            {{ t('common.cancel') }}
+          </el-button>
+          <el-button
+            type="primary"
+            class="lb-btn-primary"
+            :loading="conductSaving"
+            @click="saveConductRefund"
+          >
+            {{ t('depositRefund.conductSubmit') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="formVisible"
       :title="editing ? t('depositRefund.edit') : t('depositRefund.create')"
       :width="dialogWidth"
@@ -1152,7 +1519,7 @@ async function onImportFile(ev: Event) {
               />
             </SelectWithViewAction>
           </el-form-item>
-          <el-form-item :label="t('depositRefund.fields.refundCode')" class="span-2">
+          <el-form-item :label="t('depositRefund.fields.refundCode')">
             <el-input
               v-model="form.refundCode"
               :placeholder="t('depositRefund.codeAutoHint')"
@@ -1167,6 +1534,14 @@ async function onImportFile(ev: Event) {
                 :value="s"
               />
             </el-select>
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.refundDate')">
+            <el-date-picker
+              v-model="form.refundDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.handler')">
             <el-select
@@ -1184,22 +1559,6 @@ async function onImportFile(ev: Event) {
                 :value="opt.value"
               />
             </el-select>
-          </el-form-item>
-          <el-form-item :label="t('depositRefund.fields.terminationDate')">
-            <el-date-picker
-              v-model="form.terminationDate"
-              type="date"
-              value-format="YYYY-MM-DD"
-              style="width: 100%"
-            />
-          </el-form-item>
-          <el-form-item :label="t('depositRefund.fields.refundDate')">
-            <el-date-picker
-              v-model="form.refundDate"
-              type="date"
-              value-format="YYYY-MM-DD"
-              style="width: 100%"
-            />
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.totalDeposit')">
             <el-input-number
@@ -1219,11 +1578,38 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item :label="t('depositRefund.fields.voucherImage')" class="span-2">
-            <el-input v-model="form.voucherImage" />
+          <el-form-item :label="t('depositRefund.fields.terminationDate')">
+            <el-date-picker
+              v-model="form.terminationDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
           </el-form-item>
-          <el-form-item :label="t('depositRefund.fields.voucherAttachment')" class="span-2">
-            <el-input v-model="form.voucherAttachment" />
+          <el-form-item>
+            <template #label>
+              <span class="form-label-with-tip">
+                {{ t('depositRefund.fields.bookingDepositRefundAmount') }}
+                <el-tooltip
+                  :content="t('depositRefund.fields.bookingDepositMustFullHint')"
+                  placement="top"
+                >
+                  <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
+            </template>
+            <el-input :model-value="formatMoney(bookingDepositBalance)" disabled />
+          </el-form-item>
+          <el-form-item :label="t('depositRefund.fields.attachments')" class="span-2">
+            <MultiAttachmentField
+              :existing="formExistingAttachments"
+              :pending="formPendingAttachments"
+              :disabled="saving"
+              :resolve-url="resolveFormAttachmentUrl"
+              @add="onAddAttachments"
+              @remove-existing="removeExistingAttachment"
+              @remove-pending="removePendingAttachment"
+            />
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.remark')" class="span-2">
             <el-input v-model="form.remark" type="textarea" :rows="2" />
@@ -1232,8 +1618,13 @@ async function onImportFile(ev: Event) {
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" class="lb-btn-primary" @click="saveForm">
+          <el-button :disabled="saving" @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button
+            type="primary"
+            class="lb-btn-primary"
+            :loading="saving"
+            @click="saveForm"
+          >
             {{ t('common.save') }}
           </el-button>
         </div>
@@ -1283,6 +1674,19 @@ async function onImportFile(ev: Event) {
 
 .form-grid .span-2 {
   grid-column: 1 / -1;
+}
+
+.form-label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .select-option-ellipsis {

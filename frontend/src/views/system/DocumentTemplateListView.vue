@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('documentTemplates')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Document, Plus, UploadFilled } from '@element-plus/icons-vue'
+import { Document, Plus, QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   batchDeleteDocumentTemplatesApi,
@@ -843,10 +843,17 @@ function onClearFilters() {
 
     <el-dialog
       v-model="fieldGuideVisible"
-      :title="t('documentTemplate.fieldGuideTitle')"
       :width="fieldGuideWidth"
       destroy-on-close
     >
+      <template #header>
+        <span class="field-guide-dlg-title">
+          {{ t('documentTemplate.fieldGuideTitle') }}
+          <el-tooltip :content="t('documentTemplate.fieldGuideHint')" placement="top">
+            <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </span>
+      </template>
       <div class="field-guide-toolbar">
         <el-select v-model="fieldGuideType" style="width: 220px">
           <el-option
@@ -856,7 +863,6 @@ function onClearFilters() {
             :value="o.value"
           />
         </el-select>
-        <span class="field-guide-hint">{{ t('documentTemplate.fieldGuideHint') }}</span>
       </div>
       <el-table
         v-loading="fieldGuideLoading"
@@ -1033,15 +1039,25 @@ function onClearFilters() {
   color: var(--el-color-danger);
   background: var(--el-color-danger-light-9);
 }
+.field-guide-dlg-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1.4;
+}
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
 .field-guide-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
-}
-.field-guide-hint {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
 }
 </style>

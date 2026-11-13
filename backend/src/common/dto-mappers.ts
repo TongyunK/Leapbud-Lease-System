@@ -1,4 +1,4 @@
-import { Building, Room, Prisma } from '@prisma/client';
+import { Building, ContractSettlementType, Room, Prisma } from '@prisma/client';
 import { auditActorLabel, auditUserInclude, type AuditUserRef } from './audit';
 
 /** 房间图片行（与 Prisma RoomImage 对齐；避免客户端未 generate 时类型断裂） */
@@ -115,7 +115,7 @@ export type RoomWithBuilding = Room & {
   _count?: {
     contracts: number;
     invoices: number;
-    leaseTerminations: number;
+    contractSettlements: number;
     depositRefunds: number;
   };
   building?: Pick<Building, 'name'> | null;
@@ -129,7 +129,7 @@ export const roomListInclude = {
     select: {
       contracts: true,
       invoices: true,
-      leaseTerminations: true,
+      contractSettlements: { where: { type: ContractSettlementType.VACATE } },
       depositRefunds: true,
     },
   },
@@ -163,7 +163,7 @@ export function toRoomDto(row: RoomWithBuilding) {
     latestContract: row.latestContract ?? undefined,
     contractCount: row._count?.contracts ?? 0,
     invoiceCount: row._count?.invoices ?? 0,
-    terminationCount: row._count?.leaseTerminations ?? 0,
+    terminationCount: row._count?.contractSettlements ?? 0,
     depositRefundCount: row._count?.depositRefunds ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),

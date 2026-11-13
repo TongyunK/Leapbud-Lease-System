@@ -119,23 +119,13 @@ const router = createRouter({
           },
         },
         {
-          path: 'contract-mgmt/lease-terminations',
-          name: 'leaseTerminations',
-          component: () => import('@/views/contract-mgmt/LeaseTerminationListView.vue'),
+          path: 'contract-mgmt/contract-loan-items',
+          name: 'contractLoanItems',
+          component: () => import('@/views/contract-mgmt/ContractLoanItemListView.vue'),
           meta: {
             requiresAuth: true,
-            titleKey: 'menu.leaseTerminations',
-            subtitleKey: 'leaseTermination.subtitle',
-          },
-        },
-        {
-          path: 'contract-mgmt/contract-other-fees',
-          name: 'contractOtherFees',
-          component: () => import('@/views/contract-mgmt/ContractOtherFeeListView.vue'),
-          meta: {
-            requiresAuth: true,
-            titleKey: 'menu.contractOtherFees',
-            subtitleKey: 'contractOtherFee.subtitle',
+            titleKey: 'menu.contractLoanItems',
+            subtitleKey: 'contractLoanItem.subtitle',
           },
         },
         {
@@ -156,6 +146,36 @@ const router = createRouter({
             requiresAuth: true,
             titleKey: 'menu.depositRefunds',
             subtitleKey: 'depositRefund.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/contract-settlements',
+          name: 'contractSettlements',
+          component: () => import('@/views/finance-mgmt/ContractSettlementListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.contractSettlements',
+            subtitleKey: 'contractSettlement.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/refund-orders',
+          name: 'refundOrders',
+          component: () => import('@/views/finance-mgmt/RefundOrderListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.refundOrders',
+            subtitleKey: 'refundOrder.subtitle',
+          },
+        },
+        {
+          path: 'finance-mgmt/cash-flows',
+          name: 'cashFlows',
+          component: () => import('@/views/finance-mgmt/CashFlowListView.vue'),
+          meta: {
+            requiresAuth: true,
+            titleKey: 'menu.cashFlows',
+            subtitleKey: 'cashFlow.subtitle',
           },
         },
         {

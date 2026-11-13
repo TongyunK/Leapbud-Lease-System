@@ -59,6 +59,102 @@ enum ReceiptKind {
   invoice
 }
 
+/// 定金动账类型
+enum BookingDepositMovementType {
+  /// 抵扣应收（冲减未收）
+  apply
+  /// 退还现金（含退租与按金一并退还）
+  refund
+  /// 加收／入账（累加定金收据本金；不参与余额减法）
+  top_up
+  /// 没收／扣留（取消合约等；扣减余额，不退现金）
+  forfeit
+}
+
+/// 合约结算类型
+enum ContractSettlementType {
+  /// 退租结算
+  VACATE
+  /// 签约中取消合约
+  CANCEL
+}
+
+/// 合约终止结算应退状态
+enum ContractSettlementRefundStatus {
+  /// 有应退且尚未打款
+  pending_refund
+  /// 部分已退（已打一部分、仍有待退）
+  partial
+  /// 已结清（无应退或已退齐）
+  settled
+}
+
+/// 合约终止结算应收（应补）状态
+enum ContractSettlementCollectStatus {
+  /// 无应补金额
+  none
+  /// 有应补且尚未收款
+  pending_collect
+  /// 部分已收
+  partial
+  /// 已结清（应补已收清；无应补时创建后由回写置 none）
+  settled
+}
+
+/// 结算明细行类型
+enum ContractSettlementItemType {
+  /// 损坏扣款
+  DAMAGE_DEDUCTION
+  /// 违约／罚金扣款
+  PENALTY_DEDUCTION
+  /// 定金抵扣（超出按金赔偿等；属抵扣非按金扣除，不计入 deductionTotal）
+  BOOKING_DEPOSIT_OFFSET
+  /// 应收豁免
+  WAIVER
+  /// 追加费用
+  ADDITIONAL_CHARGE
+  /// 待退／应退额度
+  REFUND_ALLOCATION
+  /// 作废应收（取消合约冲销）
+  VOID_RECEIVABLE
+}
+
+/// 应收核销方向
+enum ReceivableWriteoffDirection {
+  /// 减少应收／冲减未收
+  reduce
+  /// 反向核销（冲回）
+  reverse
+}
+
+/// 退款单状态
+enum RefundOrderStatus {
+  /// 待打款（已打合计为 0）
+  pending
+  /// 部分打款（已打大于 0 且小于应退）
+  partial
+  /// 已打款（已打 ≥ 应退）
+  paid
+  /// 已取消
+  cancelled
+}
+
+/// 资金流水方向
+enum CashFlowDirection {
+  /// 入账（收据收款）
+  in
+  /// 出账（退款打款）
+  out
+}
+
+/// 资金流水来源类型
+enum CashFlowSourceType {
+  /// 收据
+  receipt
+  /// 退款单
+  refund_order
+}
+
 /// 系统用户
 model User {
   /// 主键
@@ -165,20 +261,22 @@ model User {
   createdContractConfigOptions ContractConfigOption[] @relation("ContractConfigOptionCreatedBy")
   /// 作为更新人：合约配置
   updatedContractConfigOptions ContractConfigOption[] @relation("ContractConfigOptionUpdatedBy")
-  /// 作为创建人：退租记录
-  createdLeaseTerminations     LeaseTermination[]     @relation("LeaseTerminationCreatedBy")
-  /// 作为更新人：退租记录
-  updatedLeaseTerminations     LeaseTermination[]     @relation("LeaseTerminationUpdatedBy")
-  /// 作为创建人：合约其他费用项
-  createdContractOtherFees     ContractOtherFee[]     @relation("ContractOtherFeeCreatedBy")
-  /// 作为更新人：合约其他费用项
-  updatedContractOtherFees     ContractOtherFee[]     @relation("ContractOtherFeeUpdatedBy")
+  /// 作为创建人：合约借出物品
+  createdContractLoanItems     ContractLoanItem[]     @relation("ContractLoanItemCreatedBy")
+  /// 作为更新人：合约借出物品
+  updatedContractLoanItems     ContractLoanItem[]     @relation("ContractLoanItemUpdatedBy")
   /// 作为处理人：按金退还记录
   handledDepositRefunds        DepositRefund[]        @relation("DepositRefundHandler")
   /// 作为创建人：按金退还记录
   createdDepositRefunds        DepositRefund[]        @relation("DepositRefundCreatedBy")
   /// 作为更新人：按金退还记录
   updatedDepositRefunds        DepositRefund[]        @relation("DepositRefundUpdatedBy")
+  /// 作为处理人：退款单
+  handledRefundOrders          RefundOrder[]          @relation("RefundOrderHandler")
+  /// 作为创建人：退款单凭证附件
+  createdRefundOrderAttachments RefundOrderAttachment[] @relation("RefundOrderAttachmentCreatedBy")
+  /// 作为更新人：退款单凭证附件
+  updatedRefundOrderAttachments RefundOrderAttachment[] @relation("RefundOrderAttachmentUpdatedBy")
   /// 作为销售经理：发票
   salesManagedInvoices         Invoice[]              @relation("InvoiceSalesManager")
   /// 作为创建人：发票
@@ -197,10 +295,22 @@ model User {
   createdReceipts              Receipt[]              @relation("ReceiptCreatedBy")
   /// 作为更新人：收据
   updatedReceipts              Receipt[]              @relation("ReceiptUpdatedBy")
+  /// 作为创建人：收据分摊明细
+  createdReceiptAllocations    ReceiptAllocation[]    @relation("ReceiptAllocationCreatedBy")
+  /// 作为更新人：收据分摊明细
+  updatedReceiptAllocations    ReceiptAllocation[]    @relation("ReceiptAllocationUpdatedBy")
+  /// 作为创建人：定金动账
+  createdBookingDepositMovements BookingDepositMovement[] @relation("BookingDepositMovementCreatedBy")
+  /// 作为更新人：定金动账
+  updatedBookingDepositMovements BookingDepositMovement[] @relation("BookingDepositMovementUpdatedBy")
   /// 作为创建人：收据附件
   createdReceiptAttachments    ReceiptAttachment[]    @relation("ReceiptAttachmentCreatedBy")
   /// 作为更新人：收据附件
   updatedReceiptAttachments    ReceiptAttachment[]    @relation("ReceiptAttachmentUpdatedBy")
+  /// 作为创建人：按金退还凭证附件
+  createdDepositRefundAttachments DepositRefundAttachment[] @relation("DepositRefundAttachmentCreatedBy")
+  /// 作为更新人：按金退还凭证附件
+  updatedDepositRefundAttachments DepositRefundAttachment[] @relation("DepositRefundAttachmentUpdatedBy")
   /// 作为创建人：单据打印模板
   createdDocumentTemplates     DocumentTemplate[]     @relation("DocumentTemplateCreatedBy")
   /// 作为更新人：单据打印模板
@@ -217,6 +327,32 @@ model User {
   createdScheduledJobs         ScheduledJob[]         @relation("ScheduledJobCreatedBy")
   /// 作为更新人：定时任务
   updatedScheduledJobs         ScheduledJob[]         @relation("ScheduledJobUpdatedBy")
+  /// 作为创建人：合约结算单
+  createdContractSettlements   ContractSettlement[]   @relation("ContractSettlementCreatedBy")
+  /// 作为更新人：合约结算单
+  updatedContractSettlements   ContractSettlement[]   @relation("ContractSettlementUpdatedBy")
+  /// 作为创建人：结算明细行
+  createdContractSettlementItems ContractSettlementItem[] @relation("ContractSettlementItemCreatedBy")
+  /// 作为更新人：结算明细行
+  updatedContractSettlementItems ContractSettlementItem[] @relation("ContractSettlementItemUpdatedBy")
+  /// 作为创建人：应收核销明细
+  createdReceivableWriteoffs   ReceivableWriteoff[]   @relation("ReceivableWriteoffCreatedBy")
+  /// 作为更新人：应收核销明细
+  updatedReceivableWriteoffs   ReceivableWriteoff[]   @relation("ReceivableWriteoffUpdatedBy")
+  /// 作为创建人：退款单
+  createdRefundOrders          RefundOrder[]          @relation("RefundOrderCreatedBy")
+  /// 作为更新人：退款单
+  updatedRefundOrders          RefundOrder[]          @relation("RefundOrderUpdatedBy")
+  /// 作为创建人：退款明细
+  createdRefundItems           RefundItem[]           @relation("RefundItemCreatedBy")
+  /// 作为更新人：退款明细
+  updatedRefundItems           RefundItem[]           @relation("RefundItemUpdatedBy")
+  /// 作为创建人：合约变更日志
+  createdContractChangeLogs    ContractChangeLog[]    @relation("ContractChangeLogCreatedBy")
+  /// 作为创建人：资金流水
+  createdCashFlows             CashFlow[]             @relation("CashFlowCreatedBy")
+  /// 作为更新人：资金流水
+  updatedCashFlows             CashFlow[]             @relation("CashFlowUpdatedBy")
 
   @@index([status])
   @@index([role])
@@ -488,10 +624,12 @@ model Room {
   updatedAt       DateTime   @updatedAt @map("updated_at")
   /// 下属合约
   contracts       Contract[] @relation("ContractBelongsToRoom")
-  /// 下属退租记录
-  leaseTerminations LeaseTermination[] @relation("LeaseTerminationBelongsToRoom")
   /// 下属按金退还记录
   depositRefunds    DepositRefund[]    @relation("DepositRefundBelongsToRoom")
+  /// 下属合约结算单
+  contractSettlements ContractSettlement[] @relation("ContractSettlementBelongsToRoom")
+  /// 下属退款单
+  refundOrders      RefundOrder[]      @relation("RefundOrderBelongsToRoom")
   /// 下属发票
   invoices          Invoice[]          @relation("InvoiceBelongsToRoom")
   /// 下属房间图片
@@ -601,10 +739,14 @@ model Customer {
   requirements     CustomerRequirement[] @relation("CustomerRequirementBelongsToCustomer")
   /// 下属合约
   contracts        Contract[]            @relation("ContractBelongsToCustomer")
-  /// 下属退租记录
-  leaseTerminations LeaseTermination[]   @relation("LeaseTerminationBelongsToCustomer")
   /// 下属按金退还记录
   depositRefunds    DepositRefund[]      @relation("DepositRefundBelongsToCustomer")
+  /// 下属合约结算单
+  contractSettlements ContractSettlement[] @relation("ContractSettlementBelongsToCustomer")
+  /// 下属退款单
+  refundOrders      RefundOrder[]        @relation("RefundOrderBelongsToCustomer")
+  /// 下属资金流水
+  cashFlows         CashFlow[]           @relation("CashFlowBelongsToCustomer")
   /// 下属发票
   invoices          Invoice[]            @relation("InvoiceBelongsToCustomer")
   /// 作为介绍人被短租发票引用
@@ -643,8 +785,8 @@ model CustomerRequirement {
   salesManagerUser User?     @relation("CustomerRequirementSalesManager", fields: [salesManagerId], references: [id], onDelete: SetNull)
   /// 创建日期（业务日期）
   requirementDate  DateTime? @map("requirement_date") @db.Date
-  /// 状态：跟進中 / 已簽約 / 已取消
-  status           String    @default("跟進中")
+  /// 状态：未跟進 / 跟進中 / 已簽約 / 已取消（随关联合约状态联动）
+  status           String    @default("未跟進")
   /// 需求类型：long 长租（后续走合约）/ short 短租（可直接开票收据，无需合约）
   rentalType       String    @default("long") @map("rental_type")
   /// 租赁时长（文本，如 12个月）
@@ -771,21 +913,29 @@ model Contract {
   remark              String    @default("")
   /// 下属合约期（使用期 / 必须使用期 / 免租期等）
   periods             ContractPeriod[] @relation("ContractPeriodBelongsToContract")
-  /// 下属退租记录
-  terminations        LeaseTermination[] @relation("LeaseTerminationBelongsToContract")
-  /// 下属合约其他费用项（按金扣除等）
-  otherFees           ContractOtherFee[] @relation("ContractOtherFeeBelongsToContract")
+  /// 下属借出物品
+  loanItems           ContractLoanItem[] @relation("ContractLoanItemBelongsToContract")
   /// 下属按金退还记录
   depositRefunds      DepositRefund[]    @relation("DepositRefundBelongsToContract")
+  /// 下属合约结算单
+  settlements         ContractSettlement[] @relation("ContractSettlementBelongsToContract")
+  /// 下属退款单
+  refundOrders        RefundOrder[]      @relation("RefundOrderBelongsToContract")
+  /// 下属合约变更日志
+  changeLogs          ContractChangeLog[] @relation("ContractChangeLogBelongsToContract")
+  /// 下属资金流水
+  cashFlows           CashFlow[]         @relation("CashFlowBelongsToContract")
   /// 下属发票
   invoices            Invoice[]          @relation("InvoiceBelongsToContract")
   /// 下属应收帐
   receivables         Receivable[]       @relation("ReceivableBelongsToContract")
   /// 下属收据
   receipts            Receipt[]          @relation("ReceiptBelongsToContract")
-  /// 定金收据 ID（开单时生成；一对一便捷指针）
+  /// 下属定金动账
+  bookingDepositMovements BookingDepositMovement[] @relation("BookingDepositMovementBelongsToContract")
+  /// 首张定金收据 ID（便捷指针；同合约可另有多张加收定金收据）
   bookingDepositReceiptId String? @unique @map("booking_deposit_receipt_id")
-  /// 定金收据
+  /// 首张定金收据
   bookingDepositReceipt   Receipt? @relation("ContractBookingDepositReceipt", fields: [bookingDepositReceiptId], references: [id], onDelete: SetNull)
   /// 创建人用户 ID
   createdById         String?   @map("created_by")
@@ -882,81 +1032,17 @@ model ContractPeriod {
   @@map("contract_periods")
 }
 
-/// 退租记录（合约退租办理单）
-model LeaseTermination {
-  /// 主键
-  id                    String   @id @default(cuid())
-  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
-  legacyId              String?  @unique @map("legacy_id")
-  /// 退租编号（业务唯一，如 TRM2609110001）
-  terminationCode       String   @unique @map("termination_code")
-  /// 所属合约 ID
-  contractId            String   @map("contract_id")
-  /// 所属合约
-  contract              Contract @relation("LeaseTerminationBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
-  /// 所属客户 ID（通常与合约客户一致，可冗余便于筛选）
-  customerId            String   @map("customer_id")
-  /// 所属客户
-  customer              Customer @relation("LeaseTerminationBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
-  /// 所属房间 ID（通常与合约房间一致）
-  roomId                String   @map("room_id")
-  /// 所属房间
-  room                  Room     @relation("LeaseTerminationBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
-  /// 退租原因
-  reason                String   @default("")
-  /// 退租日期
-  terminationDate       DateTime? @map("termination_date") @db.Date
-  /// 客户书面通知附件路径
-  noticeAttachment      String   @default("") @map("notice_attachment")
-  /// 房门匙已回收数量
-  doorKeyReturnedQty    Int      @default(0) @map("door_key_returned_qty")
-  /// 智能卡（信箱匙）已回收数量
-  smartCardReturnedQty  Int      @default(0) @map("smart_card_returned_qty")
-  /// 现场情况
-  siteCondition         String   @default("") @map("site_condition")
-  /// 备注
-  remark                String   @default("")
-  /// 关联退按金单编号/引用（退按金模块未落地前以文本保存）
-  relatedDepositRefund  String   @default("") @map("related_deposit_refund")
-  /// 下属按金扣除 / 其他费用项
-  otherFees             ContractOtherFee[] @relation("ContractOtherFeeBelongsToTermination")
-  /// 创建人用户 ID
-  createdById           String?  @map("created_by")
-  /// 创建人用户
-  createdByUser         User?    @relation("LeaseTerminationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  /// 更新人用户 ID
-  updatedById           String?  @map("updated_by")
-  /// 更新人用户
-  updatedByUser         User?    @relation("LeaseTerminationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  /// 创建时间
-  createdAt             DateTime @default(now()) @map("created_at")
-  /// 更新时间
-  updatedAt             DateTime @updatedAt @map("updated_at")
-
-  @@index([contractId])
-  @@index([customerId])
-  @@index([roomId])
-  @@index([terminationDate])
-  @@index([createdById])
-  @@index([updatedById])
-  @@map("lease_terminations")
-}
-
-/// 合约其他费用项（含退租按金扣除事项）
-model ContractOtherFee {
+/// 合约借出物品（签约时登记；与结算扣款明细分离）
+model ContractLoanItem {
   /// 主键
   id              String   @id @default(cuid())
-  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用）
+  /// 旧系统记录 ID（简道云 _id；工程师 JSON 导入用；亦兼容从 other_fees 迁入时保留原 id）
   legacyId        String?  @unique @map("legacy_id")
   /// 所属合约 ID
   contractId      String   @map("contract_id")
   /// 所属合约
-  contract        Contract @relation("ContractOtherFeeBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
-  /// 所属退租记录 ID（可选；退租按金扣除时填写）
-  terminationId   String?  @map("termination_id")
-  /// 所属退租记录
-  termination     LeaseTermination? @relation("ContractOtherFeeBelongsToTermination", fields: [terminationId], references: [id], onDelete: SetNull)
-  /// 描述
+  contract        Contract @relation("ContractLoanItemBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
+  /// 描述（物品名称）
   description     String   @default("")
   /// 数量
   quantity        Decimal  @default(0) @db.Decimal(14, 2)
@@ -968,24 +1054,25 @@ model ContractOtherFee {
   remark          String   @default("")
   /// 排序权重，越小越靠前
   sortOrder       Int      @default(0) @map("sort_order")
+  /// 退租扣款明细中引用本借出行的追溯
+  settlementItems ContractSettlementItem[] @relation("ContractSettlementItemBelongsToLoanItem")
   /// 创建人用户 ID
   createdById     String?  @map("created_by")
   /// 创建人用户
-  createdByUser   User?    @relation("ContractOtherFeeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdByUser   User?    @relation("ContractLoanItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   /// 更新人用户 ID
   updatedById     String?  @map("updated_by")
   /// 更新人用户
-  updatedByUser   User?    @relation("ContractOtherFeeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedByUser   User?    @relation("ContractLoanItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// 创建时间
   createdAt       DateTime @default(now()) @map("created_at")
   /// 更新时间
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@index([contractId])
-  @@index([terminationId])
   @@index([createdById])
   @@index([updatedById])
-  @@map("contract_other_fees")
+  @@map("contract_loan_items")
 }
 
 /// 按金退还记录（财务：合约退租后的按金退还办理单）
@@ -1008,7 +1095,7 @@ model DepositRefund {
   roomId              String    @map("room_id")
   /// 所属房间
   room                Room      @relation("DepositRefundBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
-  /// 状态（草稿 / 未退按金 / 已退按金 / 已取消）
+  /// 状态（草稿 / 未退 / 部分已退 / 已退 / 已取消）
   status              String    @default("")
   /// 退租日期
   terminationDate     DateTime? @map("termination_date") @db.Date
@@ -1016,16 +1103,24 @@ model DepositRefund {
   refundDate          DateTime? @map("refund_date") @db.Date
   /// 按金总额
   totalDeposit        Decimal   @default(0) @map("total_deposit") @db.Decimal(14, 2)
-  /// 实退按金金额
+  /// 应退按金上限（已收按金 − 扣除；分次退时的总额快照）
+  refundDueAmount     Decimal   @default(0) @map("refund_due_amount") @db.Decimal(14, 2)
+  /// 累计已退按金金额（随分次打款回写）
   actualRefundAmount  Decimal   @default(0) @map("actual_refund_amount") @db.Decimal(14, 2)
+  /// 一并退还的定金余额（挂账余款；0 表示不退定金；定金不拆分）
+  bookingDepositRefundAmount Decimal @default(0) @map("booking_deposit_refund_amount") @db.Decimal(14, 2)
+  /// 关联定金动账（退还类）
+  bookingDepositMovements BookingDepositMovement[] @relation("BookingDepositMovementBelongsToDepositRefund")
   /// 处理人用户 ID
   handlerId           String?   @map("handler_id")
   /// 处理人用户
   handlerUser         User?     @relation("DepositRefundHandler", fields: [handlerId], references: [id], onDelete: SetNull)
-  /// 退还凭证图片路径
+  /// 退还凭证图片路径（旧字段；新凭证见 attachments）
   voucherImage        String    @default("") @map("voucher_image")
-  /// 退还凭证附件路径
+  /// 退还凭证附件路径（旧字段；新凭证见 attachments）
   voucherAttachment   String    @default("") @map("voucher_attachment")
+  /// 退还凭证附件（可多文件）
+  attachments         DepositRefundAttachment[] @relation("DepositRefundAttachmentBelongsToDepositRefund")
   /// 备注
   remark              String    @default("")
   /// 创建人用户 ID
@@ -1042,6 +1137,10 @@ model DepositRefund {
   updatedAt           DateTime  @updatedAt @map("updated_at")
   /// 关联的应收帐（可选）
   receivables         Receivable[] @relation("ReceivableBelongsToDepositRefund")
+  /// 关联合约结算单（由结算侧 FK 反向）
+  settlement          ContractSettlement? @relation("ContractSettlementBelongsToDepositRefund")
+  /// 关联退款单（财务出账凭证；可多条分期）
+  refundOrders        RefundOrder[] @relation("RefundOrderBelongsToDepositRefund")
 
   @@index([contractId])
   @@index([customerId])
@@ -1053,6 +1152,39 @@ model DepositRefund {
   @@index([createdById])
   @@index([updatedById])
   @@map("deposit_refunds")
+}
+
+/// 按金退还凭证附件（一退还单多文件）
+model DepositRefundAttachment {
+  /// 主键
+  id              String        @id @default(cuid())
+  /// 所属按金退还记录 ID
+  depositRefundId String        @map("deposit_refund_id")
+  /// 所属按金退还记录
+  depositRefund   DepositRefund @relation("DepositRefundAttachmentBelongsToDepositRefund", fields: [depositRefundId], references: [id], onDelete: Cascade)
+  /// 原始文件名
+  fileName        String        @map("file_name")
+  /// 存储相对路径（相对 uploads 根；或以 http(s) 开头的外部地址）
+  storageKey      String        @map("storage_key")
+  /// 展示排序（越小越靠前）
+  sortOrder       Int           @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById     String?       @map("created_by")
+  /// 创建人用户
+  createdByUser   User?         @relation("DepositRefundAttachmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById     String?       @map("updated_by")
+  /// 更新人用户
+  updatedByUser   User?         @relation("DepositRefundAttachmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt       DateTime      @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([depositRefundId, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("deposit_refund_attachments")
 }
 
 /// 发票（财务：合约开票或短租开票记录）
@@ -1105,6 +1237,10 @@ model Invoice {
   receivables           Receivable[]           @relation("ReceivableBelongsToInvoice")
   /// 下属收据
   receipts              Receipt[]              @relation("ReceiptBelongsToInvoice")
+  /// 收据分摊中引用本发票的明细
+  receiptAllocations    ReceiptAllocation[]    @relation("ReceiptAllocationBelongsToInvoice")
+  /// 关联结算明细行
+  settlementItems       ContractSettlementItem[] @relation("ContractSettlementItemBelongsToInvoice")
   /// 应收帐引用（文本占位，兼容旧导入）
   relatedReceivableRef  String                 @default("") @map("related_receivable_ref")
   /// 开票附件路径
@@ -1129,6 +1265,8 @@ model Invoice {
   referredByCustomer    Customer?              @relation("InvoiceReferredByCustomer", fields: [referredByCustomerId], references: [id], onDelete: SetNull)
   /// 备注
   remark                String                 @default("")
+  /// 变更记录（文本审计摘要；合约同步按金／首期租金等追加）
+  changeLog             String                 @default("") @map("change_log")
   /// 创建人用户 ID
   createdById           String?                @map("created_by")
   /// 创建人用户
@@ -1230,16 +1368,26 @@ model Receivable {
   paymentDueDate     DateTime?      @map("payment_due_date") @db.Date
   /// 开票金额
   invoiceAmount      Decimal        @default(0) @map("invoice_amount") @db.Decimal(14, 2)
-  /// 已收金额
+  /// 已收金额（历史累计实收，含已冲销／已退的收款；不含仅作废未交）
   receivedAmount     Decimal        @default(0) @map("received_amount") @db.Decimal(14, 2)
-  /// 应收金额（通常 = 开票金额 − 已收金额，可覆盖）
+  /// 已退金额（冲销另收、实退按金等退回租客的累计）
+  refundedAmount     Decimal        @default(0) @map("refunded_amount") @db.Decimal(14, 2)
+  /// 应收金额／未收（= 开票金额 − 已收金额 + 已退金额）
   receivableAmount   Decimal        @default(0) @map("receivable_amount") @db.Decimal(14, 2)
   /// 备注
   remark             String         @default("")
-  /// 收款记录引用（文本占位，兼容旧导入；正式关联见 receipts）
+  /// 收款记录引用（文本占位，兼容旧导入；正式关联见 receipts / receipt_allocations）
   relatedReceiptRef  String         @default("") @map("related_receipt_ref")
-  /// 下属收据
+  /// 下属收据（头表 receivableId；多应收合并收款时以分摊明细为准）
   receipts           Receipt[]      @relation("ReceiptBelongsToReceivable")
+  /// 收据分摊明细（一张收据可摊到多张应收）
+  receiptAllocations ReceiptAllocation[] @relation("ReceiptAllocationBelongsToReceivable")
+  /// 下属应收核销明细
+  writeoffs          ReceivableWriteoff[] @relation("ReceivableWriteoffBelongsToReceivable")
+  /// 关联结算明细行
+  settlementItems    ContractSettlementItem[] @relation("ContractSettlementItemBelongsToReceivable")
+  /// 关联退款明细
+  refundItems        RefundItem[]   @relation("RefundItemBelongsToReceivable")
   /// 关联按金退还记录 ID（可选）
   depositRefundId    String?        @map("deposit_refund_id")
   /// 关联按金退还记录
@@ -1288,19 +1436,31 @@ model Receipt {
   contract          Contract?   @relation("ReceiptBelongsToContract", fields: [contractId], references: [id], onDelete: SetNull)
   /// 作为某合约的定金收据（合约侧 bookingDepositReceiptId 反向）
   bookingDepositOfContract Contract? @relation("ContractBookingDepositReceipt")
-  /// 所属发票 ID（可选）
+  /// 定金动账（本收据为定金收据时）
+  bookingDepositMovements BookingDepositMovement[] @relation("BookingDepositMovementBelongsToReceipt")
+  /// 作为定金抵扣所开出的发票收据（反向）
+  bookingDepositOffsetOf BookingDepositMovement[] @relation("BookingDepositMovementOffsetReceipt")
+  /// 所属发票 ID（可选；多应收合并收款时可空，以分摊明细为准）
   invoiceId         String?     @map("invoice_id")
   /// 所属发票
   invoice           Invoice?    @relation("ReceiptBelongsToInvoice", fields: [invoiceId], references: [id], onDelete: SetNull)
-  /// 所属应收帐 ID（可选）
+  /// 所属应收帐 ID（可选；单应收时冗余；多应收合并收款时可空，以分摊明细为准）
   receivableId      String?     @map("receivable_id")
   /// 所属应收帐
   receivable        Receivable? @relation("ReceiptBelongsToReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
+  /// 分摊明细（同一客户／合约下可把多张应收摊到一张收据）
+  allocations       ReceiptAllocation[] @relation("ReceiptAllocationBelongsToReceipt")
+  /// 关联应收核销明细（收款核销留痕）
+  writeoffs         ReceivableWriteoff[] @relation("ReceivableWriteoffBelongsToReceipt")
+  /// 关联退款明细（冲销收据出账追溯）
+  refundItems       RefundItem[] @relation("RefundItemBelongsToReceipt")
+  /// 关联资金流水（入账）
+  cashFlows         CashFlow[]  @relation("CashFlowBelongsToReceipt")
   /// 收款日期
   paymentDate       DateTime?   @map("payment_date") @db.Date
   /// 收款方式（银行转账 / 支票 / 现金 / FPS 等）
   paymentMethod     String      @default("") @map("payment_method")
-  /// 收款金额
+  /// 收款金额（须等于各分摊金额合计；无分摊时兼容旧数据）
   amount            Decimal     @default(0) @db.Decimal(14, 2)
   /// 备注
   remark            String      @default("")
@@ -1331,6 +1491,111 @@ model Receipt {
   @@index([createdById])
   @@index([updatedById])
   @@map("receipts")
+}
+
+/// 收据分摊明细（一张发票收据可覆盖多张应收；金额合计应等于收据金额）
+model ReceiptAllocation {
+  /// 主键
+  id            String     @id @default(cuid())
+  /// 所属收据 ID
+  receiptId     String     @map("receipt_id")
+  /// 所属收据
+  receipt       Receipt    @relation("ReceiptAllocationBelongsToReceipt", fields: [receiptId], references: [id], onDelete: Cascade)
+  /// 所属应收帐 ID
+  receivableId  String     @map("receivable_id")
+  /// 所属应收帐
+  receivable    Receivable @relation("ReceiptAllocationBelongsToReceivable", fields: [receivableId], references: [id], onDelete: Restrict)
+  /// 所属发票 ID（冗余，便于列表／打印）
+  invoiceId     String?    @map("invoice_id")
+  /// 所属发票
+  invoice       Invoice?   @relation("ReceiptAllocationBelongsToInvoice", fields: [invoiceId], references: [id], onDelete: SetNull)
+  /// 分摊到该应收的金额
+  amount        Decimal    @db.Decimal(14, 2)
+  /// 排序（0-based，同次收款 FIFO 顺序）
+  sortOrder     Int        @default(0) @map("sort_order")
+  /// 备注
+  remark        String     @default("")
+  /// 创建人用户 ID
+  createdById   String?    @map("created_by")
+  /// 创建人用户
+  createdByUser User?      @relation("ReceiptAllocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById   String?    @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?      @relation("ReceiptAllocationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt     DateTime   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  @@unique([receiptId, receivableId])
+  @@index([receiptId, sortOrder])
+  @@index([receivableId])
+  @@index([invoiceId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("receipt_allocations")
+}
+
+/// 定金动账（抵扣／退还／加收／没收；余额 = 定金收据金额 − Σapply − Σrefund − Σforfeit；top_up 仅流水）
+model BookingDepositMovement {
+  /// 主键
+  id                        String                     @id @default(cuid())
+  /// 所属定金收据 ID
+  bookingDepositReceiptId   String                     @map("booking_deposit_receipt_id")
+  /// 所属定金收据
+  bookingDepositReceipt     Receipt                    @relation("BookingDepositMovementBelongsToReceipt", fields: [bookingDepositReceiptId], references: [id], onDelete: Cascade)
+  /// 所属合约 ID
+  contractId                String                     @map("contract_id")
+  /// 所属合约
+  contract                  Contract                   @relation("BookingDepositMovementBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
+  /// 动账类型：apply=抵扣应收，refund=退还，top_up=加收入账，forfeit=没收／扣留
+  type                      BookingDepositMovementType
+  /// 动账金额（恒为正；方向由 type 决定；top_up 不扣减余额）
+  amount                    Decimal                    @db.Decimal(14, 2)
+  /// 动账日期
+  movementDate              DateTime                   @map("movement_date") @db.Date
+  /// 抵扣关联应收 ID（仅 apply）
+  receivableId              String?                    @map("receivable_id")
+  /// 抵扣关联发票 ID（仅 apply）
+  invoiceId                 String?                    @map("invoice_id")
+  /// 历史兼容：旧版抵扣时另开的「定金抵扣」发票收据 ID（新业务不再写入）
+  offsetReceiptId           String?                    @unique @map("offset_receipt_id")
+  /// 历史兼容：旧版抵扣时另开的发票收据
+  offsetReceipt             Receipt?                   @relation("BookingDepositMovementOffsetReceipt", fields: [offsetReceiptId], references: [id], onDelete: SetNull)
+  /// 退租/按金退还办理单 ID（退还时可选；兼容旧数据）
+  depositRefundId           String?                    @map("deposit_refund_id")
+  /// 退租/按金退还办理单
+  depositRefund             DepositRefund?             @relation("BookingDepositMovementBelongsToDepositRefund", fields: [depositRefundId], references: [id], onDelete: SetNull)
+  /// 关联退款单 ID（退还定金时优先挂出账单）
+  refundOrderId             String?                    @map("refund_order_id")
+  /// 关联退款单
+  refundOrder               RefundOrder?               @relation("BookingDepositMovementBelongsToRefundOrder", fields: [refundOrderId], references: [id], onDelete: SetNull)
+  /// 备注
+  remark                    String                     @default("")
+  /// 创建人用户 ID
+  createdById               String?                    @map("created_by")
+  /// 创建人用户
+  createdByUser             User?                      @relation("BookingDepositMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById               String?                    @map("updated_by")
+  /// 更新人用户
+  updatedByUser             User?                      @relation("BookingDepositMovementUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+
+  @@index([bookingDepositReceiptId])
+  @@index([contractId])
+  @@index([type])
+  @@index([receivableId])
+  @@index([depositRefundId])
+  @@index([refundOrderId])
+  @@index([movementDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("booking_deposit_movements")
 }
 
 /// 收据收款凭证附件（一收据多文件，不限数量与格式）
@@ -1861,5 +2126,482 @@ model ScheduledJobLog {
   @@index([jobId, startedAt])
   @@index([status])
   @@map("scheduled_job_logs")
+}
+
+/// 合约结算单（统一：退租 VACATE / 签约中取消 CANCEL；无审批，操作员确认即落账）
+model ContractSettlement {
+  /// 主键
+  id                  String                   @id @default(cuid())
+  /// 结算编号（业务唯一，如 CST2611090001）
+  settlementCode      String                   @unique @map("settlement_code")
+  /// 结算类型：VACATE=退租，CANCEL=取消合约
+  type                ContractSettlementType
+  /// 应退状态：pending_refund=待退款，partial=部分退款，settled=已结清
+  refundStatus        ContractSettlementRefundStatus @default(settled) @map("refund_status")
+  /// 应收（应补）状态：none=无应补，pending_collect=待收，partial=部分收款，settled=已结清
+  collectStatus       ContractSettlementCollectStatus @default(none) @map("collect_status")
+  /// 所属合约 ID
+  contractId          String                   @map("contract_id")
+  /// 所属合约
+  contract            Contract                 @relation("ContractSettlementBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
+  /// 所属客户 ID
+  customerId          String                   @map("customer_id")
+  /// 所属客户
+  customer            Customer                 @relation("ContractSettlementBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  /// 所属房间 ID
+  roomId              String                   @map("room_id")
+  /// 所属房间
+  room                Room                     @relation("ContractSettlementBelongsToRoom", fields: [roomId], references: [id], onDelete: Restrict)
+  /// 结算日期
+  settlementDate      DateTime                 @map("settlement_date") @db.Date
+  /// 退租日期（业务日；可与结算日期不同；取消合约可空）
+  terminationDate     DateTime?                @map("termination_date") @db.Date
+  /// 按金总额快照（结算时合约按金；便于对照扣除后应退）
+  depositTotal        Decimal                  @default(0) @map("deposit_total") @db.Decimal(14, 2)
+  /// 扣款合计（损坏／罚金等）
+  deductionTotal      Decimal                  @default(0) @map("deduction_total") @db.Decimal(14, 2)
+  /// 豁免合计
+  waiverTotal         Decimal                  @default(0) @map("waiver_total") @db.Decimal(14, 2)
+  /// 追加费用合计
+  additionalTotal     Decimal                  @default(0) @map("additional_total") @db.Decimal(14, 2)
+  /// 待退额度合计
+  refundDueTotal      Decimal                  @default(0) @map("refund_due_total") @db.Decimal(14, 2)
+  /// 已退合计
+  refundedTotal       Decimal                  @default(0) @map("refunded_total") @db.Decimal(14, 2)
+  /// 客户应补缴合计
+  collectDueTotal     Decimal                  @default(0) @map("collect_due_total") @db.Decimal(14, 2)
+  /// 应补已收合计（由 ADDITIONAL_CHARGE 关联应收回写）
+  collectedTotal      Decimal                  @default(0) @map("collected_total") @db.Decimal(14, 2)
+  /// 关联旧按金退还单 ID（兼容双写；一退还至多一结算）
+  depositRefundId     String?                  @unique @map("deposit_refund_id")
+  /// 关联旧按金退还单
+  depositRefund       DepositRefund?           @relation("ContractSettlementBelongsToDepositRefund", fields: [depositRefundId], references: [id], onDelete: SetNull)
+  /// 退租类型：expiry=到期退租，early=提前退租（仅 VACATE；CANCEL 为空）
+  terminationKind     String                   @default("") @map("termination_kind")
+  /// 退租原因（仅 VACATE）
+  reason              String                   @default("")
+  /// 客户书面通知附件路径（仅 VACATE）
+  noticeAttachment    String                   @default("") @map("notice_attachment")
+  /// 房门匙已回收数量（仅 VACATE）
+  doorKeyReturnedQty  Int                      @default(0) @map("door_key_returned_qty")
+  /// 智能卡（信箱匙）已回收数量（仅 VACATE）
+  smartCardReturnedQty Int                     @default(0) @map("smart_card_returned_qty")
+  /// 现场情况（仅 VACATE）
+  siteCondition       String                   @default("") @map("site_condition")
+  /// 旧退租编号（历史回填 TRM…；新单为空）
+  legacyTerminationCode String                 @default("") @map("legacy_termination_code")
+  /// 备注
+  remark              String                   @default("")
+  /// 下属结算明细行
+  items               ContractSettlementItem[] @relation("ContractSettlementItemBelongsToSettlement")
+  /// 下属应收核销明细
+  writeoffs           ReceivableWriteoff[]     @relation("ReceivableWriteoffBelongsToSettlement")
+  /// 下属退款单
+  refundOrders        RefundOrder[]            @relation("RefundOrderBelongsToSettlement")
+  /// 创建人用户 ID
+  createdById         String?                  @map("created_by")
+  /// 创建人用户
+  createdByUser       User?                    @relation("ContractSettlementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById         String?                  @map("updated_by")
+  /// 更新人用户
+  updatedByUser       User?                    @relation("ContractSettlementUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  @@index([contractId])
+  @@index([customerId])
+  @@index([roomId])
+  @@index([type])
+  @@index([refundStatus])
+  @@index([collectStatus])
+  @@index([settlementDate])
+  @@index([terminationDate])
+  @@index([legacyTerminationCode])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("contract_settlements")
+}
+
+/// 合约结算明细行（扣款／豁免／追加／待退／作废应收）
+model ContractSettlementItem {
+  /// 主键
+  id              String                     @id @default(cuid())
+  /// 所属结算单 ID
+  settlementId    String                     @map("settlement_id")
+  /// 所属结算单
+  settlement      ContractSettlement         @relation("ContractSettlementItemBelongsToSettlement", fields: [settlementId], references: [id], onDelete: Cascade)
+  /// 行类型
+  itemType        ContractSettlementItemType @map("item_type")
+  /// 描述
+  description     String                     @default("")
+  /// 金额（恒为正；含义由 itemType 决定）
+  amount          Decimal                    @db.Decimal(14, 2)
+  /// 数量（扣款明细；钥匙少还等）
+  quantity        Decimal                    @default(0) @db.Decimal(14, 2)
+  /// 单价（扣款明细）
+  unitAmount      Decimal                    @default(0) @map("unit_amount") @db.Decimal(14, 2)
+  /// 退租验收状态：damaged=损坏扣除，missing=未归还扣除；非验收行为空
+  returnStatus    String                     @default("") @map("return_status")
+  /// 来源借出物品 ID（扣款可追溯原借出行）
+  sourceLoanItemId String?                   @map("source_loan_item_id")
+  /// 来源借出物品
+  sourceLoanItem  ContractLoanItem?          @relation("ContractSettlementItemBelongsToLoanItem", fields: [sourceLoanItemId], references: [id], onDelete: SetNull)
+  /// 关联应收 ID（可选）
+  receivableId    String?                    @map("receivable_id")
+  /// 关联应收
+  receivable      Receivable?                @relation("ContractSettlementItemBelongsToReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
+  /// 关联发票 ID（可选）
+  invoiceId       String?                    @map("invoice_id")
+  /// 关联发票
+  invoice         Invoice?                   @relation("ContractSettlementItemBelongsToInvoice", fields: [invoiceId], references: [id], onDelete: SetNull)
+  /// 排序（0-based）
+  sortOrder       Int                        @default(0) @map("sort_order")
+  /// 备注
+  remark          String                     @default("")
+  /// 下属核销行（由本明细驱动）
+  writeoffs       ReceivableWriteoff[]       @relation("ReceivableWriteoffBelongsToSettlementItem")
+  /// 下属退款明细
+  refundItems     RefundItem[]               @relation("RefundItemBelongsToSettlementItem")
+  /// 创建人用户 ID
+  createdById     String?                    @map("created_by")
+  /// 创建人用户
+  createdByUser   User?                      @relation("ContractSettlementItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById     String?                    @map("updated_by")
+  /// 更新人用户
+  updatedByUser   User?                      @relation("ContractSettlementItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+
+  @@index([settlementId, sortOrder])
+  @@index([itemType])
+  @@index([receivableId])
+  @@index([invoiceId])
+  @@index([sourceLoanItemId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("contract_settlement_items")
+}
+
+/// 应收核销明细（挂账／抵扣／豁免／作废等留痕）
+model ReceivableWriteoff {
+  /// 主键
+  id                String                     @id @default(cuid())
+  /// 核销编号（业务唯一，如 WOF2611090001）
+  writeoffCode      String                     @unique @map("writeoff_code")
+  /// 所属应收 ID
+  receivableId      String                     @map("receivable_id")
+  /// 所属应收
+  receivable        Receivable                 @relation("ReceivableWriteoffBelongsToReceivable", fields: [receivableId], references: [id], onDelete: Restrict)
+  /// 核销金额（恒为正）
+  amount            Decimal                    @db.Decimal(14, 2)
+  /// 方向：reduce=减少应收，reverse=反向核销
+  direction         ReceivableWriteoffDirection
+  /// 原因类型（如 void_cancel / waiver / damage / receipt_apply）
+  reasonType        String                     @default("") @map("reason_type")
+  /// 所属结算单 ID（可选）
+  settlementId      String?                    @map("settlement_id")
+  /// 所属结算单
+  settlement        ContractSettlement?        @relation("ReceivableWriteoffBelongsToSettlement", fields: [settlementId], references: [id], onDelete: SetNull)
+  /// 所属结算明细行 ID（可选）
+  settlementItemId  String?                    @map("settlement_item_id")
+  /// 所属结算明细行
+  settlementItem    ContractSettlementItem?    @relation("ReceivableWriteoffBelongsToSettlementItem", fields: [settlementItemId], references: [id], onDelete: SetNull)
+  /// 关联收据 ID（收款核销时）
+  receiptId         String?                    @map("receipt_id")
+  /// 关联收据
+  receipt           Receipt?                   @relation("ReceivableWriteoffBelongsToReceipt", fields: [receiptId], references: [id], onDelete: SetNull)
+  /// 核销日期
+  writeoffDate      DateTime                   @map("writeoff_date") @db.Date
+  /// 备注
+  remark            String                     @default("")
+  /// 创建人用户 ID
+  createdById       String?                    @map("created_by")
+  /// 创建人用户
+  createdByUser     User?                      @relation("ReceivableWriteoffCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById       String?                    @map("updated_by")
+  /// 更新人用户
+  updatedByUser     User?                      @relation("ReceivableWriteoffUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  @@index([receivableId])
+  @@index([settlementId])
+  @@index([settlementItemId])
+  @@index([receiptId])
+  @@index([direction])
+  @@index([reasonType])
+  @@index([writeoffDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("receivable_writeoffs")
+}
+
+/// 退款单（出账主凭证；可延期打款）
+model RefundOrder {
+  /// 主键
+  id               String            @id @default(cuid())
+  /// 退款编号（业务唯一，如 RFO2611090001）
+  refundCode       String            @unique @map("refund_code")
+  /// 状态：pending=待打款，partial=部分打款，paid=已打款，cancelled=已取消
+  status           RefundOrderStatus @default(pending)
+  /// 所属合约 ID
+  contractId       String            @map("contract_id")
+  /// 所属合约
+  contract         Contract          @relation("RefundOrderBelongsToContract", fields: [contractId], references: [id], onDelete: Restrict)
+  /// 所属客户 ID
+  customerId       String            @map("customer_id")
+  /// 所属客户
+  customer         Customer          @relation("RefundOrderBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  /// 所属房间 ID（冗余便于列表；可空，由合约带出）
+  roomId           String?           @map("room_id")
+  /// 所属房间
+  room             Room?             @relation("RefundOrderBelongsToRoom", fields: [roomId], references: [id], onDelete: SetNull)
+  /// 所属结算单 ID（可选；业务上同一结算至多一张未取消退款单）
+  settlementId     String?           @map("settlement_id")
+  /// 所属结算单
+  settlement       ContractSettlement? @relation("RefundOrderBelongsToSettlement", fields: [settlementId], references: [id], onDelete: SetNull)
+  /// 关联旧按金退还单 ID（兼容双写）
+  depositRefundId  String?           @map("deposit_refund_id")
+  /// 关联旧按金退还单
+  depositRefund    DepositRefund?    @relation("RefundOrderBelongsToDepositRefund", fields: [depositRefundId], references: [id], onDelete: SetNull)
+  /// 应退总额（创建后不因分次打款缩小）
+  amount           Decimal           @default(0) @db.Decimal(14, 2)
+  /// 已打款合计（由出账流水回写）
+  paidAmount       Decimal           @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  /// 最近一次打款日期（无打款可空）
+  refundDate       DateTime?         @map("refund_date") @db.Date
+  /// 最近一次付款方式
+  paymentMethod    String            @default("") @map("payment_method")
+  /// 打款经办人用户 ID
+  handlerId        String?           @map("handler_id")
+  /// 打款经办人用户
+  handlerUser      User?             @relation("RefundOrderHandler", fields: [handlerId], references: [id], onDelete: SetNull)
+  /// 备注
+  remark           String            @default("")
+  /// 下属退款明细
+  items            RefundItem[]      @relation("RefundItemBelongsToRefundOrder")
+  /// 打款凭证附件
+  attachments      RefundOrderAttachment[] @relation("RefundOrderAttachmentBelongsToRefundOrder")
+  /// 关联定金退还动账
+  bookingDepositMovements BookingDepositMovement[] @relation("BookingDepositMovementBelongsToRefundOrder")
+  /// 下属资金流水（出账）
+  cashFlows        CashFlow[]        @relation("CashFlowBelongsToRefundOrder")
+  /// 创建人用户 ID
+  createdById      String?           @map("created_by")
+  /// 创建人用户
+  createdByUser    User?             @relation("RefundOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById      String?           @map("updated_by")
+  /// 更新人用户
+  updatedByUser    User?             @relation("RefundOrderUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt        DateTime          @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@index([contractId])
+  @@index([customerId])
+  @@index([roomId])
+  @@index([settlementId])
+  @@index([depositRefundId])
+  @@index([handlerId])
+  @@index([status])
+  @@index([refundDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("refund_orders")
+}
+
+/// 退款单打款凭证附件（一退款单多文件）
+model RefundOrderAttachment {
+  /// 主键
+  id            String      @id @default(cuid())
+  /// 所属退款单 ID
+  refundOrderId String      @map("refund_order_id")
+  /// 所属退款单
+  refundOrder   RefundOrder @relation("RefundOrderAttachmentBelongsToRefundOrder", fields: [refundOrderId], references: [id], onDelete: Cascade)
+  /// 原始文件名
+  fileName      String      @map("file_name")
+  /// 存储相对路径（相对 uploads 根；或以 http(s) 开头的外部地址）
+  storageKey    String      @map("storage_key")
+  /// 展示排序（越小越靠前）
+  sortOrder     Int         @default(0) @map("sort_order")
+  /// 创建人用户 ID
+  createdById   String?     @map("created_by")
+  /// 创建人用户
+  createdByUser User?       @relation("RefundOrderAttachmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById   String?     @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?       @relation("RefundOrderAttachmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt     DateTime    @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@index([refundOrderId, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("refund_order_attachments")
+}
+
+/// 退款明细
+model RefundItem {
+  /// 主键
+  id                 String                  @id @default(cuid())
+  /// 所属退款单 ID
+  refundOrderId      String                  @map("refund_order_id")
+  /// 所属退款单
+  refundOrder        RefundOrder             @relation("RefundItemBelongsToRefundOrder", fields: [refundOrderId], references: [id], onDelete: Cascade)
+  /// 明细类型：booking_deposit / room_deposit / invoice_cash / other
+  itemType           String                  @default("other") @map("item_type")
+  /// 描述
+  description        String                  @default("")
+  /// 金额
+  amount             Decimal                 @db.Decimal(14, 2)
+  /// 关联应收 ID（可选）
+  receivableId       String?                 @map("receivable_id")
+  /// 关联应收
+  receivable         Receivable?             @relation("RefundItemBelongsToReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
+  /// 关联收据 ID（冲销现金收据时）
+  receiptId          String?                 @map("receipt_id")
+  /// 关联收据
+  receipt            Receipt?                @relation("RefundItemBelongsToReceipt", fields: [receiptId], references: [id], onDelete: SetNull)
+  /// 关联结算明细行 ID（可选）
+  settlementItemId   String?                 @map("settlement_item_id")
+  /// 关联结算明细行
+  settlementItem     ContractSettlementItem? @relation("RefundItemBelongsToSettlementItem", fields: [settlementItemId], references: [id], onDelete: SetNull)
+  /// 排序（0-based）
+  sortOrder          Int                     @default(0) @map("sort_order")
+  /// 备注
+  remark             String                  @default("")
+  /// 创建人用户 ID
+  createdById        String?                 @map("created_by")
+  /// 创建人用户
+  createdByUser      User?                   @relation("RefundItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById        String?                 @map("updated_by")
+  /// 更新人用户
+  updatedByUser      User?                   @relation("RefundItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt          DateTime                @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  @@index([refundOrderId, sortOrder])
+  @@index([itemType])
+  @@index([receivableId])
+  @@index([receiptId])
+  @@index([settlementItemId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("refund_items")
+}
+
+/// 签约中合约变更审计日志（租金／押金／借出物品／取消合约等）
+model ContractChangeLog {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 所属合约 ID
+  contractId  String   @map("contract_id")
+  /// 所属合约
+  contract    Contract @relation("ContractChangeLogBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
+  /// 变更类型（如 rent / deposit / loan_item / cancel / invoice_sync）
+  changeType  String   @map("change_type")
+  /// 字段路径（如 monthlyRent / roomDeposit / otherFees）
+  fieldPath   String   @default("") @map("field_path")
+  /// 变更前快照（JSON 文本）
+  beforeJson  String   @default("") @map("before_json") @db.Text
+  /// 变更后快照（JSON 文本）
+  afterJson   String   @default("") @map("after_json") @db.Text
+  /// 关联对象类型（invoice / settlement / receipt 等）
+  refType     String   @default("") @map("ref_type")
+  /// 关联对象 ID
+  refId       String   @default("") @map("ref_id")
+  /// 摘要说明
+  summary     String   @default("")
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("ContractChangeLogCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([contractId, createdAt])
+  @@index([changeType])
+  @@index([refType, refId])
+  @@index([createdById])
+  @@map("contract_change_logs")
+}
+
+/// 资金流水（仅收据入账、退款单打款驱动）
+model CashFlow {
+  /// 主键
+  id             String            @id @default(cuid())
+  /// 流水编号（业务唯一，如 CFL2611090001）
+  flowCode       String            @unique @map("flow_code")
+  /// 方向：in=入账，out=出账
+  direction      CashFlowDirection
+  /// 金额（恒为正）
+  amount         Decimal           @db.Decimal(14, 2)
+  /// 发生日期
+  flowDate       DateTime          @map("flow_date") @db.Date
+  /// 付款方式
+  paymentMethod  String            @default("") @map("payment_method")
+  /// 来源类型：receipt / refund_order
+  sourceType     CashFlowSourceType @map("source_type")
+  /// 来源单据 ID
+  sourceId       String            @map("source_id")
+  /// 所属合约 ID（可选）
+  contractId     String?           @map("contract_id")
+  /// 所属合约
+  contract       Contract?         @relation("CashFlowBelongsToContract", fields: [contractId], references: [id], onDelete: SetNull)
+  /// 所属客户 ID
+  customerId     String            @map("customer_id")
+  /// 所属客户
+  customer       Customer          @relation("CashFlowBelongsToCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  /// 关联收据 ID（入账时；与 source 冗余便于查询）
+  receiptId      String?           @map("receipt_id")
+  /// 关联收据
+  receipt        Receipt?          @relation("CashFlowBelongsToReceipt", fields: [receiptId], references: [id], onDelete: SetNull)
+  /// 关联退款单 ID（出账时）
+  refundOrderId  String?           @map("refund_order_id")
+  /// 关联退款单
+  refundOrder    RefundOrder?      @relation("CashFlowBelongsToRefundOrder", fields: [refundOrderId], references: [id], onDelete: SetNull)
+  /// 备注
+  remark         String            @default("")
+  /// 创建人用户 ID
+  createdById    String?           @map("created_by")
+  /// 创建人用户
+  createdByUser  User?             @relation("CashFlowCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById    String?           @map("updated_by")
+  /// 更新人用户
+  updatedByUser  User?             @relation("CashFlowUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt      DateTime          @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  /// 收据入账／作废冲销由部分唯一索引约束；退款出账允许同一退款单多条
+  @@index([sourceType, sourceId, direction])
+  @@index([contractId])
+  @@index([customerId])
+  @@index([receiptId])
+  @@index([refundOrderId])
+  @@index([direction])
+  @@index([flowDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("cash_flows")
 }
 

@@ -56,11 +56,23 @@ export class CreateDepositRefundDto {
   @IsNumber()
   totalDeposit?: number
 
-  @ApiPropertyOptional({ description: '实退按金金额' })
+  @ApiPropertyOptional({ description: '应退按金上限（分次退总额快照）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  refundDueAmount?: number
+
+  @ApiPropertyOptional({ description: '累计已退按金金额' })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   actualRefundAmount?: number
+
+  @ApiPropertyOptional({ description: '一并退还的定金余额（挂账余款）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  bookingDepositRefundAmount?: number
 
   @ApiPropertyOptional({ description: '处理人用户 ID' })
   @IsOptional()
@@ -130,11 +142,23 @@ export class UpdateDepositRefundDto {
   @IsNumber()
   totalDeposit?: number
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: '应退按金上限（分次退总额快照）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  refundDueAmount?: number
+
+  @ApiPropertyOptional({ description: '累计已退按金金额' })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   actualRefundAmount?: number
+
+  @ApiPropertyOptional({ description: '一并退还的定金余额（挂账余款）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  bookingDepositRefundAmount?: number
 
   @ApiPropertyOptional()
   @IsOptional()

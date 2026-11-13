@@ -8,6 +8,8 @@ import { DEPOSIT_REFUND_STATUSES } from '@/types/deposit-refund'
 import { fetchDepositRefunds } from '@/api/deposit-refunds'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useRelatedAmountStats } from '@/composables/useRelatedTableAmountSummary'
+import RelatedAmountStatsBar from '@/components/RelatedAmountStatsBar.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { depositRefundStatusTone } from '@/constants/statusBadges'
@@ -24,6 +26,9 @@ const props = withDefaults(
     titleContext?: string
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     contract: null,
@@ -32,6 +37,8 @@ const props = withDefaults(
     titleContext: undefined,
     desktopDirection: 'ltr',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -65,7 +72,40 @@ const filtered = computed(() => {
   )
 })
 
-const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } = useClientPagination(filtered)
+function refundDueOf(row: DepositRefundRecord) {
+  const due = Number(row.refundDueAmount)
+  if (Number.isFinite(due) && due >= 0) return due
+  return Number(row.actualRefundAmount) || 0
+}
+
+function refundRemainingOf(row: DepositRefundRecord) {
+  return Math.max(0, refundDueOf(row) - (Number(row.actualRefundAmount) || 0))
+}
+
+/** 统计／列表用：补齐应退与剩余应退 */
+const filteredWithAmounts = computed(() =>
+  filtered.value.map((row) => ({
+    ...row,
+    refundDueAmount: refundDueOf(row),
+    refundRemaining: refundRemainingOf(row),
+  })),
+)
+
+const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
+  useClientPagination(filteredWithAmounts)
+const {
+  items: amountStats,
+  visible: amountStatsVisible,
+  caption: amountStatsCaption,
+} = useRelatedAmountStats({
+  rows: filteredWithAmounts,
+  fields: [
+    { prop: 'refundDueAmount', label: t('depositRefund.fields.refundDueAmount') },
+    { prop: 'actualRefundAmount', label: t('depositRefund.fields.actualRefundAmount') },
+    { prop: 'refundRemaining', label: t('depositRefund.fields.refundRemaining') },
+  ],
+  filterRows: (row) => (row.status || '').trim() !== '已取消',
+})
 watch(keyword, () => resetPage())
 
 async function load() {
@@ -125,6 +165,10 @@ function statusLabel(status: string) {
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">
@@ -193,25 +237,43 @@ function statusLabel(status: string) {
             <template #default="{ row }">{{ row.refundDate || '—' }}</template>
           </el-table-column>
           <el-table-column
-            :label="t('depositRefund.fields.totalDeposit')"
-            :min-width="colW(t('depositRefund.fields.totalDeposit'), { contentMin: 100 })"
+            prop="refundDueAmount"
+            :label="t('depositRefund.fields.refundDueAmount')"
+            :min-width="colW(t('depositRefund.fields.refundDueAmount'), { contentMin: 120 })"
             align="right"
           >
             <template #default="{ row }">
-              {{ row.totalDeposit == null ? '—' : formatMoney(row.totalDeposit) }}
+              {{ formatMoney(row.refundDueAmount) }}
             </template>
           </el-table-column>
           <el-table-column
+            prop="actualRefundAmount"
             :label="t('depositRefund.fields.actualRefundAmount')"
-            :min-width="colW(t('depositRefund.fields.actualRefundAmount'), { contentMin: 110 })"
+            :min-width="colW(t('depositRefund.fields.actualRefundAmount'), { contentMin: 100 })"
             align="right"
           >
             <template #default="{ row }">
               {{ row.actualRefundAmount == null ? '—' : formatMoney(row.actualRefundAmount) }}
             </template>
           </el-table-column>
+          <el-table-column
+            prop="refundRemaining"
+            :label="t('depositRefund.fields.refundRemaining')"
+            :min-width="colW(t('depositRefund.fields.refundRemaining'), { contentMin: 100 })"
+            align="right"
+          >
+            <template #default="{ row }">
+              {{ formatMoney(row.refundRemaining) }}
+            </template>
+          </el-table-column>
         </el-table>
       </div>
+      <RelatedAmountStatsBar
+        v-if="amountStatsVisible"
+        :items="amountStats"
+        :caption="amountStatsCaption"
+      />
+
       <div v-if="total" class="related-list__pager">
         <TablePagination v-model:page="page" v-model:page-size="pageSize" :total="total" :page-sizes="pageSizes" />
       </div>

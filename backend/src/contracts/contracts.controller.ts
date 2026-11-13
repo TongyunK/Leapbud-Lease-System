@@ -12,12 +12,17 @@ import {
 import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { ContractsService } from './contracts.service';
+import { ContractCancelService } from './contract-cancel.service';
 import {
   CreateContractDto,
   UpdateContractDto,
   ImportContractsDto,
   OpenContractOrderDto,
 } from './dto/contract.dto';
+import {
+  ConductCancelContractDto,
+  ConductCancelRefundDto,
+} from './dto/cancel-contract.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -34,7 +39,10 @@ import { BatchDeleteDto } from '../common/batch-delete';
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ContractsController {
-  constructor(private readonly contractsService: ContractsService) {}
+  constructor(
+    private readonly contractsService: ContractsService,
+    private readonly contractCancelService: ContractCancelService,
+  ) {}
 
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
@@ -230,6 +238,51 @@ export class ContractsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.contractsService.openOrder(id, dto, actorUserId(user));
+  }
+
+  @RequirePermissions('contracts:update')
+  @Get(':id/cancel-preview')
+  @ApiOkResponse({ description: 'Preview signing-stage contract cancel settlement' })
+  cancelPreview(@Param('id') id: string) {
+    return this.contractCancelService.previewCancel(id);
+  }
+
+  @RequirePermissions('contracts:update')
+  @Post(':id/cancel')
+  @ApiOkResponse({
+    description:
+      'Conduct signing-stage cancel: void invoices, settle booking deposit, optional cash refund',
+  })
+  conductCancel(
+    @Param('id') id: string,
+    @Body() dto: ConductCancelContractDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.contractCancelService.conductCancel(id, dto, actorUserId(user));
+  }
+
+  @RequirePermissions('contracts:update')
+  @Get(':id/cancel-refund-preview')
+  @ApiOkResponse({
+    description:
+      'Preview deferred refunds after cancel (active invoice cash + booking deposit balance)',
+  })
+  cancelRefundPreview(@Param('id') id: string) {
+    return this.contractCancelService.previewCancelRefund(id);
+  }
+
+  @RequirePermissions('contracts:update')
+  @Post(':id/cancel-refund')
+  @ApiOkResponse({
+    description:
+      'Settle deferred cancel refunds: void remaining invoice cash receipts and/or refund booking deposit',
+  })
+  conductCancelRefund(
+    @Param('id') id: string,
+    @Body() dto: ConductCancelRefundDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.contractCancelService.conductCancelRefund(id, dto, actorUserId(user));
   }
 
   @RequirePermissions('contracts:update')

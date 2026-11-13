@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('scheduledJobs')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Clock, EditPen, Search, Timer } from '@element-plus/icons-vue'
+import { Clock, EditPen, QuestionFilled, Search, Timer } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import {
   fetchScheduledJobLogs,
@@ -656,7 +656,12 @@ function triggerLabel(trigger: string) {
           class="recurrence-card"
         >
           <header class="recurrence-card__head">
-            <span class="recurrence-card__title">{{ t('scheduledJob.fields.recurrence') }}</span>
+            <span class="recurrence-card__title">
+              {{ t('scheduledJob.fields.recurrence') }}
+              <el-tooltip :content="t('scheduledJob.recurrenceHint')" placement="top">
+                <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
           </header>
 
           <el-radio-group
@@ -745,10 +750,6 @@ function triggerLabel(trigger: string) {
             />
           </div>
 
-          <p class="form-hint">
-            <el-icon :size="14" class="form-hint__icon"><Clock /></el-icon>
-            <span>{{ t('scheduledJob.recurrenceHint') }}</span>
-          </p>
         </section>
       </el-form>
       <template #footer>
@@ -1001,10 +1002,20 @@ function triggerLabel(trigger: string) {
 }
 
 .recurrence-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   font-weight: 650;
   color: var(--el-text-color-primary);
   letter-spacing: 0.01em;
+}
+
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .recurrence-tabs {
@@ -1133,26 +1144,6 @@ function triggerLabel(trigger: string) {
   .weekday-chip {
     flex: 1 1 calc(25% - 6px);
   }
-}
-
-.form-hint {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f3f7f5;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.45;
-}
-
-.form-hint__icon {
-  flex-shrink: 0;
-  margin-top: 1px;
-  color: var(--el-color-primary);
-  opacity: 0.75;
 }
 
 .logs-table-wrap {

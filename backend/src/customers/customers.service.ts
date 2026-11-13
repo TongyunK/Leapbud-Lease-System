@@ -271,7 +271,7 @@ export class CustomersService {
     }
     if (key === 'receiptCount') return [{ receipts: { _count: dir } }, { customerCode: 'asc' }];
     if (key === 'terminationCount') {
-      return [{ leaseTerminations: { _count: dir } }, { customerCode: 'asc' }];
+      return [{ contractSettlements: { _count: dir } }, { customerCode: 'asc' }];
     }
     if (key === 'depositRefundCount') {
       return [{ depositRefunds: { _count: dir } }, { customerCode: 'asc' }];

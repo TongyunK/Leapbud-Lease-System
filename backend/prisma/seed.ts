@@ -525,6 +525,8 @@ async function seedRolesAndMenus(actorId: string) {
     path?: string;
     icon?: string;
     sortOrder: number;
+    /** 默认 true；false 时侧栏不展示（路由可仍保留） */
+    active?: boolean;
   };
 
   const menuSeeds: MenuSeed[] = [
@@ -674,24 +676,13 @@ async function seedRolesAndMenus(actorId: string) {
       sortOrder: 28,
     },
     {
-      id: 'menu_lease_terminations',
-      parentId: 'menu_contract_mgmt',
-      type: 'menu',
-      name: '退租管理',
-      nameKey: 'menu.leaseTerminations',
-      routeName: 'leaseTerminations',
-      path: 'contract-mgmt/lease-terminations',
-      icon: 'DocumentDelete',
-      sortOrder: 29,
-    },
-    {
       id: 'menu_contract_other_fees',
       parentId: 'menu_contract_mgmt',
       type: 'menu',
-      name: '合約其他費用',
-      nameKey: 'menu.contractOtherFees',
-      routeName: 'contractOtherFees',
-      path: 'contract-mgmt/contract-other-fees',
+      name: '借出物品',
+      nameKey: 'menu.contractLoanItems',
+      routeName: 'contractLoanItems',
+      path: 'contract-mgmt/contract-loan-items',
       icon: 'Ticket',
       sortOrder: 30,
     },
@@ -713,6 +704,8 @@ async function seedRolesAndMenus(actorId: string) {
       path: 'finance-mgmt/deposit-deductions',
       icon: 'Coin',
       sortOrder: 36,
+      /** 已由合约结算单承接；侧栏隐藏，路由／权限保留兼容 */
+      active: false,
     },
     {
       id: 'menu_deposit_refunds',
@@ -724,6 +717,8 @@ async function seedRolesAndMenus(actorId: string) {
       path: 'finance-mgmt/deposit-refunds',
       icon: 'Money',
       sortOrder: 37,
+      /** 已由退款单承接；侧栏隐藏，路由／权限保留兼容 */
+      active: false,
     },
     {
       id: 'menu_invoices',
@@ -857,6 +852,7 @@ async function seedRolesAndMenus(actorId: string) {
   ];
 
   for (const m of menuSeeds) {
+    const active = m.active !== false
     await prisma.menu.upsert({
       where: { id: m.id },
       create: {
@@ -869,7 +865,7 @@ async function seedRolesAndMenus(actorId: string) {
         path: m.path ?? '',
         icon: m.icon ?? '',
         sortOrder: m.sortOrder,
-        active: true,
+        active,
         createdById: actorId,
         updatedById: actorId,
       },
@@ -882,7 +878,7 @@ async function seedRolesAndMenus(actorId: string) {
         path: m.path ?? '',
         icon: m.icon ?? '',
         sortOrder: m.sortOrder,
-        active: true,
+        active,
         updatedById: actorId,
       },
     });

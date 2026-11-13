@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fetchRoomImageBlob } from '@/api/rooms'
 import type { RoomImageRecord } from '@/types/room'
+import { OVERLAY_IMAGE_PREVIEW_Z } from '@/composables/useOverlayStackZ'
 
 const props = defineProps<{
   roomId: string
@@ -155,6 +156,7 @@ onBeforeUnmount(() => {
           :initial-index="previewIndex(img)"
           preview-teleported
           hide-on-click-modal
+          :z-index="OVERLAY_IMAGE_PREVIEW_Z"
         >
           <template #error>
             <div class="room-image-gallery__error">—</div>

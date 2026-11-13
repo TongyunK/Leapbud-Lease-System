@@ -14,6 +14,7 @@ import {
   InvoiceServiceDetailDto,
   UpdateInvoiceDto,
 } from './dto/invoice.dto'
+import { cashFlowCountsForInvoices } from '../common/cash-flow-entity-counts'
 import { invoiceInclude, toInvoiceDto } from './invoice.mapper'
 import { InvoiceAutoService } from './invoice-auto.service'
 import {
@@ -179,8 +180,15 @@ export class InvoicesService {
       }),
     ])
 
+    const cashFlowCounts = await cashFlowCountsForInvoices(
+      this.prisma,
+      rows.map((r) => r.id),
+    )
     return {
-      items: rows.map(toInvoiceDto),
+      items: rows.map((row) => ({
+        ...toInvoiceDto(row),
+        cashFlowCount: cashFlowCounts.get(row.id) ?? 0,
+      })),
       total,
       page: pageSize == null ? 1 : page,
       pageSize: pageSize == null ? total : pageSize,
@@ -382,7 +390,7 @@ export class InvoicesService {
     if (key === 'paymentDueDate') return [{ paymentDueDate: dir }, { invoiceCode: 'desc' }]
     if (key === 'salesManager') return [{ salesManagerUser: { account: dir } }]
     if (key === 'receivableCount') return [{ receivables: { _count: dir } }]
-    if (key === 'receiptCount') return [{ receipts: { _count: dir } }]
+    if (key === 'receiptCount') return [{ receiptAllocations: { _count: dir } }]
     if (key === 'serviceDetailCount') return [{ serviceDetails: { _count: dir } }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
@@ -397,7 +405,11 @@ export class InvoicesService {
     })
     if (!row) throw new NotFoundException('Invoice not found')
     await this.access.assertRoomId(row.roomId)
-    return toInvoiceDto(row)
+    const cashFlowCounts = await cashFlowCountsForInvoices(this.prisma, [row.id])
+    return {
+      ...toInvoiceDto(row),
+      cashFlowCount: cashFlowCounts.get(row.id) ?? 0,
+    }
   }
 
   private async resolveContract(dto: { contractId?: string; contractCode?: string }) {

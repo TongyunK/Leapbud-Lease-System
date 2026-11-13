@@ -17,10 +17,15 @@ const props = withDefaults(
     /** 桌面端默认；移动端始终 btt */
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     desktopDirection: 'rtl',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -76,6 +81,10 @@ async function onPreviewTemplate(id?: string | null) {
     :size="drawerSize"
     :direction="direction"
     class="responsive-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <template #header="{ titleId, titleClass }">
       <DrawerDetailHeader

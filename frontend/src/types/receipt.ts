@@ -17,6 +17,19 @@ export interface ReceiptAttachmentRecord {
   publicUrl?: string
 }
 
+/** 收据分摊到单张应收的明细 */
+export interface ReceiptAllocationRecord {
+  id: string
+  receiptId: string
+  receivableId: string
+  receivableCode: string
+  invoiceId: string | null
+  invoiceCode: string
+  amount: number | null
+  sortOrder: number
+  remark: string
+}
+
 export interface ReceiptRecord {
   id: string
   receiptCode: string
@@ -35,7 +48,10 @@ export interface ReceiptRecord {
   paymentMethod: string
   amount: number | null
   remark: string | null
+  /** 分摊明细（一张收据可覆盖多张应收） */
+  allocations?: ReceiptAllocationRecord[]
   attachments?: ReceiptAttachmentRecord[]
+  cashFlowCount?: number
   changeLog: string | null
   createdBy: string
   updatedBy: string

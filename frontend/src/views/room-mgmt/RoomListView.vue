@@ -31,6 +31,7 @@ import type {
 } from '@/types/room'
 import RoomOccupancyChips from '@/components/RoomOccupancyChips.vue'
 import RoomDetailDrawer from '@/components/RoomDetailDrawer.vue'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import type { RoomConfigOption } from '@/types/room-config'
 import type { RoomTypeOption } from '@/types/room-type'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -54,13 +55,13 @@ import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
 import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
-import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
+import RelatedSettlementsDrawer from '@/components/RelatedSettlementsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
-import type { LeaseTerminationRecord } from '@/types/lease-termination'
+import type { ContractSettlementRecord } from '@/types/contract-settlement'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { roomFillStatusTone, roomLeaseCapabilityTone } from '@/constants/statusBadges'
 import { formatDateTime, formatMoney, formatNumber2 } from '@/utils/format'
@@ -77,7 +78,7 @@ import { useTableSelection, runServerBatchDelete } from '@/composables/useTableS
 import { useBatchProgress } from '@/composables/useBatchProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import {
   measureStatusBadgeColWidth,
   measureTableColWidth,
@@ -96,7 +97,7 @@ const perms = useResourcePermissions('rooms')
 const { actionColW } = useActionColWidth()
 const listActionColWidth = computed(() =>
   actionColW([
-    t('common.detail'),
+    ACTION_COL_ICON,
     perms.update && t('common.edit'),
     perms.delete && t('common.delete'),
   ]),
@@ -109,7 +110,7 @@ const keyword = ref('')
 const drawerVisible = ref(false)
 const relatedContractsDrawer = ref(false)
 const relatedInvoicesDrawer = ref(false)
-const relatedTerminationsDrawer = ref(false)
+const relatedSettlementsDrawer = ref(false)
 const relatedDepositRefundsDrawer = ref(false)
 const relatedListRoom = ref<RoomRecord | null>(null)
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
@@ -787,7 +788,7 @@ function openInvoicesSide(row: RoomRecord) {
 function openTerminationsSide(row: RoomRecord) {
   if (!row.terminationCount) return
   relatedListRoom.value = row
-  relatedTerminationsDrawer.value = true
+  relatedSettlementsDrawer.value = true
 }
 function openDepositRefundsSide(row: RoomRecord) {
   if (!row.depositRefundCount) return
@@ -800,8 +801,8 @@ function onOpenContractFromRelated(row: ContractRecord) {
 function onOpenInvoiceFromRelated(row: InvoiceRecord) {
   void relationDrawers.value?.openInvoiceSide(row.id)
 }
-function onOpenTerminationFromRelated(row: LeaseTerminationRecord) {
-  void relationDrawers.value?.openTerminationSide(row.id)
+function onOpenSettlementFromRelated(row: ContractSettlementRecord) {
+  void relationDrawers.value?.openSettlementSide(row.id)
 }
 function onOpenDepositRefundFromRelated(row: DepositRefundRecord) {
   void relationDrawers.value?.openDepositRefundSide(row.id)
@@ -1705,9 +1706,7 @@ async function saveForm() {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
-                <button type="button" class="action-pill action-pill--view" @click="openDetail(row as RoomRecord)">
-                  {{ t('common.detail') }}
-                </button>
+                <ActionDetailButton @click="openDetail(row as RoomRecord)" />
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
@@ -1830,9 +1829,7 @@ async function saveForm() {
           </div>
         </dl>
         <div class="data-card__actions">
-          <button type="button" class="action-pill action-pill--view" @click="openDetail(row)">
-            {{ t('common.detail') }}
-          </button>
+          <ActionDetailButton @click="openDetail(row)" />
           <button
             v-if="perms.update" v-admin-glow="perms.codes.update"
             type="button"
@@ -1890,12 +1887,13 @@ async function saveForm() {
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @changed="loadList"
     />
-    <RelatedTerminationsDrawer
-      v-model="relatedTerminationsDrawer"
+    <RelatedSettlementsDrawer
+      v-model="relatedSettlementsDrawer"
       :room-id="relatedListRoom?.id"
+      type="VACATE"
       :title-context="relatedListRoom?.roomCode || ''"
       desktop-direction="ltr"
-      @open-termination="onOpenTerminationFromRelated"
+      @open-settlement="onOpenSettlementFromRelated"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />

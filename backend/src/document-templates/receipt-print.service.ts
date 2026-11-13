@@ -97,6 +97,17 @@ export class ReceiptPrintService {
         contract: { include: { room: { include: { building: true } } } },
         invoice: { include: { room: { include: { building: true } } } },
         receivable: true,
+        allocations: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          include: {
+            receivable: {
+              select: {
+                receivableCode: true,
+                invoice: { select: { invoiceCode: true } },
+              },
+            },
+          },
+        },
       },
     });
     if (!receipt) throw new NotFoundException(`Receipt ${receiptId} not found`);
@@ -111,9 +122,26 @@ export class ReceiptPrintService {
     const dateLong = formatReceiptDateLong(receipt.paymentDate);
     const dateDmy = formatDateDmy(receipt.paymentDate);
 
-    const invoiceCode = s(receipt.invoice?.invoiceCode);
+    const allocInvoiceCodes = [
+      ...new Set(
+        (receipt.allocations ?? [])
+          .map((a) => s(a.receivable?.invoice?.invoiceCode))
+          .filter(Boolean),
+      ),
+    ];
+    const allocReceivableCodes = [
+      ...new Set(
+        (receipt.allocations ?? [])
+          .map((a) => s(a.receivable?.receivableCode))
+          .filter(Boolean),
+      ),
+    ];
+    const invoiceCode =
+      allocInvoiceCodes.join(', ') || s(receipt.invoice?.invoiceCode);
+    const receivableCode =
+      allocReceivableCodes.join(', ') || s(receipt.receivable?.receivableCode);
     const receiptCode = s(receipt.receiptCode);
-    // 旧模板「In payment of」样例为 #发票编号
+    // 旧模板「In payment of」样例为 #发票编号（多张时逗号拼接）
     const paymentNumber = invoiceCode
       ? `#${invoiceCode.replace(/^#/, '')}`
       : receiptCode
@@ -149,7 +177,7 @@ export class ReceiptPrintService {
       remark: s(receipt.remark),
       invoiceCode,
       contractCode: s(receipt.contract?.contractCode),
-      receivableCode: s(receipt.receivable?.receivableCode),
+      receivableCode,
       roomCode: s(room?.roomCode),
       roomName: s(room?.name)
         .replace(/\s*室\s*$/u, '')

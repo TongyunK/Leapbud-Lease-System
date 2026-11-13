@@ -144,11 +144,9 @@ function onPreview() {
     </div>
     <p v-else class="attachment-field__empty">{{ t('attachment.empty') }}</p>
 
-    <el-image-viewer
+    <AttachmentImageViewer
       v-if="imageViewerVisible && publicUrl"
       :url-list="[publicUrl]"
-      teleported
-      hide-on-click-modal
       @close="imageViewerVisible = false"
     />
   </div>

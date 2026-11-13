@@ -167,6 +167,7 @@ export class RolesService {
         select: { id: true, code: true, name: true, isSystem: true },
       }),
       this.prisma.menu.findMany({
+        where: { active: true },
         include: menuAuditInclude,
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       }),

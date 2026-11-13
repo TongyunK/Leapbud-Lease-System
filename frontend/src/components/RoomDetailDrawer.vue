@@ -20,10 +20,15 @@ const props = withDefaults(
     room: RoomRecord | null
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     desktopDirection: 'rtl',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -82,6 +87,10 @@ function emitIfCount(
     :size="drawerSize"
     :direction="direction"
     class="responsive-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <template #header="{ titleId, titleClass }">
       <DrawerDetailHeader

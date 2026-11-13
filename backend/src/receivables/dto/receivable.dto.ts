@@ -62,7 +62,13 @@ export class CreateReceivableDto {
   @IsNumber()
   receivedAmount?: number
 
-  @ApiPropertyOptional({ description: '应收金额（省略则 = 开票金额 − 已收金额）' })
+  @ApiPropertyOptional({ description: '已退金额' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  refundedAmount?: number
+
+  @ApiPropertyOptional({ description: '应收金额（省略则 = 开票金额 − 已收金额 + 已退金额）' })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -150,6 +156,12 @@ export class UpdateReceivableDto {
   @Type(() => Number)
   @IsNumber()
   receivedAmount?: number
+
+  @ApiPropertyOptional({ description: '已退金额' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  refundedAmount?: number
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -47,6 +47,7 @@ export type ReceiptListQuery = {
   paymentDateTo?: string
   createdAtFrom?: string
   createdAtTo?: string
+  cashFlowCounts?: string[]
   page?: number
   pageSize?: number
 }
@@ -86,6 +87,7 @@ export function fetchReceipts(params?: ReceiptListQuery) {
   if (params?.paymentDateTo) query.paymentDateTo = params.paymentDateTo
   if (params?.createdAtFrom) query.createdAtFrom = params.createdAtFrom
   if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
+  if (params?.cashFlowCounts?.length) query.cashFlowCounts = params.cashFlowCounts.join(',')
   if (params?.page != null) query.page = params.page
   if (params?.pageSize != null) query.pageSize = params.pageSize
   return request.get<PaginatedResult<ReceiptRecord>>('/receipts', {
@@ -104,8 +106,12 @@ export function createReceiptApi(
   return request.post<ReceiptRecord>('/receipts', payload, opts)
 }
 
-export function updateReceiptApi(id: string, payload: Partial<ReceiptWritePayload>) {
-  return request.patch<ReceiptRecord>(`/receipts/${id}`, payload)
+export function updateReceiptApi(
+  id: string,
+  payload: Partial<ReceiptWritePayload>,
+  opts?: { silentError?: boolean },
+) {
+  return request.patch<ReceiptRecord>(`/receipts/${id}`, payload, opts)
 }
 
 export function deleteReceiptApi(id: string) {
@@ -146,4 +152,139 @@ export async function fetchReceiptAttachmentBlob(receiptId: string, attachmentId
     },
   )
   return res.data
+}
+
+/** 定金动账 */
+export type BookingDepositMovement = {
+  id: string
+  type: 'apply' | 'refund' | 'top_up' | 'forfeit'
+  amount: number
+  movementDate: string
+  receivableId: string | null
+  invoiceId: string | null
+  invoiceCode?: string
+  offsetReceiptId: string | null
+  offsetReceiptCode: string
+  depositRefundId: string | null
+  remark: string
+  createdBy: string
+  createdAt: string
+  bookingDepositReceiptId?: string
+  bookingDepositReceiptCode?: string
+}
+
+/** 合约定金账户下的单张定金收据摘要 */
+export type BookingDepositReceiptSummary = {
+  id: string
+  receiptCode: string
+  amount: number
+  paymentMethod?: string
+}
+
+/** 定金账户：合约汇总或单张收据视角 */
+export type BookingDepositAccount = {
+  contractId: string
+  receiptId: string | null
+  receiptCode: string
+  receipts?: BookingDepositReceiptSummary[]
+  scope?: 'contract' | 'receipt'
+  principal: number
+  applied: number
+  refunded: number
+  /** 没收／扣留合计 */
+  forfeited?: number
+  balance: number
+  /** 合约池可用余额（单张收据视角下退还上限） */
+  contractBalance?: number
+  movements: BookingDepositMovement[]
+}
+
+export function fetchBookingDepositByContractApi(contractId: string) {
+  return request.get<BookingDepositAccount>(
+    `/receipts/booking-deposit/by-contract/${contractId}`,
+  )
+}
+
+export function fetchBookingDepositByReceiptApi(receiptId: string) {
+  return request.get<BookingDepositAccount>(`/receipts/${receiptId}/booking-deposit-account`)
+}
+
+/** 按合约 / 应收 / 发票列出定金抵扣动账 */
+export type BookingDepositApplyRow = {
+  id: string
+  type: 'apply' | 'refund'
+  amount: number
+  movementDate: string
+  receivableId: string | null
+  invoiceId: string | null
+  invoiceCode?: string
+  bookingDepositReceiptId?: string
+  bookingDepositReceiptCode?: string
+  remark: string
+}
+
+export function fetchBookingDepositAppliesApi(params: {
+  contractId?: string
+  receivableId?: string
+  invoiceId?: string
+}) {
+  return request.get<BookingDepositApplyRow[]>('/receipts/booking-deposit/applies', { params })
+}
+
+export function collectWithBookingDepositApi(
+  payload: {
+    contractId: string
+    receivableIds: string[]
+    bookingDepositApply: number
+    /** 本次现金收款金额（0=仅定金抵扣） */
+    cashAmount: number
+    paymentDate: string
+    paymentMethod?: string
+    remark?: string
+  },
+  opts?: { silentError?: boolean },
+) {
+  return request.post<{
+    ok: boolean
+    receiptIds: string[]
+    movementIds: string[]
+    account: BookingDepositAccount
+  }>('/receipts/collect-with-booking-deposit', payload, opts)
+}
+
+export function refundBookingDepositApi(
+  payload: {
+    contractId: string
+    amount: number
+    refundDate: string
+    remark?: string
+    depositRefundId?: string
+  },
+  opts?: { silentError?: boolean },
+) {
+  return request.post<{
+    movement: BookingDepositMovement
+    account: BookingDepositAccount
+  }>('/receipts/booking-deposit/refund', payload, opts)
+}
+
+/** 签约中加收定金（默认新开收据；merge=合并到指定已有定金收据） */
+export function topUpBookingDepositApi(
+  payload: {
+    contractId: string
+    amount: number
+    paymentDate: string
+    mode?: 'new_receipt' | 'merge'
+    /** mode=merge 时指定目标定金收据；省略则首张 */
+    mergeReceiptId?: string
+    paymentMethod?: string
+    remark?: string
+    paymentVoucher?: string
+  },
+  opts?: { silentError?: boolean },
+) {
+  return request.post<{
+    movement: BookingDepositMovement
+    account: BookingDepositAccount
+  }>('/receipts/booking-deposit/top-up', payload, opts)
 }

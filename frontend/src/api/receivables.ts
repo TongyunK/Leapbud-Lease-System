@@ -15,6 +15,7 @@ export type ReceivableWritePayload = {
   paymentDueDate?: string
   invoiceAmount?: number
   receivedAmount?: number
+  refundedAmount?: number
   receivableAmount?: number
   remark?: string
   relatedReceiptRef?: string
@@ -36,6 +37,7 @@ export type ReceivableListQuery = {
   customerNames?: string[]
   invoiceAmounts?: string[]
   receivedAmounts?: string[]
+  refundedAmounts?: string[]
   receivableAmounts?: string[]
   createdBys?: string[]
   sortBy?: string
@@ -50,6 +52,8 @@ export type ReceivableListQuery = {
   outstanding?: boolean
   /** 已逾期：收款期限早于今日且应收额>0；可与 outstanding 叠加 */
   overdue?: boolean
+  /** 有效性：active=有效（默认）；invalid=失效；all=全部（关联抽屉） */
+  validity?: 'active' | 'invalid' | 'all'
   page?: number
   pageSize?: number
 }
@@ -58,10 +62,18 @@ export type ReceivableQuickCounts = {
   all: number
   outstanding: number
   overdue: number
+  active: number
+  invalid: number
 }
 
-export function fetchReceivableQuickCounts() {
-  return request.get<ReceivableQuickCounts>('/receivables/stats/quick')
+export function fetchReceivableQuickCounts(params?: {
+  validity?: 'active' | 'invalid' | 'all'
+}) {
+  const query: Record<string, string> = {}
+  if (params?.validity) query.validity = params.validity
+  return request.get<ReceivableQuickCounts>('/receivables/stats/quick', {
+    params: Object.keys(query).length ? query : undefined,
+  })
 }
 
 export function fetchReceivables(params?: ReceivableListQuery) {
@@ -77,6 +89,7 @@ export function fetchReceivables(params?: ReceivableListQuery) {
   if (params?.customerNames?.length) query.customerNames = params.customerNames.join(',')
   if (params?.invoiceAmounts?.length) query.invoiceAmounts = params.invoiceAmounts.join(',')
   if (params?.receivedAmounts?.length) query.receivedAmounts = params.receivedAmounts.join(',')
+  if (params?.refundedAmounts?.length) query.refundedAmounts = params.refundedAmounts.join(',')
   if (params?.receivableAmounts?.length) {
     query.receivableAmounts = params.receivableAmounts.join(',')
   }
@@ -91,6 +104,7 @@ export function fetchReceivables(params?: ReceivableListQuery) {
   if (params?.createdAtTo) query.createdAtTo = params.createdAtTo
   if (params?.outstanding) query.outstanding = 'true'
   if (params?.overdue) query.overdue = 'true'
+  if (params?.validity) query.validity = params.validity
   if (params?.page != null) query.page = params.page
   if (params?.pageSize != null) query.pageSize = params.pageSize
   return request.get<PaginatedResult<ReceivableRecord>>('/receivables', {

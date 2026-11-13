@@ -23,7 +23,15 @@ import {
 import { UserRole } from '@prisma/client'
 import { memoryStorage } from 'multer'
 import { ReceiptsService } from './receipts.service'
-import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/receipt.dto'
+import { BookingDepositService } from './booking-deposit.service'
+import {
+  CollectWithBookingDepositDto,
+  CreateReceiptDto,
+  ImportReceiptsDto,
+  RefundBookingDepositDto,
+  TopUpBookingDepositDto,
+  UpdateReceiptDto,
+} from './dto/receipt.dto'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
@@ -40,7 +48,10 @@ import { parseSortDir, splitCsv } from '../common/pagination'
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.admin, UserRole.user)
 export class ReceiptsController {
-  constructor(private readonly receiptsService: ReceiptsService) {}
+  constructor(
+    private readonly receiptsService: ReceiptsService,
+    private readonly bookingDepositService: BookingDepositService,
+  ) {}
 
   @Get()
   @ApiQuery({ name: 'keyword', required: false })
@@ -65,6 +76,7 @@ export class ReceiptsController {
   @ApiQuery({ name: 'paymentDateTo', required: false })
   @ApiQuery({ name: 'createdAtFrom', required: false })
   @ApiQuery({ name: 'createdAtTo', required: false })
+  @ApiQuery({ name: 'cashFlowCounts', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiOkResponse({ description: 'Paginated receipt list' })
@@ -91,6 +103,7 @@ export class ReceiptsController {
     @Query('paymentDateTo') paymentDateTo?: string,
     @Query('createdAtFrom') createdAtFrom?: string,
     @Query('createdAtTo') createdAtTo?: string,
+    @Query('cashFlowCounts') cashFlowCounts?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -117,6 +130,7 @@ export class ReceiptsController {
       paymentDateTo,
       createdAtFrom,
       createdAtTo,
+      cashFlowCounts: splitCsv(cashFlowCounts),
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     })
@@ -137,9 +151,67 @@ export class ReceiptsController {
   }
 
   @Get('stats/kind')
-  @ApiOkResponse({ description: 'Receipt counts by kind (invoice / booking_deposit)' })
+  @ApiOkResponse({
+    description: 'Receipt counts by kind (all / invoice / booking_deposit)',
+  })
   countByKind() {
     return this.receiptsService.countByKind()
+  }
+
+  @Get('booking-deposit/by-contract/:contractId')
+  @ApiOkResponse({ description: '合约定金账户（余额与动账）' })
+  bookingDepositByContract(@Param('contractId') contractId: string) {
+    return this.bookingDepositService.getAccountByContractId(contractId)
+  }
+
+  @Get('booking-deposit/applies')
+  @ApiOkResponse({ description: '按合约 / 应收 / 发票列出定金抵扣动账' })
+  bookingDepositApplies(
+    @Query('contractId') contractId?: string,
+    @Query('receivableId') receivableId?: string,
+    @Query('invoiceId') invoiceId?: string,
+  ) {
+    return this.bookingDepositService.listApplies({
+      contractId,
+      receivableId,
+      invoiceId,
+    })
+  }
+
+  @RequirePermissions('receipts:create')
+  @Post('collect-with-booking-deposit')
+  @ApiOkResponse({ description: '合约收款：自选应收 + 定金抵扣' })
+  collectWithBookingDeposit(
+    @Body() dto: CollectWithBookingDepositDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.bookingDepositService.collectWithDeposit(dto, actorUserId(user))
+  }
+
+  @RequirePermissions('receipts:create')
+  @Post('booking-deposit/refund')
+  @ApiOkResponse({ description: '退还定金挂账余额' })
+  refundBookingDeposit(
+    @Body() dto: RefundBookingDepositDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.bookingDepositService.refund(dto, actorUserId(user))
+  }
+
+  @RequirePermissions('receipts:create')
+  @Post('booking-deposit/top-up')
+  @ApiOkResponse({ description: '签约中加收定金（累加定金收据本金）' })
+  topUpBookingDeposit(
+    @Body() dto: TopUpBookingDepositDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.bookingDepositService.topUp(dto, actorUserId(user))
+  }
+
+  @Get(':id/booking-deposit-account')
+  @ApiOkResponse({ description: '定金收据账户详情' })
+  bookingDepositByReceipt(@Param('id') id: string) {
+    return this.bookingDepositService.getAccountByReceiptId(id)
   }
 
   @Get(':id')

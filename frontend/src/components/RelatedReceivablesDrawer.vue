@@ -12,6 +12,8 @@ import {
 } from '@/api/receivables'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useRelatedAmountStats } from '@/composables/useRelatedTableAmountSummary'
+import RelatedAmountStatsBar from '@/components/RelatedAmountStatsBar.vue'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import {
   useTableSelection,
@@ -19,6 +21,11 @@ import {
   runServerBatchDelete,
 } from '@/composables/useTableSelection'
 import TablePagination from '@/components/TablePagination.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import {
+  receivableValidityKey,
+  receivableValidityTone,
+} from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 
@@ -33,6 +40,9 @@ const props = withDefaults(
     titleContext?: string
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     contract: null,
@@ -42,6 +52,8 @@ const props = withDefaults(
     titleContext: undefined,
     desktopDirection: 'ltr',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -55,7 +67,18 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('receivables')
-const { colW, codeColW, tableLayoutKey } = useTableColWidth()
+const { colW, codeColW, statusColW, tableLayoutKey } = useTableColWidth()
+
+const validityLabels = computed(() => [
+  t('receivable.quickFilterActive'),
+  t('receivable.quickFilterInvalid'),
+])
+
+function validityLabel(invoiceStatus: string | null | undefined) {
+  return receivableValidityKey(invoiceStatus) === 'invalid'
+    ? t('receivable.quickFilterInvalid')
+    : t('receivable.quickFilterActive')
+}
 const {
   tableRef,
   selectedCount,
@@ -105,6 +128,20 @@ const filtered = computed(() => {
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
 
+const {
+  items: amountStats,
+  visible: amountStatsVisible,
+  caption: amountStatsCaption,
+} = useRelatedAmountStats({
+  rows: filtered,
+  fields: [
+    { prop: 'invoiceAmount', label: t('receivable.fields.invoiceAmount') },
+    { prop: 'receivedAmount', label: t('receivable.fields.receivedAmount') },
+    { prop: 'receivableAmount', label: t('receivable.fields.receivableAmount') },
+  ],
+  filterRows: (row) => receivableValidityKey(row.invoiceStatus) === 'active',
+})
+
 watch(keyword, () => resetPage())
 
 async function loadReceivables() {
@@ -125,6 +162,8 @@ async function loadReceivables() {
       ...(!customerId && !invoiceId && !depositRefundId && contractId
         ? { contractId }
         : {}),
+      // 关联视角看全量（含取消后发票已取消 → 失效应收），勿用列表默认「仅有效」
+      validity: 'all',
     })
     receivables.value = data.items
   } catch {
@@ -210,6 +249,10 @@ async function onToolbarDelete() {
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">
@@ -315,12 +358,28 @@ async function onToolbarDelete() {
             </template>
           </el-table-column>
           <el-table-column
+            :label="t('receivable.fields.validity')"
+            :min-width="
+              statusColW(t('receivable.fields.validity'), validityLabels, {
+                interactive: false,
+              })
+            "
+          >
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="receivableValidityTone(row.invoiceStatus)"
+                :label="validityLabel(row.invoiceStatus)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :label="t('receivable.fields.paymentDueDate')"
             :min-width="colW(t('receivable.fields.paymentDueDate'), { contentMin: 110 })"
           >
             <template #default="{ row }">{{ row.paymentDueDate || '—' }}</template>
           </el-table-column>
           <el-table-column
+            prop="invoiceAmount"
             :label="t('receivable.fields.invoiceAmount')"
             :min-width="colW(t('receivable.fields.invoiceAmount'), { contentMin: 100 })"
             align="right"
@@ -330,6 +389,7 @@ async function onToolbarDelete() {
             </template>
           </el-table-column>
           <el-table-column
+            prop="receivedAmount"
             :label="t('receivable.fields.receivedAmount')"
             :min-width="colW(t('receivable.fields.receivedAmount'), { contentMin: 100 })"
             align="right"
@@ -339,6 +399,7 @@ async function onToolbarDelete() {
             </template>
           </el-table-column>
           <el-table-column
+            prop="receivableAmount"
             :label="t('receivable.fields.receivableAmount')"
             :min-width="colW(t('receivable.fields.receivableAmount'), { contentMin: 100 })"
             align="right"
@@ -349,6 +410,12 @@ async function onToolbarDelete() {
           </el-table-column>
         </el-table>
       </div>
+
+      <RelatedAmountStatsBar
+        v-if="amountStatsVisible"
+        :items="amountStats"
+        :caption="amountStatsCaption"
+      />
 
       <div v-if="total" class="related-list__pager">
         <TablePagination

@@ -46,6 +46,7 @@ export class ReceivablesController {
   @ApiQuery({ name: 'customerNames', required: false, description: 'Comma-separated customer names' })
   @ApiQuery({ name: 'invoiceAmounts', required: false })
   @ApiQuery({ name: 'receivedAmounts', required: false })
+  @ApiQuery({ name: 'refundedAmounts', required: false })
   @ApiQuery({ name: 'receivableAmounts', required: false })
   @ApiQuery({ name: 'createdBys', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
@@ -66,6 +67,12 @@ export class ReceivablesController {
     required: false,
     description: 'true=已逾期（收款期限早于今日且应收额>0）；可与 outstanding 叠加',
   })
+  @ApiQuery({
+    name: 'validity',
+    required: false,
+    description:
+      'active=有效（发票未取消，默认）；invalid=失效（发票已取消）；all=全部（关联抽屉）',
+  })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiOkResponse({ description: 'Paginated receivable list' })
@@ -80,6 +87,7 @@ export class ReceivablesController {
     @Query('customerNames') customerNames?: string,
     @Query('invoiceAmounts') invoiceAmounts?: string,
     @Query('receivedAmounts') receivedAmounts?: string,
+    @Query('refundedAmounts') refundedAmounts?: string,
     @Query('receivableAmounts') receivableAmounts?: string,
     @Query('createdBys') createdBys?: string,
     @Query('sortBy') sortBy?: string,
@@ -92,10 +100,20 @@ export class ReceivablesController {
     @Query('createdAtTo') createdAtTo?: string,
     @Query('outstanding') outstanding?: string,
     @Query('overdue') overdue?: string,
+    @Query('validity') validity?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     const flag = (v?: string) => ['1', 'true', 'yes'].includes(String(v || '').trim().toLowerCase())
+    const validityNorm = String(validity || '')
+      .trim()
+      .toLowerCase()
+    const validityVal =
+      validityNorm === 'invalid'
+        ? 'invalid'
+        : validityNorm === 'all'
+          ? 'all'
+          : 'active'
     return this.receivablesService.findAll({
       keyword,
       invoiceId,
@@ -107,6 +125,7 @@ export class ReceivablesController {
       customerNames: splitCsv(customerNames),
       invoiceAmounts: splitCsv(invoiceAmounts),
       receivedAmounts: splitCsv(receivedAmounts),
+      refundedAmounts: splitCsv(refundedAmounts),
       receivableAmounts: splitCsv(receivableAmounts),
       createdBys: splitCsv(createdBys),
       sortBy,
@@ -119,15 +138,33 @@ export class ReceivablesController {
       createdAtTo,
       outstanding: flag(outstanding) || undefined,
       overdue: flag(overdue) || undefined,
+      validity: validityVal,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     })
   }
 
   @Get('stats/quick')
-  @ApiOkResponse({ description: 'Receivable quick filter counts (all / outstanding / overdue)' })
-  countQuickFilters() {
-    return this.receivablesService.countQuickFilters()
+  @ApiQuery({
+    name: 'validity',
+    required: false,
+    description:
+      'active=有效（默认）；invalid=失效；all=全部；影响 outstanding/overdue 计数范围',
+  })
+  @ApiOkResponse({
+    description: 'Receivable quick filter counts (all / outstanding / overdue / active / invalid)',
+  })
+  countQuickFilters(@Query('validity') validity?: string) {
+    const validityNorm = String(validity || '')
+      .trim()
+      .toLowerCase()
+    const validityVal =
+      validityNorm === 'invalid'
+        ? 'invalid'
+        : validityNorm === 'all'
+          ? 'all'
+          : 'active'
+    return this.receivablesService.countQuickFilters({ validity: validityVal })
   }
 
   @RequirePermissions('receivables:import')

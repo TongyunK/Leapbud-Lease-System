@@ -11,6 +11,8 @@ import { batchDeleteInvoicesApi, deleteInvoiceApi, fetchInvoices } from '@/api/i
 import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useRelatedAmountStats } from '@/composables/useRelatedTableAmountSummary'
+import RelatedAmountStatsBar from '@/components/RelatedAmountStatsBar.vue'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import {
   useTableSelection,
@@ -33,6 +35,9 @@ const props = withDefaults(
     titleContext?: string
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     contract: null,
@@ -41,6 +46,8 @@ const props = withDefaults(
     titleContext: undefined,
     desktopDirection: 'ltr',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -103,6 +110,18 @@ const filtered = computed(() => {
 
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
+
+const {
+  items: amountStats,
+  visible: amountStatsVisible,
+  caption: amountStatsCaption,
+} = useRelatedAmountStats({
+  rows: filtered,
+  fields: [
+    { prop: 'amount', label: t('invoice.fields.amount') },
+  ],
+  filterRows: (row) => (row.status || '').trim() !== '已取消',
+})
 
 watch(keyword, () => resetPage())
 
@@ -244,6 +263,10 @@ async function onToolbarDelete() {
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">
@@ -373,6 +396,7 @@ async function onToolbarDelete() {
             </template>
           </el-table-column>
           <el-table-column
+            prop="amount"
             :label="t('invoice.fields.amount')"
             :min-width="colW(t('invoice.fields.amount'), { contentMin: 100 })"
             align="right"
@@ -395,6 +419,12 @@ async function onToolbarDelete() {
           </el-table-column>
         </el-table>
       </div>
+
+      <RelatedAmountStatsBar
+        v-if="amountStatsVisible"
+        :items="amountStats"
+        :caption="amountStatsCaption"
+      />
 
       <div v-if="total" class="related-list__pager">
         <TablePagination

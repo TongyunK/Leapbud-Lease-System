@@ -7,10 +7,21 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { FilesInterceptor } from '@nestjs/platform-express'
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger'
 import { UserRole } from '@prisma/client'
+import { memoryStorage } from 'multer'
 import { DepositRefundsService } from './deposit-refunds.service'
 import {
   CreateDepositRefundDto,
@@ -148,6 +159,54 @@ export class DepositRefundsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.depositRefundsService.update(id, dto, actorUserId(user))
+  }
+
+  @Post(':id/attachments')
+  @RequirePermissions('depositRefunds:update')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FilesInterceptor('files', 30, {
+      storage: memoryStorage(),
+      limits: { fileSize: 20 * 1024 * 1024 },
+    }),
+  )
+  @ApiOkResponse({ description: 'Upload one or more deposit refund vouchers' })
+  uploadAttachments(
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.depositRefundsService.uploadAttachments(id, files || [], actorUserId(user))
+  }
+
+  @Get(':id/attachments/:attachmentId/file')
+  @ApiOkResponse({ description: 'Stream deposit refund attachment file' })
+  getAttachmentFile(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.depositRefundsService.getAttachmentFile(id, attachmentId)
+  }
+
+  @Delete(':id/attachments/:attachmentId')
+  @RequirePermissions('depositRefunds:update')
+  @ApiOkResponse({ description: 'Delete one deposit refund attachment' })
+  removeAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.depositRefundsService.removeAttachment(id, attachmentId)
   }
 
   @RequirePermissions('depositRefunds:delete')

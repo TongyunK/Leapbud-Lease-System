@@ -1,4 +1,5 @@
 import type { Building, Customer, DocumentTemplate, Occupant } from '@prisma/client';
+import { ContractSettlementType } from '@prisma/client';
 import { auditActorLabel, auditUserInclude, auditUserSelect, type AuditUserRef } from '../common/audit';
 
 function iso(d: Date) {
@@ -29,7 +30,7 @@ export type CustomerWithRelations = Customer & {
     invoices: number;
     receivables: number;
     receipts: number;
-    leaseTerminations: number;
+    contractSettlements: number;
     depositRefunds: number;
   };
   building?: Pick<Building, 'id' | 'name'> | null;
@@ -78,7 +79,7 @@ const customerCountSelect = {
   invoices: true,
   receivables: true,
   receipts: true,
-  leaseTerminations: true,
+  contractSettlements: { where: { type: ContractSettlementType.VACATE } },
   depositRefunds: true,
 } as const;
 
@@ -196,7 +197,7 @@ export function toCustomerDto(row: CustomerWithRelations) {
     invoiceCount: row._count?.invoices ?? 0,
     receivableCount: row._count?.receivables ?? 0,
     receiptCount: row._count?.receipts ?? 0,
-    terminationCount: row._count?.leaseTerminations ?? 0,
+    terminationCount: row._count?.contractSettlements ?? 0,
     depositRefundCount: row._count?.depositRefunds ?? 0,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),

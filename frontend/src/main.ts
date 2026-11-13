@@ -7,6 +7,7 @@ import router from './router'
 import { i18n, LOCALE_KEY } from './i18n'
 import { vAdminGlow } from './directives/adminGlow'
 import { setupDialogContentFullscreen } from './utils/dialogContentFullscreen'
+import { messageBoxAppendHost } from './utils/liftMessageBoxOverlay'
 import './style.css'
 
 document.documentElement.lang = localStorage.getItem(LOCALE_KEY) || 'zh-TW'
@@ -41,6 +42,12 @@ function withDialogDefaults<T extends (...args: any[]) => any>(fn: T): T {
 
     const merged = { ...defaults, ...incoming, customClass }
 
+    // 有业务弹窗打开时，挂到该弹窗 overlay 内（勿靠抬 z-index；EP 会覆盖 options.zIndex）
+    if (merged.appendTo == null) {
+      const host = messageBoxAppendHost()
+      if (host) merged.appendTo = host
+    }
+
     if (typeof title === 'object' && title !== null) {
       return fn(message, merged)
     }
@@ -58,6 +65,9 @@ app.use(createPinia())
 app.use(router)
 app.use(i18n)
 app.directive('admin-glow', vAdminGlow)
+
+// 指令式 MessageBox 需挂上 app 上下文，才能与 Dialog 共用配置／层叠相关注入
+;(ElMessageBox as typeof ElMessageBox & { _context: typeof app._context })._context = app._context
 
 app.mount('#app')
 setupDialogContentFullscreen()

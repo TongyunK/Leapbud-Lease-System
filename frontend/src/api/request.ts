@@ -10,15 +10,18 @@ const BUILDING_SCOPED_PREFIXES = [
   '/contracts',
   '/invoices',
   '/invoice-service-details',
-  '/lease-terminations',
   '/deposit-refunds',
+  '/contract-settlements',
+  '/refund-orders',
+  '/cash-flows',
   '/customers',
   '/customer-requirements',
   '/occupants',
   '/receivables',
   '/receipts',
   '/contract-periods',
-  '/contract-other-fees',
+  '/contract-loan-items',
+  '/deposit-deductions',
 ]
 
 export interface ApiErrorBody {

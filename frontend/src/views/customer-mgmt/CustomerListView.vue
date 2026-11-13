@@ -40,23 +40,24 @@ import RelatedContractsDrawer from '@/components/RelatedContractsDrawer.vue'
 import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
-import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
+import RelatedSettlementsDrawer from '@/components/RelatedSettlementsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import type { ContractRecord } from '@/types/contract'
 import type { InvoiceRecord } from '@/types/invoice'
 import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
-import type { LeaseTerminationRecord } from '@/types/lease-termination'
+import type { ContractSettlementRecord } from '@/types/contract-settlement'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
 import { customerStatusTone } from '@/constants/statusBadges'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
@@ -91,7 +92,7 @@ const perms = useResourcePermissions('customers')
 const { actionColW } = useActionColWidth()
 const listActionColWidth = computed(() =>
   actionColW([
-    t('common.detail'),
+    ACTION_COL_ICON,
     perms.update && t('common.edit'),
     perms.delete && t('common.delete'),
   ]),
@@ -113,7 +114,7 @@ const relatedContractsDrawer = ref(false)
 const relatedInvoicesDrawer = ref(false)
 const relatedReceivablesDrawer = ref(false)
 const relatedReceiptsDrawer = ref(false)
-const relatedTerminationsDrawer = ref(false)
+const relatedSettlementsDrawer = ref(false)
 const relatedDepositRefundsDrawer = ref(false)
 const relatedListCustomer = ref<CustomerRecord | null>(null)
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
@@ -750,7 +751,7 @@ function openReceiptsSide(row: CustomerRecord) {
 function openTerminationsSide(row: CustomerRecord) {
   if (!row.terminationCount) return
   relatedListCustomer.value = row
-  relatedTerminationsDrawer.value = true
+  relatedSettlementsDrawer.value = true
 }
 function openDepositRefundsSide(row: CustomerRecord) {
   if (!row.depositRefundCount) return
@@ -770,8 +771,8 @@ function onOpenReceivableFromRelated(row: ReceivableRecord) {
 function onOpenReceiptFromRelated(row: ReceiptRecord) {
   void relationDrawers.value?.openReceiptSide(row.id)
 }
-function onOpenTerminationFromRelated(row: LeaseTerminationRecord) {
-  void relationDrawers.value?.openTerminationSide(row.id)
+function onOpenSettlementFromRelated(row: ContractSettlementRecord) {
+  void relationDrawers.value?.openSettlementSide(row.id)
 }
 function onOpenDepositRefundFromRelated(row: DepositRefundRecord) {
   void relationDrawers.value?.openDepositRefundSide(row.id)
@@ -1463,13 +1464,7 @@ async function onImportFile(ev: Event) {
             label-class-name="col-actions"
           >            <template #default="{ row }">
               <div class="action-pills" @click.stop>
-                <button
-                  type="button"
-                  class="action-pill action-pill--view"
-                  @click.stop="openDetail(row)"
-                >
-                  {{ t('common.detail') }}
-                </button>
+                <ActionDetailButton @click="openDetail(row)" />
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
@@ -1584,12 +1579,13 @@ async function onImportFile(ev: Event) {
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
       @changed="loadList"
     />
-    <RelatedTerminationsDrawer
-      v-model="relatedTerminationsDrawer"
+    <RelatedSettlementsDrawer
+      v-model="relatedSettlementsDrawer"
       :customer-id="relatedListCustomer?.id"
+      type="VACATE"
       :title-context="relatedListCustomer ? relatedTitle(relatedListCustomer) : ''"
       desktop-direction="ltr"
-      @open-termination="onOpenTerminationFromRelated"
+      @open-settlement="onOpenSettlementFromRelated"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
     />

@@ -15,8 +15,11 @@ alwaysApply: true
   2. 外层容器勿 `overflow: hidden` 裁切内层；popover/select popper 需要时显式 `overflow: visible`。
   3. 内层交互区加 `@mousedown.stop`（必要时再 `@click.stop`）；若仍会关，武装 suppress + `visible-change` 为 false 时 `focus`/`toggleMenu` 立刻重开（参考：`InvoiceListView` 短租房间下拉）。
   4. 内层若必须 `teleported`，提高 z-index 不够——仍要处理 outside；优先改回不 teleport。
+- **抬高 z-index 弹窗内的日期／下拉（高频）**：`el-dialog` 用 `allocZ` / `FEATURE_DIALOG_ABOVE_MORE_Z` 等自定义高 `:z-index` 时，默认 teleport 到 `body` 的 `el-select` / `el-date-picker` 仍走 EP `nextZIndex()`（常停在 ≈2000）→ **日历／选项列表落在弹窗下层**。须保持默认 teleport，并设 `:popper-style="{ zIndex: dialogZ + 20 }"`（下限可参考 `OVERLAY_ABOVE_FEATURE_MENU_Z`）。**不要**只用 `:teleported="false"` 规避——浮层会被 `.el-dialog__body { overflow: auto }` 裁切，向上展开还会被 header 挡住。参考：`ContractSettlementRefundDialog`（打款日期／付款方式）；嵌套防关场景仍优先 `teleported=false`（见上条）。
+- **业务弹窗 → 关联抽屉叠层（高频）**：已抬高的 `el-dialog`（如定金抵扣记录、退租详情）再打开左侧关联详情抽屉时，抽屉默认 `nextZIndex` 常低于弹窗／遮罩 → **抽屉被压在下层**。须用 `useOverlayStackZ`：**每点开一层关联信息（列表抽屉／详情抽屉／再嵌套弹窗）都要 `allocZ(上一层 z)` 并绑 `:z-index`，再往下开时传 `{ zIndex: 本层 z }`**，保证始终盖过上一层。弹窗打开时 `raiseFloor(dialogZ)`，打开抽屉时 `openXxxSide(id, { zIndex: dialogZ })`。**不要**为避叠层而关掉来源弹窗（如定金抵扣记录点发票／收据后应保持弹窗打开，抽屉盖在其上）。参考：`BookingDepositAppliesDialog`、`RelatedEntityDrawers`、`ContractListView`（退租详情 → 收款 → 收款记录 → 收据详情）。
 - 完成代码修改后**不要**主动重启 backend / frontend 开发服务；由用户自行刷新或重启。
 - 表格列宽中/英自适应：见规则 `frontend-table-layout.mdc`（`useTableColWidth` / `colW` / `datetimeColWidth` / `tableLayoutKey`）。
 - 表格**日期/时间列**须支持排序 + **时间范围筛选**：`TableColumnHeader` 开启 `sortable` 与 `date-range`，经 `useTableSortFilter` 的 `setDateRange` / `dateRangeOf` 接入；仅日期列（如需求日期）同样加 `date-range`。
 - 表头有条件时须有明显激活态（列名加粗变色、图标实心底、筛选角标、表头底色）；列表工具栏提供 `ClearTableFiltersButton`（`clearAll` / `activeConditionCount`）一键清空排序与筛选。
 - **列表工具栏刷新**：有导入／导出的列表须提供 `RefreshListButton`（`frontend/src/components/RefreshListButton.vue`），放在页头 **标题 `h2` 左侧**（圆形浅灰样式），点击重拉当前列表（及页头 chips／计数若有）；勿放在导入／导出右侧，也勿省略。
+- **关联表格抽屉金额合计**：含金额列的 `Related*Drawer` 在表体与分页之间用 `RelatedAmountStatsBar` + `useRelatedAmountStats`（固定条，不随表左右滚动）；按筛选后的 `filtered` 全量合计，有有效／作废状态时只计有效（应收有效、发票未取消、收据未作废、按金退还未取消）；只合计金额合计类字段，勿合计单价／数量。

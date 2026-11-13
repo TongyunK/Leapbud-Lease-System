@@ -20,10 +20,15 @@ const props = withDefaults(
     occupant: OccupantRecord | null
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     desktopDirection: 'rtl',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -98,6 +103,10 @@ function openPastCustomer(customerId: string) {
     :size="drawerSize"
     :direction="direction"
     class="responsive-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <template #header="{ titleId, titleClass }">
       <DrawerDetailHeader
@@ -214,6 +223,8 @@ function openPastCustomer(customerId: string) {
     :direction="direction"
     append-to-body
     class="responsive-drawer"
+  
+    :z-index="zIndex"
   >
     <p v-if="!pastCustomers.length" class="past-hint">{{ t('occupant.pastCustomerEmpty') }}</p>
     <ul v-else class="past-list">

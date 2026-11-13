@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('numberingRules')
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { EditPen } from '@element-plus/icons-vue'
+import { EditPen, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchNumberingRules,
@@ -440,9 +440,19 @@ async function toggleActive(row: NumberingRule) {
         <el-form-item :label="t('autoNumbering.fields.name')">
           <el-input :model-value="editing ? displayName(editing) : ''" disabled />
         </el-form-item>
-        <el-form-item :label="t('autoNumbering.fields.format')" required>
+        <el-form-item required>
+          <template #label>
+            <span class="form-label-with-tip">
+              {{ t('autoNumbering.fields.format') }}
+              <el-tooltip placement="top">
+                <template #content>
+                  <div class="form-tip-multiline">{{ t('autoNumbering.formatHint') }}</div>
+                </template>
+                <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-input v-model="form.format" />
-          <div class="form-hint">{{ t('autoNumbering.formatHint') }}</div>
         </el-form-item>
         <el-row :gutter="16">
           <el-col :xs="24" :sm="12">
@@ -456,7 +466,15 @@ async function toggleActive(row: NumberingRule) {
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('autoNumbering.fields.currentSeq')">
+            <el-form-item>
+              <template #label>
+                <span class="form-label-with-tip">
+                  {{ t('autoNumbering.fields.currentSeq') }}
+                  <el-tooltip :content="t('autoNumbering.currentSeqHint')" placement="top">
+                    <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
               <el-input-number
                 v-model="form.currentSeq"
                 :min="0"
@@ -466,11 +484,17 @@ async function toggleActive(row: NumberingRule) {
             </el-form-item>
           </el-col>
         </el-row>
-        <div class="form-hint form-hint--row">{{ t('autoNumbering.currentSeqHint') }}</div>
-        <el-form-item :label="t('autoNumbering.livePreview')">
+        <el-form-item>
+          <template #label>
+            <span class="form-label-with-tip">
+              {{ t('autoNumbering.livePreview') }}
+              <el-tooltip :content="t('autoNumbering.livePreviewHint')" placement="top">
+                <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <div class="live-preview" aria-live="polite">
             <code class="live-preview__code">{{ livePreview }}</code>
-            <span class="live-preview__hint">{{ t('autoNumbering.livePreviewHint') }}</span>
           </div>
         </el-form-item>
         <el-form-item :label="t('autoNumbering.fields.resetCycle')">
@@ -520,16 +544,21 @@ async function toggleActive(row: NumberingRule) {
 .name-edit-link:hover .name-edit-link__icon {
   opacity: 1;
 }
-.form-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--el-text-color-secondary);
-  white-space: pre-line;
+.form-label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.form-hint--row {
-  margin-top: -10px;
-  margin-bottom: 14px;
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.form-tip-multiline {
+  white-space: pre-line;
+  max-width: 320px;
+  line-height: 1.45;
 }
 .live-preview {
   width: 100%;
@@ -548,10 +577,5 @@ async function toggleActive(row: NumberingRule) {
   color: #0f4a32;
   word-break: break-all;
   line-height: 1.35;
-}
-.live-preview__hint {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.4;
 }
 </style>

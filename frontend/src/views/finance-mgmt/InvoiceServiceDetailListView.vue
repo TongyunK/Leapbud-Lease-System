@@ -29,6 +29,7 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import InvoiceServiceDetailDrawer from '@/components/InvoiceServiceDetailDrawer.vue'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -40,7 +41,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { packFilterValues } from '@/utils/columnFilter'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   invoiceServiceDetailIoTemplateExampleRow,
@@ -60,7 +61,11 @@ const isMobile = useIsMobile()
 const perms = useResourcePermissions('invoiceServiceDetails')
 const { actionColW } = useActionColWidth()
 const listActionColWidth = computed(() =>
-  actionColW([perms.update && t('common.edit'), perms.delete && t('common.delete')]),
+  actionColW([
+    ACTION_COL_ICON,
+    perms.update && t('common.edit'),
+    perms.delete && t('common.delete'),
+  ]),
 )
 const { colW, textColW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
   useTableColWidth()
@@ -817,7 +822,6 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
             :width="listActionColWidth"
             fixed="right"
@@ -826,6 +830,7 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row)" />
                 <button
                   v-if="perms.update"
                   v-admin-glow="perms.codes.update"

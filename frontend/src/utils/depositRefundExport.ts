@@ -12,8 +12,7 @@ export const DEPOSIT_REFUND_IO_FIELD_KEYS = [
   'totalDeposit',
   'actualRefundAmount',
   'handler',
-  'voucherImage',
-  'voucherAttachment',
+  'attachments',
   'remark',
   'createdBy',
   'createdAt',
@@ -40,11 +39,28 @@ const HEADER_ALIASES: Record<DepositRefundIoFieldKey, string[]> = {
   totalDeposit: ['按金總額', '按金总额'],
   actualRefundAmount: ['實退按金金額', '实退按金金额', '實退金額', '实退金额'],
   handler: ['處理人', '处理人'],
-  voucherImage: ['退還憑證圖片', '退还凭证图片', '憑證圖片', '凭证图片'],
-  voucherAttachment: ['退還憑證附件', '退还凭证附件', '憑證附件', '凭证附件'],
+  attachments: [
+    '憑證',
+    '凭证',
+    '退還憑證',
+    '退还凭证',
+    '退還憑證圖片',
+    '退还凭证图片',
+    '退還憑證附件',
+    '退还凭证附件',
+  ],
   remark: ['備註', '备注'],
   createdBy: ['創建人', '创建人', 'Created By'],
   createdAt: ['創建時間', '创建时间', 'Created At'],
+}
+
+function attachmentsCell(row: DepositRefundRecord): string {
+  const names = (row.attachments || []).map((a) => a.fileName).filter(Boolean)
+  if (names.length) return names.join('; ')
+  const legacy = [row.voucherImage, row.voucherAttachment]
+    .map((s) => (s || '').trim())
+    .filter(Boolean)
+  return legacy.join('; ')
 }
 
 export function depositRefundToIoRow(
@@ -64,8 +80,7 @@ export function depositRefundToIoRow(
     [h('totalDeposit')]: row.totalDeposit ?? '',
     [h('actualRefundAmount')]: row.actualRefundAmount ?? '',
     [h('handler')]: row.handler || '',
-    [h('voucherImage')]: row.voucherImage || '',
-    [h('voucherAttachment')]: row.voucherAttachment || '',
+    [h('attachments')]: attachmentsCell(row),
     [h('remark')]: row.remark || '',
     [h('createdBy')]: row.createdBy || '',
     [h('createdAt')]: row.createdAt || '',
@@ -88,8 +103,7 @@ export function depositRefundIoTemplateExampleRow(
     [h('totalDeposit')]: 10000,
     [h('actualRefundAmount')]: 8500,
     [h('handler')]: '',
-    [h('voucherImage')]: '',
-    [h('voucherAttachment')]: '',
+    [h('attachments')]: '',
     [h('remark')]: '',
     [h('createdBy')]: '',
     [h('createdAt')]: '',
@@ -145,8 +159,6 @@ export type DepositRefundImportPayload = {
   refundDate?: string
   totalDeposit?: number
   actualRefundAmount?: number
-  voucherImage?: string
-  voucherAttachment?: string
   remark?: string
 }
 
@@ -169,8 +181,6 @@ export function rowToDepositRefundIoPayload(
     refundDate: normalizeDateCell(pickDepositRefundIoValue(row, 'refundDate', t)) || undefined,
     totalDeposit: totalRaw !== '' ? Number(totalRaw) || 0 : undefined,
     actualRefundAmount: actualRaw !== '' ? Number(actualRaw) || 0 : undefined,
-    voucherImage: pickDepositRefundIoValue(row, 'voucherImage', t) || undefined,
-    voucherAttachment: pickDepositRefundIoValue(row, 'voucherAttachment', t) || undefined,
     remark: pickDepositRefundIoValue(row, 'remark', t) || undefined,
   }
 }

@@ -56,9 +56,12 @@ export interface InvoiceRecord {
   referredByCustomerCode?: string
   referredByCustomerName?: string
   remark: string | null
+  /** 变更记录（合约同步按金／首期租金等） */
+  changeLog?: string | null
   serviceDetails: InvoiceServiceDetailRecord[]
   receivableCount?: number
   receiptCount?: number
+  cashFlowCount?: number
   serviceDetailCount?: number
   createdBy: string
   updatedBy: string
@@ -77,14 +80,20 @@ export const INVOICE_TYPES = [
   'Deposit',
   'Others',
   '1, Charging Period',
+  'Electricity',
   /** @deprecated 旧导入兼容，展示等同 Others */
   '10, Other charges',
 ] as const
 
 export type InvoiceType = (typeof INVOICE_TYPES)[number]
 
-/** 合约发票可选类型（不含短租；顺序：Deposit / Others / Charging Period） */
-export const CONTRACT_INVOICE_TYPES = ['Deposit', 'Others', '1, Charging Period'] as const
+/** 合约发票可选类型（不含短租；顺序：Deposit / Charging Period / Electricity / Others） */
+export const CONTRACT_INVOICE_TYPES = [
+  'Deposit',
+  '1, Charging Period',
+  'Electricity',
+  'Others',
+] as const
 
 /** 短租发票固定类型 */
 export const SHORT_TERM_INVOICE_TYPE = '會議室短租' as const
@@ -98,6 +107,7 @@ export const INVOICE_TYPE_I18N_KEY: Record<string, string> = {
   Deposit: 'deposit',
   Others: 'others',
   '1, Charging Period': 'chargingPeriod',
+  Electricity: 'electricity',
   '10, Other charges': 'others',
 }
 

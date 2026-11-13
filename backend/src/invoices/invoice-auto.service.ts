@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { NumberingBizKey, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
@@ -47,6 +47,37 @@ function utcToday(): Date {
   return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()))
 }
 
+function round2(n: number) {
+  return Math.round(n * 100) / 100
+}
+
+function linesAmount(lines: DetailLine[]) {
+  return round2(lines.reduce((sum, l) => sum + round2(l.quantity * l.unitAmount), 0))
+}
+
+function linesSignature(lines: DetailLine[]) {
+  return lines
+    .map(
+      (l) =>
+        `${s(l.description)}|${round2(l.quantity)}|${round2(l.unitAmount)}|${s(l.remark)}`,
+    )
+    .join(';')
+}
+
+/** 香港时间戳（变更记录） */
+function hkStamp(now = new Date()) {
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(now)
+}
+
 @Injectable()
 export class InvoiceAutoService {
   private readonly logger = new Logger(InvoiceAutoService.name)
@@ -70,6 +101,21 @@ export class InvoiceAutoService {
     const depositInvoiceId = await this.ensureDepositInvoice(contractId, actorId, db)
     const rentInvoiceId = await this.ensureFirstRentInvoice(contractId, actorId, db)
     return { depositInvoiceId, rentInvoiceId }
+  }
+
+  /**
+   * 合约保存后：按当前合约重算未收款的自动「按金」与「首期租金」发票明细／金额／应收，并写变更记录。
+   * 若对应发票已有收款／分摊，而金额或明细将变化 → 抛错阻断，避免账实不符。
+   */
+  async syncAutoInvoicesFromContract(
+    contractId: string,
+    actorId?: string | null,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ depositSynced: boolean; rentSynced: boolean }> {
+    const db = tx ?? this.prisma
+    const depositSynced = await this.syncDepositInvoiceFromContract(contractId, actorId, db)
+    const rentSynced = await this.syncFirstRentInvoiceFromContract(contractId, actorId, db)
+    return { depositSynced, rentSynced }
   }
 
   /**
@@ -185,50 +231,8 @@ export class InvoiceAutoService {
     const contract = await this.loadContractForBilling(contractId, db)
     if (!contract) return null
 
-    const lines: DetailLine[] = []
-    const roomDeposit = num(contract.roomDeposit)
-    lines.push({
-      description: '房間按金',
-      quantity: 1,
-      unitAmount: roomDeposit,
-    })
-
-    const misc = num(contract.miscDeposit)
-    if (misc > 0) {
-      lines.push({ description: '雜項按金', quantity: 1, unitAmount: misc })
-    }
-
-    // 房門匙 + 智能卡信箱匙合并为一条（旧系统：房門匙 或 信箱匙）
-    const doorQty = Math.max(0, Math.floor(contract.doorKeyQty || 0))
-    const mailQty = Math.max(0, Math.floor(contract.mailboxKeyQty || 0))
-    const keyQty = doorQty + mailQty
-    const keyAmt = num(contract.doorKeyDeposit) + num(contract.mailboxKeyDeposit)
-    if (keyQty > 0 || keyAmt > 0) {
-      const unit = keyQty > 0 ? keyAmt / keyQty : keyAmt
-      lines.push({
-        description: '房門匙 或 信箱匙',
-        quantity: keyQty > 0 ? keyQty : 1,
-        unitAmount: Math.round(unit * 100) / 100,
-      })
-    }
-
-    for (const fee of contract.otherFees) {
-      const qty = num(fee.quantity)
-      const unit = num(fee.unitAmount)
-      const sub = num(fee.subtotal) || Math.round(qty * unit * 100) / 100
-      if (!s(fee.description) && sub <= 0) continue
-      lines.push({
-        description: s(fee.description) || '借出用品',
-        quantity: qty || 1,
-        unitAmount: qty > 0 ? unit : sub,
-        remark: s(fee.remark) || undefined,
-      })
-    }
-
-    const amount = lines.reduce(
-      (sum, l) => sum + Math.round(l.quantity * l.unitAmount * 100) / 100,
-      0,
-    )
+    const lines = this.buildDepositLines(contract)
+    const amount = linesAmount(lines)
     const today = utcToday()
     const invoiceId = await this.createInvoiceWithDetails(
       {
@@ -247,6 +251,69 @@ export class InvoiceAutoService {
       db,
     )
     return invoiceId
+  }
+
+  /** 按当前合约重算未收款的自动按金发票 */
+  private async syncDepositInvoiceFromContract(
+    contractId: string,
+    actorId: string | null | undefined,
+    db: DbClient,
+  ): Promise<boolean> {
+    const invoice = await db.invoice.findFirst({
+      where: {
+        contractId,
+        billingKind: BILLING_KIND_AUTO,
+        invoiceType: INVOICE_TYPE_DEPOSIT,
+        status: { not: '已取消' },
+      },
+      include: {
+        serviceDetails: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    })
+    if (!invoice) return false
+
+    const contract = await this.loadContractForBilling(contractId, db)
+    if (!contract) return false
+
+    const lines = this.buildDepositLines(contract)
+    const nextAmount = linesAmount(lines)
+    const prevAmount = num(invoice.amount)
+    const prevLines: DetailLine[] = (invoice.serviceDetails || []).map((d) => ({
+      description: d.description,
+      quantity: num(d.quantity),
+      unitAmount: num(d.unitAmount),
+      remark: s(d.remark) || undefined,
+    }))
+    if (
+      round2(prevAmount) === nextAmount &&
+      linesSignature(prevLines) === linesSignature(lines)
+    ) {
+      return false
+    }
+
+    if (await this.invoiceHasCollections(invoice.id, db)) {
+      throw new BadRequestException(
+        `按金發票 ${invoice.invoiceCode || ''} 已有收款，無法隨合約自動改額（原 ${prevAmount.toFixed(2)} → ${nextAmount.toFixed(2)}）。請先處理收款或手工調整發票。`,
+      )
+    }
+
+    await this.replaceInvoiceDetailsAndAmount({
+      invoiceId: invoice.id,
+      invoiceCode: invoice.invoiceCode,
+      prevAmount,
+      nextAmount,
+      lines,
+      description: INVOICE_TYPE_DEPOSIT,
+      periodStart: null,
+      periodEnd: null,
+      paymentDueDate: undefined,
+      changeKind: 'deposit',
+      actorId,
+      db,
+    })
+    return true
   }
 
   async ensureFirstRentInvoice(
@@ -293,7 +360,7 @@ export class InvoiceAutoService {
     const months = parsePaymentCycleMonths(contract.paymentCycle)
     const monthly = num(contract.monthlyRent)
     // 整周期按「月租 × 缴费月数」；尾期不足整周期仍按整周期计费（与旧系统常见做法一致）
-    const amount = Math.round(monthly * months * 100) / 100
+    const amount = round2(monthly * months)
     const detailDesc = chargingPeriodDetailDescription(periodStart, periodEnd)
     const today = utcToday()
 
@@ -321,6 +388,265 @@ export class InvoiceAutoService {
     )
   }
 
+  /** 按当前合约重算未收款的首期自动租金发票（签约中通常仅此一张） */
+  private async syncFirstRentInvoiceFromContract(
+    contractId: string,
+    actorId: string | null | undefined,
+    db: DbClient,
+  ): Promise<boolean> {
+    const contract = await this.loadContractForBilling(contractId, db)
+    if (!contract?.startDate || !contract.endDate) return false
+
+    const months = parsePaymentCycleMonths(contract.paymentCycle)
+    const billingStart = rentBillingStartDate(contract.startDate, contract.periods || [])
+    const periods = listBillingPeriods(billingStart, contract.endDate, months)
+    const first = periods[0]
+    if (!first) return false
+
+    const monthly = num(contract.monthlyRent)
+    const nextAmount = round2(monthly * months)
+    const detailDesc = chargingPeriodDetailDescription(first.start, first.end)
+    const lines: DetailLine[] = [
+      {
+        description: detailDesc,
+        quantity: months,
+        unitAmount: monthly,
+      },
+    ]
+
+    let invoice = await db.invoice.findFirst({
+      where: {
+        contractId,
+        billingKind: BILLING_KIND_AUTO,
+        invoiceType: INVOICE_TYPE_CHARGING_PERIOD,
+        periodStart: first.start,
+        status: { not: '已取消' },
+      },
+      include: {
+        serviceDetails: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    })
+    // 首期起算日因免租／合约期变更而移动时：取最早一张未取消自动租金票对齐
+    if (!invoice) {
+      invoice = await db.invoice.findFirst({
+        where: {
+          contractId,
+          billingKind: BILLING_KIND_AUTO,
+          invoiceType: INVOICE_TYPE_CHARGING_PERIOD,
+          status: { not: '已取消' },
+        },
+        orderBy: [{ periodStart: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          serviceDetails: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+      })
+    }
+    if (!invoice) return false
+
+    const prevAmount = num(invoice.amount)
+    const prevLines: DetailLine[] = (invoice.serviceDetails || []).map((d) => ({
+      description: d.description,
+      quantity: num(d.quantity),
+      unitAmount: num(d.unitAmount),
+      remark: s(d.remark) || undefined,
+    }))
+    const prevStart = invoice.periodStart ? formatDateYmd(invoice.periodStart) : ''
+    const nextStart = formatDateYmd(first.start)
+    const prevEnd = invoice.periodEnd ? formatDateYmd(invoice.periodEnd) : ''
+    const nextEnd = formatDateYmd(first.end)
+    const same =
+      round2(prevAmount) === nextAmount &&
+      linesSignature(prevLines) === linesSignature(lines) &&
+      prevStart === nextStart &&
+      prevEnd === nextEnd
+    if (same) return false
+
+    if (await this.invoiceHasCollections(invoice.id, db)) {
+      throw new BadRequestException(
+        `首期租金發票 ${invoice.invoiceCode || ''} 已有收款，無法隨合約自動改額（原 ${prevAmount.toFixed(2)} → ${nextAmount.toFixed(2)}）。請先處理收款或手工調整發票。`,
+      )
+    }
+
+    await this.replaceInvoiceDetailsAndAmount({
+      invoiceId: invoice.id,
+      invoiceCode: invoice.invoiceCode,
+      prevAmount,
+      nextAmount,
+      lines,
+      description: detailDesc,
+      periodStart: first.start,
+      periodEnd: first.end,
+      paymentDueDate: first.start,
+      changeKind: 'first_rent',
+      actorId,
+      db,
+    })
+    return true
+  }
+
+  private buildDepositLines(
+    contract: NonNullable<Awaited<ReturnType<InvoiceAutoService['loadContractForBilling']>>>,
+  ): DetailLine[] {
+    const lines: DetailLine[] = []
+    const roomDeposit = num(contract.roomDeposit)
+    lines.push({
+      description: '房間按金',
+      quantity: 1,
+      unitAmount: roomDeposit,
+    })
+
+    const misc = num(contract.miscDeposit)
+    if (misc > 0) {
+      lines.push({ description: '雜項按金', quantity: 1, unitAmount: misc })
+    }
+
+    // 房門匙 + 智能卡信箱匙合并为一条（旧系统：房門匙 或 信箱匙）
+    const doorQty = Math.max(0, Math.floor(contract.doorKeyQty || 0))
+    const mailQty = Math.max(0, Math.floor(contract.mailboxKeyQty || 0))
+    const keyQty = doorQty + mailQty
+    const keyAmt = num(contract.doorKeyDeposit) + num(contract.mailboxKeyDeposit)
+    if (keyQty > 0 || keyAmt > 0) {
+      const unit = keyQty > 0 ? keyAmt / keyQty : keyAmt
+      lines.push({
+        description: '房門匙 或 信箱匙',
+        quantity: keyQty > 0 ? keyQty : 1,
+        unitAmount: round2(unit),
+      })
+    }
+
+    for (const fee of contract.loanItems) {
+      const qty = num(fee.quantity)
+      const unit = num(fee.unitAmount)
+      const sub = num(fee.subtotal) || round2(qty * unit)
+      if (!s(fee.description) && sub <= 0) continue
+      lines.push({
+        description: s(fee.description) || '借出用品',
+        quantity: qty || 1,
+        unitAmount: qty > 0 ? unit : sub,
+        remark: s(fee.remark) || undefined,
+      })
+    }
+    return lines
+  }
+
+  private async invoiceHasCollections(invoiceId: string, db: DbClient): Promise<boolean> {
+    const receivables = await db.receivable.findMany({
+      where: { invoiceId },
+      select: { receivedAmount: true },
+    })
+    if (receivables.some((r) => num(r.receivedAmount) > 0.009)) return true
+
+    const allocCount = await db.receiptAllocation.count({ where: { invoiceId } })
+    if (allocCount > 0) return true
+
+    const receiptCount = await db.receipt.count({ where: { invoiceId } })
+    return receiptCount > 0
+  }
+
+  private async appendInvoiceChangeLog(
+    db: DbClient,
+    invoiceId: string,
+    line: string,
+  ) {
+    const row = await db.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { changeLog: true },
+    })
+    if (!row) return
+    const prev = (row.changeLog || '').trim()
+    const next = prev ? `${prev}\n${line}` : line
+    await db.invoice.update({
+      where: { id: invoiceId },
+      data: { changeLog: next },
+    })
+  }
+
+  private async replaceInvoiceDetailsAndAmount(input: {
+    invoiceId: string
+    invoiceCode: string | null
+    prevAmount: number
+    nextAmount: number
+    lines: DetailLine[]
+    description: string
+    periodStart: Date | null
+    periodEnd: Date | null
+    paymentDueDate?: Date
+    /** deposit | first_rent — 存结构化行，前端按语言渲染 */
+    changeKind: 'deposit' | 'first_rent'
+    actorId?: string | null
+    db: DbClient
+  }) {
+    const { db, invoiceId, actorId } = input
+    const actor = actorId || null
+
+    await db.invoiceServiceDetail.deleteMany({ where: { invoiceId } })
+    if (input.lines.length) {
+      await db.invoiceServiceDetail.createMany({
+        data: input.lines.map((l, i) => {
+          const quantity = dec(l.quantity)
+          const unitAmount = dec(l.unitAmount)
+          const subtotal = dec(round2(l.quantity * l.unitAmount))
+          return {
+            invoiceId,
+            description: l.description,
+            quantity,
+            unitAmount,
+            subtotal,
+            remark: s(l.remark),
+            sortOrder: i,
+            createdById: actor,
+            updatedById: actor,
+          }
+        }),
+      })
+    }
+
+    await db.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        amount: dec(input.nextAmount),
+        description: input.description,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        ...(input.paymentDueDate ? { paymentDueDate: input.paymentDueDate } : {}),
+        updatedById: actor,
+      },
+    })
+
+    const receivables = await db.receivable.findMany({
+      where: { invoiceId },
+      select: { id: true, receivedAmount: true },
+    })
+    for (const r of receivables) {
+      const received = num(r.receivedAmount)
+      const receivableAmount = round2(Math.max(0, input.nextAmount - received))
+      await db.receivable.update({
+        where: { id: r.id },
+        data: {
+          invoiceAmount: dec(input.nextAmount),
+          receivableAmount: dec(receivableAmount),
+          updatedById: actor,
+        },
+      })
+    }
+    // 尚无应收时补建
+    if (!receivables.length) {
+      await this.ensureReceivableForInvoice(invoiceId, actorId, db)
+    }
+
+    const code = s(input.invoiceCode) || invoiceId
+    // #inv|contract_sync|deposit|stamp|prev|next|invoiceCode
+    await this.appendInvoiceChangeLog(
+      db,
+      invoiceId,
+      `#inv|contract_sync|${input.changeKind}|${hkStamp()}|${round2(input.prevAmount).toFixed(2)}|${round2(input.nextAmount).toFixed(2)}|${code}`,
+    )
+  }
+
   private async loadContractForBilling(contractId: string, db: DbClient) {
     return db.contract.findUnique({
       where: { id: contractId },
@@ -330,8 +656,7 @@ export class InvoiceAutoService {
           select: { dateType: true, startDate: true, endDate: true, sortOrder: true },
           orderBy: [{ sortOrder: 'asc' }, { startDate: 'asc' }],
         },
-        otherFees: {
-          where: { terminationId: null },
+        loanItems: {
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
       },
@@ -453,6 +778,80 @@ export class InvoiceAutoService {
     })
     await this.ensureReceivableForInvoice(created.id, actorId, db)
     return created.id
+  }
+
+  /**
+   * 退租超额赔偿：开「Others」杂项发票并建应收（扣除超过已收按金的部分）。
+   */
+  async createVacateExcessCompensationInvoice(
+    params: {
+      contractId: string
+      amount: number
+      invoiceDate: Date
+      paymentDueDate?: Date | null
+      lines?: DetailLine[]
+      description?: string
+      remark?: string
+    },
+    actorId?: string | null,
+    db: DbClient = this.prisma,
+  ): Promise<{
+    invoiceId: string
+    receivableId: string | null
+    invoiceCode: string
+  }> {
+    const amount = round2(Math.max(0, Number(params.amount) || 0))
+    if (amount <= 0.009) {
+      throw new BadRequestException('超出按金金额赔偿须大于 0')
+    }
+    const contract = await this.loadContractForBilling(params.contractId, db)
+    if (!contract) {
+      throw new BadRequestException(`Contract ${params.contractId} not found`)
+    }
+    const description = s(params.description) || '退租超出按金金额赔偿'
+    const lines =
+      params.lines?.length && params.lines.some((l) => round2(l.quantity * l.unitAmount) > 0.009)
+        ? params.lines.filter((l) => round2(l.quantity * l.unitAmount) > 0.009)
+        : [{ description, quantity: 1, unitAmount: amount }]
+    const invoiceId = await this.createInvoiceWithDetails(
+      {
+        contract,
+        invoiceType: 'Others',
+        billingKind: BILLING_KIND_MANUAL,
+        description,
+        amount,
+        invoiceDate: params.invoiceDate,
+        paymentDueDate: params.paymentDueDate || params.invoiceDate,
+        periodStart: null,
+        periodEnd: null,
+        lines,
+      },
+      actorId,
+      db,
+    )
+    const invoice = await db.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { invoiceCode: true },
+    })
+    const receivable = await db.receivable.findFirst({
+      where: { invoiceId },
+      select: { id: true },
+    })
+    const remark =
+      params.remark !== undefined
+        ? s(params.remark)
+        : `退租超出按金金额赔偿 ${invoice?.invoiceCode || ''}`.trim()
+    if (receivable) {
+      await db.receivable.update({
+        where: { id: receivable.id },
+        data: { remark, updatedById: actorId || null },
+      })
+    }
+    return {
+      invoiceId,
+      receivableId: receivable?.id ?? null,
+      invoiceCode: invoice?.invoiceCode || '',
+    }
   }
 
   /**

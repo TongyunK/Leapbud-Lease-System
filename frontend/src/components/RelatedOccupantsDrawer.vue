@@ -20,10 +20,15 @@ const props = withDefaults(
     customer: CustomerRecord | null
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     desktopDirection: 'ltr',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -134,6 +139,10 @@ function onRowClick(row: OccupantRecord, column?: { type?: string }, event?: Eve
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">

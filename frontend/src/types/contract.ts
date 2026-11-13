@@ -10,7 +10,7 @@ export interface ContractPeriodRecord {
 }
 
 /** 合约级借出物品（嵌套） */
-export interface ContractOtherFeeNestedRecord {
+export interface ContractLoanItemNestedRecord {
   id?: string
   description: string
   quantity: number
@@ -56,6 +56,8 @@ export interface ContractRecord {
   paymentVoucher: string
   /** 定金收据 ID（开单后生成） */
   bookingDepositReceiptId?: string | null
+  /** 定金收据编号 */
+  bookingDepositReceiptCode?: string | null
   electricityRate: number | null
   miscDeposit: number | null
   doorKeyQty: number
@@ -67,17 +69,40 @@ export interface ContractRecord {
   attachment: string
   remark: string
   periods: ContractPeriodRecord[]
-  otherFees?: ContractOtherFeeNestedRecord[]
+  loanItems?: ContractLoanItemNestedRecord[]
   invoiceCount?: number
   receivableCount?: number
   /** 当前下属应收「应收金额」合计 */
   receivableAmountTotal?: number
+  /** 下属发票开票金额合计（排除已取消） */
+  invoiceAmountTotal?: number
+  /** 下属收据收款金额合计（定金 + 发票收据） */
+  receiptAmountTotal?: number
+  /** 定金收据金额合计 */
+  bookingDepositReceiptAmountTotal?: number
+  /** 发票收据金额合计 */
+  invoiceReceiptAmountTotal?: number
+  /** 借出物品小计合计 */
+  loanItemAmountTotal?: number
+  /** 按金扣除小计合计 */
+  depositDeductionAmountTotal?: number
+  /** 按金退还实退金额合计（排除已取消） */
+  depositRefundAmountTotal?: number
+  /** 是否已有「已退」按金退还单 */
+  depositRefundDone?: boolean
+  /** 已取消合约是否仍有暂留另收／定金可办「办理退款」 */
+  cancelRefundPending?: boolean
   /** 收租情况：collected=已收租 / uncollected=未收租 */
   rentCollectionStatus?: 'collected' | 'uncollected'
   receiptCount?: number
+  cashFlowCount?: number
   periodCount?: number
   terminationCount?: number
-  otherFeeCount?: number
+  /** 退租结算单 ID（每合约至多一单） */
+  vacateSettlementId?: string | null
+  /** 退租结算单号 */
+  vacateSettlementCode?: string
+  loanItemCount?: number
   depositDeductionCount?: number
   depositRefundCount?: number
   createdBy: string
@@ -117,14 +142,15 @@ export function isSigningContractStatus(raw?: string | null): boolean {
 }
 
 /**
- * 行内/表单可选状态：非签约中不可选「已取消」（已是已取消的仍保留该项以便展示）。
- * 其他状态如需结束请走退租流程。
+ * 行内/表单可选状态：
+ * - 「已取消」仅当当前已是已取消时保留（展示用）；签约中取消请走「取消合約」办理。
+ * - 其他状态如需结束请走退租流程。
  */
 export function contractStatusOptionsForEdit(currentStatus?: string | null): ContractStatus[] {
   const current = (currentStatus || '').trim()
   return CONTRACT_STATUSES.filter((s) => {
     if (s !== '已取消') return true
-    return isSigningContractStatus(current) || current === '已取消'
+    return current === '已取消'
   })
 }
 

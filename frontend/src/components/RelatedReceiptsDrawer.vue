@@ -5,10 +5,17 @@ import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ContractRecord } from '@/types/contract'
 import type { ReceiptRecord } from '@/types/receipt'
-import { batchDeleteReceiptsApi, deleteReceiptApi, fetchReceipts } from '@/api/receipts'
+import {
+  batchDeleteReceiptsApi,
+  deleteReceiptApi,
+  fetchReceipts,
+} from '@/api/receipts'
+import { BOOKING_DEPOSIT_OFFSET_METHOD } from '@/constants/bookingDeposit'
 import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useRelatedAmountStats } from '@/composables/useRelatedTableAmountSummary'
+import RelatedAmountStatsBar from '@/components/RelatedAmountStatsBar.vue'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import {
   useTableSelection,
@@ -30,6 +37,9 @@ const props = withDefaults(
     titleContext?: string
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     contract: null,
@@ -39,11 +49,14 @@ const props = withDefaults(
     titleContext: undefined,
     desktopDirection: 'ltr',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
 const emit = defineEmits<{
   openReceipt: [receipt: ReceiptRecord]
+  openReceiptById: [receiptId: string]
   openInvoice: [invoiceId: string]
   openContract: [contractId: string]
   openReceivable: [receivableId: string]
@@ -54,6 +67,7 @@ const { t } = useI18n()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('receipts')
 const { colW, codeColW, tableLayoutKey } = useTableColWidth()
+
 const {
   tableRef,
   selectedRows,
@@ -76,7 +90,9 @@ const canDelete = computed(() => perms.delete || perms.batchDelete)
 
 const title = computed(() => {
   const ctx = props.titleContext?.trim()
-  if (ctx) return t('common.relatedReceiptsWithContext', { context: ctx })
+  // 过滤误传入的 cuid／裸 id，避免标题出现「關聯收據 · cmw…」
+  const looksLikeId = !!ctx && /^[a-z0-9]{20,}$/i.test(ctx) && !/[-\s]/.test(ctx)
+  if (ctx && !looksLikeId) return t('common.relatedReceiptsWithContext', { context: ctx })
   const c = props.contract
   if (!c) return t('contract.relatedReceipts')
   const code = c.contractCode?.trim()
@@ -85,10 +101,15 @@ const title = computed(() => {
     : t('contract.relatedReceipts')
 })
 
+/** 列表展示：排除旧「定金抵扣」伪收据；定金本金收据仍可出现在合约级列表 */
+const listReceipts = computed(() =>
+  receipts.value.filter((r) => (r.paymentMethod || '') !== BOOKING_DEPOSIT_OFFSET_METHOD),
+)
+
 const filtered = computed(() => {
   const q = keyword.value.trim().toLowerCase()
-  if (!q) return receipts.value
-  return receipts.value.filter((rec) =>
+  if (!q) return listReceipts.value
+  return listReceipts.value.filter((rec) =>
     [
       rec.receiptCode,
       rec.customerName,
@@ -103,8 +124,24 @@ const filtered = computed(() => {
   )
 })
 
+/** 已按合约收窄时，标题已含合约编号，表格不再重复该列 */
+const showContractColumn = computed(
+  () => !props.contract?.id || !!(props.customerId || props.invoiceId || props.receivableId),
+)
+
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
+
+const {
+  items: amountStats,
+  visible: amountStatsVisible,
+  caption: amountStatsCaption,
+} = useRelatedAmountStats({
+  rows: filtered,
+  fields: [
+    { prop: 'amount', label: t('receipt.fields.amount') },
+  ],
+})
 
 watch(keyword, () => resetPage())
 
@@ -232,6 +269,10 @@ async function onToolbarDelete() {
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">
@@ -269,7 +310,7 @@ async function onToolbarDelete() {
       <div class="related-list__body">
         <p v-if="!loading && !filtered.length" class="related-list__empty">—</p>
         <el-table
-          v-else
+          v-if="filtered.length || loading"
           :key="tableLayoutKey"
           ref="tableRef"
           class="related-list__table related-list__table--clickable"
@@ -314,6 +355,7 @@ async function onToolbarDelete() {
             fixed="left"
           />
           <el-table-column
+            v-if="showContractColumn"
             :label="t('receipt.fields.contractCode')"
             :min-width="
               codeColW(t('receipt.fields.contractCode'), {
@@ -342,6 +384,7 @@ async function onToolbarDelete() {
             <template #default="{ row }">{{ row.paymentDate || '—' }}</template>
           </el-table-column>
           <el-table-column
+            prop="amount"
             :label="t('receipt.fields.amount')"
             :min-width="colW(t('receipt.fields.amount'), { contentMin: 100 })"
             align="right"
@@ -404,6 +447,12 @@ async function onToolbarDelete() {
         </el-table>
       </div>
 
+      <RelatedAmountStatsBar
+        v-if="amountStatsVisible"
+        :items="amountStats"
+        :caption="amountStatsCaption"
+      />
+
       <div v-if="total" class="related-list__pager">
         <TablePagination
           v-model:page="page"
@@ -457,6 +506,7 @@ async function onToolbarDelete() {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
 .related-list__empty {

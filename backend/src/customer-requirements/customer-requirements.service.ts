@@ -18,6 +18,7 @@ import {
   toCustomerRequirementDto,
 } from './customer-requirement.mapper';
 import { actorLabelsOrEmpty } from '../common/audit';
+import { requirementStatusFromContractStatuses } from '../common/requirement-contract-status';
 import {
   dateRangeFilter,
   paginateArgs,
@@ -33,10 +34,14 @@ import {
 import { runBatchRemove } from '../common/batch-delete';
 import { pushImportIssue, type ImportIssue } from '../common/import-result';
 
-const ALLOWED_STATUSES = new Set(['跟進中', '已簽約', '已取消']);
+const ALLOWED_STATUSES = new Set(['未跟進', '跟進中', '已簽約', '已取消']);
 
 /** 兼容简体/英文状态文案 */
 const STATUS_ALIASES: Record<string, string> = {
+  未跟進: '未跟進',
+  未跟进: '未跟進',
+  pending: '未跟進',
+  open: '未跟進',
   跟進中: '跟進中',
   跟进中: '跟進中',
   following: '跟進中',
@@ -375,12 +380,38 @@ export class CustomerRequirementsService {
   }
 
   private normalizeStatus(status?: string) {
-    const raw = s(status) || '跟進中';
+    const raw = s(status) || '未跟進';
     const v = STATUS_ALIASES[raw] || STATUS_ALIASES[raw.toLowerCase()] || raw;
     if (!ALLOWED_STATUSES.has(v)) {
       throw new BadRequestException(`status must be one of: ${[...ALLOWED_STATUSES].join(' / ')}`);
     }
     return v;
+  }
+
+  /**
+   * 按关联合约重算需求状态：
+   * 无合约→未跟進；签约中→跟進中；租赁中及后续→已簽約；仅取消→已取消。
+   */
+  async recomputeStatusFromContracts(
+    requirementId: string | null | undefined,
+    actorId?: string | null,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const id = s(requirementId);
+    if (!id) return;
+    const db = tx ?? this.prisma;
+    const contracts = await db.contract.findMany({
+      where: { requirementId: id },
+      select: { status: true },
+    });
+    const next = requirementStatusFromContractStatuses(contracts.map((c) => c.status));
+    await db.customerRequirement.update({
+      where: { id },
+      data: {
+        status: next,
+        ...(actorId ? { updatedById: actorId } : {}),
+      },
+    });
   }
 
   private tryNormalizeStatus(status?: string): string | null {

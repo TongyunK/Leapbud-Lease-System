@@ -4,12 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RoomLeaseCapability, RoomStatus } from '@prisma/client';
+import {
+  BookingDepositMovementType,
+  Prisma,
+  ReceiptKind,
+  RoomLeaseCapability,
+  RoomStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildingAccessService } from '../building-access/building-access.service';
 import {
   CreateContractDto,
-  ContractOtherFeeInputDto,
+  ContractLoanItemInputDto,
   ContractPeriodInputDto,
   UpdateContractDto,
   ImportContractsDto,
@@ -17,15 +23,19 @@ import {
 } from './dto/contract.dto';
 import {
   contractInclude,
+  DEPOSIT_DEDUCTION_ITEM_TYPES,
   toContractDto,
   type ContractWithRelations,
 } from './contract.mapper';
 import { ContractConfigsService } from '../contract-configs/contract-configs.service';
+import { CustomerRequirementsService } from '../customer-requirements/customer-requirements.service';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { InvoiceAutoService } from '../invoices/invoice-auto.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { ContractChangeLogService } from '../contract-settlements/contract-change-log.service';
 import type { ContractExpiringSoonConfig } from '../system-settings/system-settings.constants';
 import { actorLabelsOrEmpty } from '../common/audit';
+import { REQUIREMENT_LINKABLE_STATUSES } from '../common/requirement-contract-status';
 import {
   dateRangeFilter,
   paginateArgs,
@@ -195,6 +205,8 @@ export class ContractsService {
     private readonly receipts: ReceiptsService,
     private readonly invoiceAuto: InvoiceAutoService,
     private readonly systemSettings: SystemSettingsService,
+    private readonly customerRequirements: CustomerRequirementsService,
+    private readonly changeLogs: ContractChangeLogService,
   ) {}
 
   /**
@@ -470,35 +482,273 @@ export class ContractsService {
     };
   }
 
-  /** 列表附加：应收合计 + 收租情况 */
+  /** 列表附加：关联金额合计 + 收租情况 */
   private async attachListExtras(
     rows: ContractWithRelations[],
   ): Promise<ContractWithRelations[]> {
-    await this.attachReceivableAmountTotals(rows);
+    await this.attachRelatedAmountTotals(rows);
     await this.attachRentCollectionStatuses(rows);
     return rows;
   }
 
-  /** 按页附加各合约当前应收金额合计（所有下属应收的 receivableAmount 之和） */
-  private async attachReceivableAmountTotals(
+  /** 按页附加各合约关联记录金额合计 */
+  private async attachRelatedAmountTotals(
     rows: ContractWithRelations[],
   ): Promise<ContractWithRelations[]> {
     if (!rows.length) return rows;
     const ids = rows.map((r) => r.id);
-    const grouped = await this.prisma.receivable.groupBy({
-      by: ['contractId'],
-      where: { contractId: { in: ids } },
-      _sum: { receivableAmount: true },
-    });
-    const sumById = new Map(
-      grouped
-        .filter((g) => g.contractId)
-        .map((g) => [g.contractId as string, Number(g._sum.receivableAmount ?? 0)]),
+    const [
+      receivableGrouped,
+      invoiceGrouped,
+      receiptGrouped,
+      deductionGrouped,
+      refundGrouped,
+      refundDoneGrouped,
+      bookingDepositRefundGrouped,
+    ] = await Promise.all([
+      this.prisma.receivable.groupBy({
+        by: ['contractId'],
+        // 与关联记录计数一致：仅有效应收（所属发票未取消）
+        where: {
+          contractId: { in: ids },
+          invoice: { status: { not: '已取消' } },
+        },
+        _sum: { receivableAmount: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['contractId'],
+        where: { contractId: { in: ids }, status: { not: '已取消' } },
+        _sum: { amount: true },
+      }),
+      this.prisma.receipt.groupBy({
+        by: ['contractId', 'kind'],
+        where: { contractId: { in: ids } },
+        _sum: { amount: true },
+      }),
+      this.prisma.contractSettlementItem.findMany({
+        where: {
+          itemType: { in: DEPOSIT_DEDUCTION_ITEM_TYPES },
+          // 定金抵扣（含历史误记）不计入合约「按金扣除」汇总
+          NOT: { remark: 'booking_offset_excess' },
+          settlement: { contractId: { in: ids } },
+        },
+        select: {
+          amount: true,
+          settlement: { select: { contractId: true } },
+        },
+      }),
+      this.prisma.depositRefund.groupBy({
+        by: ['contractId'],
+        where: { contractId: { in: ids }, status: { not: '已取消' } },
+        _sum: { actualRefundAmount: true },
+      }),
+      this.prisma.depositRefund.groupBy({
+        by: ['contractId'],
+        where: {
+          contractId: { in: ids },
+          status: { in: ['已退', '已退按金'] },
+        },
+        _count: { _all: true },
+      }),
+      // 取消合约退定金：只写 booking_deposit_movements.refund，不建按金退还单
+      this.prisma.bookingDepositMovement.groupBy({
+        by: ['contractId'],
+        where: {
+          contractId: { in: ids },
+          type: 'refund',
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const toMap = (
+      grouped: Array<{ contractId: string | null; _sum: Record<string, unknown> }>,
+      key: string,
+    ) =>
+      new Map(
+        grouped
+          .filter((g) => g.contractId)
+          .map((g) => [g.contractId as string, Number(g._sum[key] ?? 0)]),
+      );
+
+    const receivableById = toMap(receivableGrouped, 'receivableAmount');
+    const invoiceById = toMap(invoiceGrouped, 'amount');
+    const deductionById = new Map<string, number>();
+    const deductionCountById = new Map<string, number>();
+    for (const d of deductionGrouped) {
+      const cid = d.settlement.contractId;
+      deductionById.set(cid, (deductionById.get(cid) ?? 0) + Number(d.amount?.toString?.() ?? d.amount ?? 0));
+      deductionCountById.set(cid, (deductionCountById.get(cid) ?? 0) + 1);
+    }
+    const refundById = toMap(refundGrouped, 'actualRefundAmount');
+    const refundDoneIds = new Set(
+      refundDoneGrouped.filter((g) => g.contractId).map((g) => g.contractId as string),
     );
+    const bookingDepositRefundIds = new Set(
+      bookingDepositRefundGrouped
+        .filter((g) => g.contractId)
+        .map((g) => g.contractId as string),
+    );
+
+    const bookingDepositReceiptById = new Map<string, number>();
+    const invoiceReceiptById = new Map<string, number>();
+    for (const g of receiptGrouped) {
+      if (!g.contractId) continue;
+      const amt = Number(g._sum.amount ?? 0);
+      if (g.kind === 'booking_deposit') {
+        bookingDepositReceiptById.set(
+          g.contractId,
+          (bookingDepositReceiptById.get(g.contractId) ?? 0) + amt,
+        );
+      } else {
+        invoiceReceiptById.set(
+          g.contractId,
+          (invoiceReceiptById.get(g.contractId) ?? 0) + amt,
+        );
+      }
+    }
+
     for (const row of rows) {
-      row.receivableAmountTotal = sumById.get(row.id) ?? 0;
+      const bdReceipt = bookingDepositReceiptById.get(row.id) ?? 0;
+      const invReceipt = invoiceReceiptById.get(row.id) ?? 0;
+      row.receivableAmountTotal = receivableById.get(row.id) ?? 0;
+      row.invoiceAmountTotal = invoiceById.get(row.id) ?? 0;
+      row.bookingDepositReceiptAmountTotal = bdReceipt;
+      row.invoiceReceiptAmountTotal = invReceipt;
+      row.receiptAmountTotal = bdReceipt + invReceipt;
+      row.depositDeductionAmountTotal = deductionById.get(row.id) ?? 0;
+      row.depositRefundAmountTotal = refundById.get(row.id) ?? 0;
+      // 退租「已退」按金退还，或取消合约已退定金余额
+      row.depositRefundDone =
+        refundDoneIds.has(row.id) ||
+        (s(row.status) === '已取消' && bookingDepositRefundIds.has(row.id));
+      row.loanItemAmountTotal = (row.loanItems ?? []).reduce(
+        (sum, f) => sum + Number(f.subtotal?.toString?.() ?? f.subtotal ?? 0),
+        0,
+      );
+      row._count = {
+        ...(row._count ?? {}),
+        depositDeductionItems: deductionCountById.get(row.id) ?? 0,
+      };
+      row.cancelRefundPending = false;
+    }
+
+    const cancelledIds = rows
+      .filter((r) => s(r.status) === '已取消')
+      .map((r) => r.id);
+    if (cancelledIds.length) {
+      const pendingIds = await this.collectCancelRefundPendingContractIds(
+        cancelledIds,
+      );
+      for (const row of rows) {
+        if (s(row.status) === '已取消') {
+          row.cancelRefundPending = pendingIds.has(row.id);
+        }
+      }
     }
     return rows;
+  }
+
+  /** 已取消合约：是否仍有「办理退款」可办（暂留另收／定金抵扣备注／定金余额） */
+  private async collectCancelRefundPendingContractIds(
+    cancelledIds: string[],
+  ): Promise<Set<string>> {
+    const pending = new Set<string>();
+    if (!cancelledIds.length) return pending;
+
+    // 收据不可变后：待退以发票 changeLog 暂缓行为准，不再依收据状态筛选
+    const [deferredInvoices, bdReceipts, movements] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: {
+          contractId: { in: cancelledIds },
+          status: '已取消',
+          OR: [
+            { changeLog: { contains: '|cash_defer|' } },
+            { changeLog: { contains: '|deposit_offset_defer|' } },
+          ],
+        },
+        select: { contractId: true, changeLog: true },
+      }),
+      this.prisma.receipt.findMany({
+        where: {
+          contractId: { in: cancelledIds },
+          kind: ReceiptKind.booking_deposit,
+        },
+        select: { contractId: true, amount: true },
+      }),
+      this.prisma.bookingDepositMovement.groupBy({
+        by: ['contractId', 'type'],
+        where: { contractId: { in: cancelledIds } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const sumLog = (log: string, needle: string) => {
+      let sum = 0;
+      for (const raw of (log || '').split('\n')) {
+        const line = raw.trim();
+        if (!line.includes(needle)) continue;
+        const parts = line.split('|');
+        const amt = Number(parts[4] ?? NaN);
+        if (Number.isFinite(amt) && amt > 0) sum = Math.round((sum + amt) * 100) / 100;
+      }
+      return sum;
+    };
+
+    for (const inv of deferredInvoices) {
+      const cid = inv.contractId;
+      if (!cid) continue;
+      const log = inv.changeLog || '';
+      const cashPending = Math.max(
+        0,
+        sumLog(log, '|cash_defer|') - sumLog(log, '|cancel_refund|cash|'),
+      );
+      const depPending = Math.max(
+        0,
+        sumLog(log, '|deposit_offset_defer|') -
+          sumLog(log, '|deposit_offset_refund|') -
+          sumLog(log, '|cancel_refund|deposit_offset|'),
+      );
+      if (cashPending > 0.009 || depPending > 0.009) pending.add(cid);
+    }
+
+    const principalByContract = new Map<string, number>();
+    for (const r of bdReceipts) {
+      const cid = r.contractId;
+      if (!cid) continue;
+      principalByContract.set(
+        cid,
+        Math.round(
+          ((principalByContract.get(cid) ?? 0) + Number(r.amount.toString())) *
+            100,
+        ) / 100,
+      );
+    }
+    const usedByContract = new Map<string, number>();
+    for (const g of movements) {
+      if (
+        g.type !== BookingDepositMovementType.apply &&
+        g.type !== BookingDepositMovementType.refund &&
+        g.type !== BookingDepositMovementType.forfeit
+      ) {
+        continue;
+      }
+      const cid = g.contractId;
+      if (!cid) continue;
+      const amt = Number(g._sum.amount ?? 0);
+      usedByContract.set(
+        cid,
+        Math.round(((usedByContract.get(cid) ?? 0) + amt) * 100) / 100,
+      );
+    }
+    for (const id of cancelledIds) {
+      const principal = principalByContract.get(id) ?? 0;
+      const used = usedByContract.get(id) ?? 0;
+      const balance = Math.round(Math.max(0, principal - used) * 100) / 100;
+      if (balance > 0.009) pending.add(id);
+    }
+
+    return pending;
   }
 
   /**
@@ -823,10 +1073,16 @@ export class ContractsService {
     if (key === 'invoiceCount') return [{ invoices: { _count: dir } }];
     if (key === 'receivableCount') return [{ receivables: { _count: dir } }];
     if (key === 'receiptCount') return [{ receipts: { _count: dir } }];
+    if (key === 'cashFlowCount') return [{ cashFlows: { _count: dir } }];
     if (key === 'periodCount') return [{ periods: { _count: dir } }];
-    if (key === 'terminationCount') return [{ terminations: { _count: dir } }];
-    if (key === 'otherFeeCount') return [{ otherFees: { _count: dir } }];
-    if (key === 'depositDeductionCount') return [{ otherFees: { _count: dir } }];
+    if (key === 'terminationCount') return [{ settlements: { _count: dir } }];
+    if (key === 'loanItemCount' || key === 'otherFeeCount') {
+      return [{ loanItems: { _count: dir } }];
+    }
+    if (key === 'depositDeductionCount') {
+      // 扣除行在结算明细上，无直接 Prisma relation _count；回退按借出物品数近似排序
+      return [{ loanItems: { _count: dir } }];
+    }
     if (key === 'depositRefundCount') return [{ depositRefunds: { _count: dir } }];
     if (key === 'createdAt') return [{ createdAt: dir }];
     if (key === 'createdBy') {
@@ -1058,15 +1314,32 @@ export class ContractsService {
     if (!u) throw new BadRequestException('Invalid salesManagerId');
   }
 
-  private async assertRequirement(requirementId: string | null, customerId?: string) {
+  private async assertRequirement(
+    requirementId: string | null,
+    customerId?: string,
+    currentContractId?: string,
+  ) {
     if (!requirementId) return;
     const row = await this.prisma.customerRequirement.findUnique({
       where: { id: requirementId },
-      select: { id: true, customerId: true },
+      select: { id: true, customerId: true, status: true },
     });
     if (!row) throw new BadRequestException('Invalid requirementId');
     if (customerId && row.customerId !== customerId) {
       throw new BadRequestException('requirementId 不属于所选客户');
+    }
+    // 本合约已挂同一需求时可保留；新建／改挂仅允许未跟进、已取消
+    if (currentContractId) {
+      const alreadyLinked = await this.prisma.contract.findFirst({
+        where: { id: currentContractId, requirementId },
+        select: { id: true },
+      });
+      if (alreadyLinked) return;
+    }
+    if (!REQUIREMENT_LINKABLE_STATUSES.has(row.status)) {
+      throw new BadRequestException(
+        '僅可關聯狀態為「未跟進」或「已取消」的客戶需求',
+      );
     }
   }
 
@@ -1241,21 +1514,21 @@ export class ContractsService {
     });
   }
 
-  private parseOtherFees(items?: ContractOtherFeeInputDto[]) {
+  private parseLoanItems(items?: ContractLoanItemInputDto[]) {
     if (!items?.length) return [];
     return items.map((item, idx) => {
       const description = s(item.description);
       if (!description) {
-        throw new BadRequestException(`otherFees[${idx}].description is required`);
+        throw new BadRequestException(`loanItems[${idx}].description is required`);
       }
       if (item.quantity == null || Number.isNaN(Number(item.quantity))) {
-        throw new BadRequestException(`otherFees[${idx}].quantity is required`);
+        throw new BadRequestException(`loanItems[${idx}].quantity is required`);
       }
       if (item.unitAmount == null || Number.isNaN(Number(item.unitAmount))) {
-        throw new BadRequestException(`otherFees[${idx}].unitAmount is required`);
+        throw new BadRequestException(`loanItems[${idx}].unitAmount is required`);
       }
-      const quantity = decimalField(item.quantity, `otherFees[${idx}].quantity`);
-      const unitAmount = decimalField(item.unitAmount, `otherFees[${idx}].unitAmount`);
+      const quantity = decimalField(item.quantity, `loanItems[${idx}].quantity`);
+      const unitAmount = decimalField(item.unitAmount, `loanItems[${idx}].unitAmount`);
       const subtotal = feeSubtotal(quantity, unitAmount, item.subtotal);
       return {
         description,
@@ -1268,16 +1541,16 @@ export class ContractsService {
     });
   }
 
-  /** 仅替换合约级借出物品（terminationId 为空）；退租关联费用保留 */
-  private async replaceContractOtherFees(
+  /** 全量替换合约借出物品 */
+  private async replaceContractLoanItems(
     tx: Prisma.TransactionClient,
     contractId: string,
-    fees: ReturnType<ContractsService['parseOtherFees']>,
+    fees: ReturnType<ContractsService['parseLoanItems']>,
     actorId: string | null,
   ) {
-    await tx.contractOtherFee.deleteMany({ where: { contractId, terminationId: null } });
+    await tx.contractLoanItem.deleteMany({ where: { contractId } });
     if (!fees.length) return;
-    await tx.contractOtherFee.createMany({
+    await tx.contractLoanItem.createMany({
       data: fees.map((f) => ({
         contractId,
         description: f.description,
@@ -1368,6 +1641,14 @@ export class ContractsService {
     if (issueNow && !attachment) {
       throw new BadRequestException('直接開單請先上傳租客簽約文件');
     }
+    const createBooking =
+      numOrNull(dto.bookingDeposit) != null ? Number(numOrNull(dto.bookingDeposit)) : 0;
+    if (createBooking > 0.009 && !s(dto.paymentMethod)) {
+      throw new BadRequestException('定金大於 0 時請選擇收款方式');
+    }
+    if (createBooking > 0.009 && !s(dto.paymentVoucher)) {
+      throw new BadRequestException('定金大於 0 時請上傳定金憑證');
+    }
     // 普通保存固定「簽約中」；直接开单 →「租賃中」（忽略客户端随意改状态）
     const status = issueNow ? '租賃中' : '簽約中';
     const occupancy = await this.resolveOccupancy(room, dto, { status });
@@ -1384,7 +1665,7 @@ export class ContractsService {
       dto.monthlyRent !== undefined ? numOrNull(dto.monthlyRent) : Number(room.monthlyRent);
     const periods = await this.parsePeriods(dto.periods);
     await this.assertPeriodsNotOnlyRentFree(periods);
-    const otherFees = this.parseOtherFees(dto.otherFees);
+    const loanItems = this.parseLoanItems(dto.loanItems);
     const summarized = await this.summarizeDatesFromPeriods(periods);
     const startDate =
       dto.startDate !== undefined
@@ -1439,13 +1720,18 @@ export class ContractsService {
           },
         });
         await this.replacePeriods(tx, created.id, periods);
-        if (dto.otherFees !== undefined) {
-          await this.replaceContractOtherFees(tx, created.id, otherFees, actorId);
+        if (dto.loanItems !== undefined) {
+          await this.replaceContractLoanItems(tx, created.id, loanItems, actorId);
         }
         await this.syncRoomFromContract(tx, roomId, contractCode, status, actorId);
         // 创建即幂等生成按金发票 + 首个缴费周期租金发票（及对应应收）；后续期须「租賃中」才由日任务开票
         await this.invoiceAuto.ensureInitialInvoicesOnIssue(created.id, actorId, tx);
-        if (issueNow) {
+        const createdBooking =
+          numOrNull(dto.bookingDeposit) != null
+            ? Number(numOrNull(dto.bookingDeposit))
+            : 0;
+        // 开单或签约中已填定金：确保定金收据（只建不改；加收走 top-up）
+        if (issueNow || createdBooking > 0.009) {
           await this.receipts.ensureBookingDepositReceipt(
             {
               id: created.id,
@@ -1460,6 +1746,11 @@ export class ContractsService {
             tx,
           );
         }
+        await this.customerRequirements.recomputeStatusFromContracts(
+          requirementId,
+          actorId,
+          tx,
+        );
         return tx.contract.findUniqueOrThrow({
           where: { id: created.id },
           include: contractInclude,
@@ -1523,6 +1814,11 @@ export class ContractsService {
         tx,
       );
       await this.invoiceAuto.ensureInitialInvoicesOnIssue(existing.id, actorId, tx);
+      await this.customerRequirements.recomputeStatusFromContracts(
+        existing.requirementId,
+        actorId,
+        tx,
+      );
       return tx.contract.findUniqueOrThrow({
         where: { id },
         include: contractInclude,
@@ -1564,10 +1860,11 @@ export class ContractsService {
       dto.salesManagerId !== undefined ? nullId(dto.salesManagerId) : undefined;
     if (salesManagerId !== undefined) await this.assertUser(salesManagerId);
 
+    const prevRequirementId = existing.requirementId;
     const requirementId =
       dto.requirementId !== undefined ? nullId(dto.requirementId) : undefined;
     if (requirementId !== undefined) {
-      await this.assertRequirement(requirementId, customerId);
+      await this.assertRequirement(requirementId, customerId, id);
     }
 
     const issueNow = Boolean(dto.issueNow);
@@ -1585,6 +1882,10 @@ export class ContractsService {
       // 普通用户须走「直接开单」；superAdmin 可直接改状态（含租賃中）
       if (!bypassFlow && status === '租賃中') {
         throw new BadRequestException('請使用「直接開單」將合約轉為租賃中');
+      }
+      // 签约取消须走专用办理（发票／定金结算），禁止仅改状态
+      if (status === '已取消' && this.canonicalStatus(existing.status) !== '已取消') {
+        throw new BadRequestException('請使用「取消合約」辦理取消（含發票與定金結算）');
       }
     } else {
       status = existing.status;
@@ -1614,8 +1915,8 @@ export class ContractsService {
     const replacePeriods = dto.periods !== undefined;
     const periods = replacePeriods ? await this.parsePeriods(dto.periods) : null;
     if (periods) await this.assertPeriodsNotOnlyRentFree(periods);
-    const replaceOtherFees = dto.otherFees !== undefined;
-    const otherFees = replaceOtherFees ? this.parseOtherFees(dto.otherFees) : null;
+    const replaceLoanItems = dto.loanItems !== undefined;
+    const loanItems = replaceLoanItems ? this.parseLoanItems(dto.loanItems) : null;
     const summarized = periods ? await this.summarizeDatesFromPeriods(periods) : null;
     const nextStartDate =
       dto.startDate !== undefined
@@ -1709,22 +2010,42 @@ export class ContractsService {
           },
         });
         if (periods) await this.replacePeriods(tx, id, periods);
-        if (otherFees) await this.replaceContractOtherFees(tx, id, otherFees, actorId);
+        if (loanItems) await this.replaceContractLoanItems(tx, id, loanItems, actorId);
         await this.syncRoomFromContract(tx, roomId, contractCode, status, actorId);
         const after = await tx.contract.findUniqueOrThrow({ where: { id } });
-        // 签约中保存亦确保按金+首期发票存在（幂等；历史数据补齐）
-        await this.invoiceAuto.ensureInitialInvoicesOnIssue(after.id, actorId, tx);
-        if (issueNow) {
-          await this.receipts.ensureBookingDepositReceipt(
-            {
-              id: after.id,
-              customerId: after.customerId,
-              bookingDeposit: after.bookingDeposit,
-              paymentDate: after.paymentDate,
-              paymentMethod: after.paymentMethod,
-              paymentVoucher: after.paymentVoucher,
-              bookingDepositReceiptId: after.bookingDepositReceiptId,
-            },
+        const cancelled = this.canonicalStatus(after.status) === '已取消';
+        if (!cancelled) {
+          // 签约中保存亦确保按金+首期发票存在（幂等；历史数据补齐）
+          await this.invoiceAuto.ensureInitialInvoicesOnIssue(after.id, actorId, tx);
+          // 未收款的自动按金／首期租金发票随合约金额重算，并写变更记录
+          await this.invoiceAuto.syncAutoInvoicesFromContract(after.id, actorId, tx);
+          const afterBooking =
+            after.bookingDeposit == null ? 0 : Number(after.bookingDeposit.toString());
+          if (issueNow || afterBooking > 0.009) {
+            await this.receipts.ensureBookingDepositReceipt(
+              {
+                id: after.id,
+                customerId: after.customerId,
+                bookingDeposit: after.bookingDeposit,
+                paymentDate: after.paymentDate,
+                paymentMethod: after.paymentMethod,
+                paymentVoucher: after.paymentVoucher,
+                bookingDepositReceiptId: after.bookingDepositReceiptId,
+              },
+              actorId,
+              tx,
+            );
+          }
+        }
+        const nextRequirementId = after.requirementId;
+        await this.customerRequirements.recomputeStatusFromContracts(
+          nextRequirementId,
+          actorId,
+          tx,
+        );
+        if (prevRequirementId && prevRequirementId !== nextRequirementId) {
+          await this.customerRequirements.recomputeStatusFromContracts(
+            prevRequirementId,
             actorId,
             tx,
           );
@@ -1734,6 +2055,72 @@ export class ContractsService {
           include: contractInclude,
         });
       });
+
+      if (dto.monthlyRent !== undefined) {
+        await this.changeLogs.append({
+          contractId: id,
+          changeType: 'rent',
+          fieldPath: 'monthlyRent',
+          before: existing.monthlyRent == null ? null : Number(existing.monthlyRent.toString()),
+          after: row.monthlyRent == null ? null : Number(row.monthlyRent.toString()),
+          summary: '更新月租',
+          actorId,
+        });
+      }
+      if (
+        dto.roomDeposit !== undefined ||
+        dto.miscDeposit !== undefined ||
+        dto.bookingDeposit !== undefined ||
+        recalcKeys
+      ) {
+        await this.changeLogs.append({
+          contractId: id,
+          changeType: 'deposit',
+          fieldPath: 'deposits',
+          before: {
+            roomDeposit:
+              existing.roomDeposit == null ? null : Number(existing.roomDeposit.toString()),
+            miscDeposit:
+              existing.miscDeposit == null ? null : Number(existing.miscDeposit.toString()),
+            bookingDeposit:
+              existing.bookingDeposit == null
+                ? null
+                : Number(existing.bookingDeposit.toString()),
+            doorKeyDeposit:
+              existing.doorKeyDeposit == null
+                ? null
+                : Number(existing.doorKeyDeposit.toString()),
+            mailboxKeyDeposit:
+              existing.mailboxKeyDeposit == null
+                ? null
+                : Number(existing.mailboxKeyDeposit.toString()),
+          },
+          after: {
+            roomDeposit: row.roomDeposit == null ? null : Number(row.roomDeposit.toString()),
+            miscDeposit: row.miscDeposit == null ? null : Number(row.miscDeposit.toString()),
+            bookingDeposit:
+              row.bookingDeposit == null ? null : Number(row.bookingDeposit.toString()),
+            doorKeyDeposit:
+              row.doorKeyDeposit == null ? null : Number(row.doorKeyDeposit.toString()),
+            mailboxKeyDeposit:
+              row.mailboxKeyDeposit == null ? null : Number(row.mailboxKeyDeposit.toString()),
+          },
+          summary: '更新押金／定金',
+          actorId,
+        });
+      }
+      if (replaceLoanItems) {
+        await this.changeLogs.append({
+          contractId: id,
+          changeType: 'loan_item',
+          fieldPath: 'loanItems',
+          before: { count: 'previous' },
+          after: { items: loanItems },
+          summary: '更新借出物品',
+          actorId,
+        });
+      }
+
       return toContractDto(row);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -1746,7 +2133,14 @@ export class ContractsService {
   async remove(id: string) {
     const existing = await this.prisma.contract.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Contract ${id} not found`);
-    await this.prisma.contract.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contract.delete({ where: { id } });
+      await this.customerRequirements.recomputeStatusFromContracts(
+        existing.requirementId,
+        null,
+        tx,
+      );
+    });
     return { success: true };
   }
 

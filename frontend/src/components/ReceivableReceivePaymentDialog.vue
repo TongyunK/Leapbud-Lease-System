@@ -404,12 +404,10 @@ async function submit() {
               {{ t('attachment.empty') }}
             </p>
           </div>
-          <el-image-viewer
+          <AttachmentImageViewer
             v-if="imageViewerVisible && imageViewerList.length"
             :url-list="imageViewerList"
             :initial-index="imageViewerIndex"
-            teleported
-            hide-on-click-modal
             @close="imageViewerVisible = false"
           />
         </el-form-item>

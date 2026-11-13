@@ -12,7 +12,7 @@ export type ContractPeriodWritePayload = {
   sortOrder?: number
 }
 
-export type ContractOtherFeeWritePayload = {
+export type ContractLoanItemWritePayload = {
   description: string
   quantity: number
   unitAmount: number
@@ -50,7 +50,7 @@ export type ContractWritePayload = {
   attachment?: string
   remark?: string
   periods?: ContractPeriodWritePayload[]
-  otherFees?: ContractOtherFeeWritePayload[]
+  loanItems?: ContractLoanItemWritePayload[]
   /** 直接开单：须有签约文件，保存后状态为租赁中 */
   issueNow?: boolean
 }
@@ -212,6 +212,200 @@ export function updateContractApi(id: string, payload: Partial<ContractWritePayl
 /** 开单：上传租客签约文件，签约中 → 租赁中 */
 export function openContractOrderApi(id: string, attachment: string) {
   return request.post<ContractRecord>(`/contracts/${id}/open-order`, { attachment })
+}
+
+/** 签约中取消合约：定金结算方式 */
+export type CancelBookingDepositAction = 'refund_all' | 'partial' | 'defer'
+/** 签约中取消合约：已收发票现金处理 */
+export type CancelPaidInvoiceAction = 'refund_now' | 'defer'
+
+export type CancelContractInvoiceRow = {
+  id: string
+  invoiceCode: string
+  status: string
+  invoiceType: string
+  totalAmount: number
+  receivedAmount: number
+  /** 已收中来自定金抵扣的金额 */
+  depositAppliedAmount?: number
+  /** 已收中来自现金收据的金额 */
+  cashReceivedAmount?: number
+  openAmount: number
+  paid: boolean
+}
+
+export type CancelContractPreview = {
+  contract: {
+    id: string
+    contractCode: string
+    status: string
+    customerId: string
+    customerCode: string
+    customerName: string
+    roomId: string
+    roomCode: string
+    roomName: string
+    startDate: string
+    endDate: string
+    cancellable: boolean
+  }
+  unpaidInvoices: CancelContractInvoiceRow[]
+  paidInvoices: CancelContractInvoiceRow[]
+  paidInvoiceReceivedTotal: number
+  depositAppliedTotal: number
+  cashReceivedTotal: number
+  bookingDeposit: {
+    receiptId: string | null
+    receiptCode: string
+    principal: number
+    applied: number
+    refunded: number
+    forfeited: number
+    /** 定金侧当前可用余额（不含已抵扣到发票） */
+    balance: number
+  }
+  suggestedCancelDate: string
+}
+
+export type CancelInvoiceSettleLine = {
+  invoiceId: string
+  /** 立刻退还的另收 */
+  refundAmount: number
+  /** 扣留不退的另收 */
+  deductAmount: number
+}
+
+export type ConductCancelContractPayload = {
+  cancelDate: string
+  remark?: string
+  /** 兼容旧客户端；有 invoiceSettlements 时以后者为准 */
+  bookingDepositAction?: CancelBookingDepositAction
+  bookingDepositForfeitAmount?: number
+  bookingDepositRefundAmount?: number
+  paidInvoiceAction?: CancelPaidInvoiceAction
+  invoiceSettlements?: CancelInvoiceSettleLine[]
+  /** 立刻退／冲销办理日；缺省跟 cancelDate */
+  refundDate?: string
+}
+
+export type ConductCancelContractResult = {
+  contract: ContractRecord
+  cancelledInvoiceCount: number
+  /** 保留的定金抵扣动账合计 */
+  depositAppliedKept?: number
+  /** 发票变更中记为已退的定金抵扣（不改动定金动账） */
+  invoiceDepositRefundNoted?: number
+  /** 发票侧扣留的定金抵扣 */
+  invoiceDepositForfeited?: number
+  invoiceDepositDeferred?: number
+  cashRefunded: number
+  cashDeferred: number
+  cashForfeited?: number
+  bookingDepositRefunded: number
+  bookingDepositForfeited: number
+  bookingDepositDeferred: number
+  paidInvoiceAction: CancelPaidInvoiceAction
+  bookingDepositAction: CancelBookingDepositAction
+  settlementId?: string | null
+  settlementCode?: string
+  refundOrderId?: string | null
+  refundOrderCode?: string
+}
+
+export function fetchCancelContractPreviewApi(contractId: string) {
+  return request.get<CancelContractPreview>(`/contracts/${contractId}/cancel-preview`)
+}
+
+export function conductCancelContractApi(
+  contractId: string,
+  payload: ConductCancelContractPayload,
+  opts?: { silentError?: boolean },
+) {
+  return request.post<ConductCancelContractResult>(
+    `/contracts/${contractId}/cancel`,
+    payload,
+    opts,
+  )
+}
+
+/** 已取消合约：暂不退后续办理预览 */
+export type CancelRefundPreview = {
+  contract: {
+    id: string
+    contractCode: string
+    status: string
+    customerId: string
+    customerCode: string
+    customerName: string
+    roomId: string
+    roomCode: string
+    roomName: string
+    cancelled: boolean
+  }
+  cash: {
+    amount: number
+    depositOffsetNoted: number
+    receipts: Array<{
+      id: string
+      receiptCode: string
+      amount: number
+      paymentDate: string
+      paymentMethod: string
+    }>
+    invoices: Array<{
+      id: string
+      invoiceCode: string
+      cashAmount: number
+      depositOffsetPending: number
+    }>
+  }
+  bookingDeposit: {
+    receiptId: string | null
+    receiptCode: string
+    principal: number
+    applied: number
+    refunded: number
+    forfeited: number
+    balance: number
+  }
+  hasPending: boolean
+  suggestedRefundDate: string
+}
+
+export type ConductCancelRefundPayload = {
+  refundDate: string
+  refundCash?: boolean
+  refundBookingDeposit?: boolean
+  remark?: string
+  paymentMethod?: string
+}
+
+export type ConductCancelRefundResult = {
+  contract: ContractRecord
+  cashRefunded: number
+  depositOffsetNoted: number
+  bookingDepositRefunded: number
+  refundDate: string
+  settlementId?: string | null
+  settlementCode?: string
+  refundOrderId?: string | null
+  refundOrderCode?: string
+}
+
+export function fetchCancelRefundPreviewApi(contractId: string) {
+  return request.get<CancelRefundPreview>(`/contracts/${contractId}/cancel-refund-preview`)
+}
+
+export function conductCancelRefundApi(
+  contractId: string,
+  payload: ConductCancelRefundPayload,
+  opts?: { silentError?: boolean },
+) {
+  return request.post<ConductCancelRefundResult>(
+    `/contracts/${contractId}/cancel-refund`,
+    payload,
+    opts,
+  )
 }
 
 export function deleteContractApi(id: string) {

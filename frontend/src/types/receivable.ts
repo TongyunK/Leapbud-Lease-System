@@ -9,6 +9,16 @@ export interface ReceivableReceiptSummary {
   attachmentCount?: number
 }
 
+/** 定金抵扣动账（详情展示来源定金收据） */
+export interface ReceivableBookingDepositApply {
+  id: string
+  amount: number
+  movementDate: string
+  bookingDepositReceiptId: string
+  bookingDepositReceiptCode: string
+  remark?: string
+}
+
 export interface ReceivableRecord {
   id: string
   receivableCode: string
@@ -18,6 +28,8 @@ export interface ReceivableRecord {
   invoiceType?: string
   /** 所属发票描述（来自发票） */
   invoiceDescription?: string
+  /** 所属发票状态（已取消 → 失效应收） */
+  invoiceStatus?: string
   contractId: string
   contractCode: string
   customerId: string
@@ -27,14 +39,19 @@ export interface ReceivableRecord {
   paymentDueDate: string
   invoiceAmount: number | null
   receivedAmount: number | null
+  /** 已退金额（冲销另收／实退按金等累计） */
+  refundedAmount: number | null
   receivableAmount: number | null
   remark: string | null
   relatedReceiptRef: string | null
   depositRefundId: string | null
   depositRefundCode: string
   receiptCount?: number
+  cashFlowCount?: number
   /** 关联收据（一对多；列表接口可能为空，详情有值） */
   receipts?: ReceivableReceiptSummary[]
+  /** 定金抵扣动账（详情） */
+  bookingDepositApplies?: ReceivableBookingDepositApply[]
   createdBy: string
   updatedBy: string
   createdAt: string

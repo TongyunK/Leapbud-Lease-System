@@ -12,6 +12,7 @@ import * as path from 'path'
 import { PrismaService } from '../prisma/prisma.service'
 import { BuildingAccessService } from '../building-access/building-access.service'
 import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
+import { CashFlowsService } from '../contract-settlements/cash-flows.service'
 import { CreateReceiptDto, ImportReceiptsDto, UpdateReceiptDto } from './dto/receipt.dto'
 import {
   isExternalReceiptAttachmentKey,
@@ -32,6 +33,10 @@ import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
 import { actorLabelsOrEmpty } from '../common/audit'
 import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter'
+import {
+  syncReceivableReceivedAmount,
+  syncReceivableReceivedAmounts,
+} from './receivable-received.sync'
 
 /** 开单生成定金收据时所需的合约字段 */
 export type BookingDepositContractSource = {
@@ -141,24 +146,31 @@ export class ReceiptsService {
     private readonly prisma: PrismaService,
     private readonly numberingRules: NumberingRulesService,
     private readonly access: BuildingAccessService,
+    private readonly cashFlows: CashFlowsService,
   ) {}
 
-  /** 按收据类型统计（受大厦范围约束） */
+  /** 页头快捷筛选计数：全部 / 发票收据 / 定金收据 */
   async countByKind(): Promise<{
     all: number
     invoice: number
     booking_deposit: number
   }> {
-    const where: Prisma.ReceiptWhereInput = {}
-    await this.access.constrain(where, 'viaCustomer')
-    const rows = await this.prisma.receipt.groupBy({
+    const base: Prisma.ReceiptWhereInput = {}
+    await this.access.constrain(base, 'viaCustomer')
+
+    const kindRows = await this.prisma.receipt.groupBy({
       by: ['kind'],
-      where,
+      where: base,
       _count: { _all: true },
     })
-    const counts = { all: 0, invoice: 0, booking_deposit: 0 }
-    for (const row of rows) {
-      const n = row._count._all
+
+    const counts = {
+      all: 0,
+      invoice: 0,
+      booking_deposit: 0,
+    }
+    for (const row of kindRows) {
+      const n = Number((row._count as { _all?: number } | undefined)?._all ?? 0)
       counts.all += n
       if (row.kind === ReceiptKind.booking_deposit) counts.booking_deposit += n
       else counts.invoice += n
@@ -189,12 +201,24 @@ export class ReceiptsService {
     paymentDateTo?: string
     createdAtFrom?: string
     createdAtTo?: string
+    cashFlowCounts?: string[]
     page?: number
     pageSize?: number
   }): Promise<PaginatedResult<ReturnType<typeof toReceiptDto>>> {
     const page = parsePage(params.page)
     const pageSize = parsePageSize(params.pageSize)
     const where = this.buildListWhere(params)
+    const countIds = await this.resolveReceiptIdsByCashFlowCount(params.cashFlowCounts)
+    if (countIds !== null) {
+      const extra: Prisma.ReceiptWhereInput = !countIds.length
+        ? { id: '__none__' }
+        : { id: { in: countIds } }
+      if (where.AND) {
+        where.AND = Array.isArray(where.AND) ? [...where.AND, extra] : [where.AND, extra]
+      } else {
+        where.AND = [extra]
+      }
+    }
     await this.access.constrain(where, 'viaCustomer')
     const { skip, take } = paginateArgs(page, pageSize)
 
@@ -248,8 +272,19 @@ export class ReceiptsService {
       .filter((k): k is ReceiptKind => k === ReceiptKind.booking_deposit || k === ReceiptKind.invoice)
     if (kinds.length === 1) where.kind = kinds[0]
     else if (kinds.length > 1) where.kind = { in: kinds }
-    if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim()
-    if (params.receivableId?.trim()) where.receivableId = params.receivableId.trim()
+
+    if (params.invoiceId?.trim()) {
+      const invoiceId = params.invoiceId.trim()
+      and.push({
+        OR: [{ invoiceId }, { allocations: { some: { invoiceId } } }],
+      })
+    }
+    if (params.receivableId?.trim()) {
+      const receivableId = params.receivableId.trim()
+      and.push({
+        OR: [{ receivableId }, { allocations: { some: { receivableId } } }],
+      })
+    }
 
     const customerNameClause = stringFieldInOrEmpty('name', params.customerNames)
     if (customerNameClause) {
@@ -269,12 +304,22 @@ export class ReceiptsService {
 
     const invoiceCodeClause = stringFieldInOrEmpty('invoiceCode', params.invoiceCodes)
     if (invoiceCodeClause) {
-      and.push({ invoice: invoiceCodeClause } as Prisma.ReceiptWhereInput)
+      and.push({
+        OR: [
+          { invoice: invoiceCodeClause },
+          { allocations: { some: { receivable: { invoice: invoiceCodeClause } } } },
+        ],
+      } as Prisma.ReceiptWhereInput)
     }
 
     const receivableCodeClause = stringFieldInOrEmpty('receivableCode', params.receivableCodes)
     if (receivableCodeClause) {
-      and.push({ receivable: receivableCodeClause } as Prisma.ReceiptWhereInput)
+      and.push({
+        OR: [
+          { receivable: receivableCodeClause },
+          { allocations: { some: { receivable: receivableCodeClause } } },
+        ],
+      } as Prisma.ReceiptWhereInput)
     }
 
     const amountClause = numberFieldInOrEmpty('amount', params.amounts)
@@ -303,6 +348,18 @@ export class ReceiptsService {
           { contract: { contractCode: { contains: keyword, mode: 'insensitive' } } },
           { invoice: { invoiceCode: { contains: keyword, mode: 'insensitive' } } },
           { receivable: { receivableCode: { contains: keyword, mode: 'insensitive' } } },
+          {
+            allocations: {
+              some: {
+                receivable: {
+                  OR: [
+                    { receivableCode: { contains: keyword, mode: 'insensitive' } },
+                    { invoice: { invoiceCode: { contains: keyword, mode: 'insensitive' } } },
+                  ],
+                },
+              },
+            },
+          },
         ],
       })
     }
@@ -314,6 +371,39 @@ export class ReceiptsService {
 
     if (and.length) where.AND = and
     return where
+  }
+
+  /** 资金流水条数表头筛选 */
+  private async resolveReceiptIdsByCashFlowCount(
+    raw?: string[],
+  ): Promise<string[] | null> {
+    const nums = (raw || [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n >= 0)
+      .map((n) => Math.floor(n))
+    if (!nums.length) return null
+    const matched = new Set<string>()
+    for (const n of [...new Set(nums)]) {
+      if (n === 0) {
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT r.id FROM receipts r
+           WHERE NOT EXISTS (
+             SELECT 1 FROM cash_flows c WHERE c.receipt_id = r.id
+           )`,
+        )
+        for (const r of rows) matched.add(r.id)
+      } else {
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT r.id FROM receipts r
+           WHERE (
+             SELECT COUNT(*)::int FROM cash_flows c WHERE c.receipt_id = r.id
+           ) = $1`,
+          n,
+        )
+        for (const r of rows) matched.add(r.id)
+      }
+    }
+    return [...matched]
   }
 
   private buildListOrderBy(
@@ -333,6 +423,7 @@ export class ReceiptsService {
     if (key === 'amount') return [{ amount: dir }]
     if (key === 'remark') return [{ remark: dir }]
     if (key === 'changeLog') return [{ changeLog: dir }]
+    if (key === 'cashFlowCount') return [{ cashFlows: { _count: dir } }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
     if (key === 'createdBy') return [{ createdByUser: { account: dir } }]
@@ -544,32 +635,7 @@ export class ReceiptsService {
    * 并回写 relatedReceiptRef（收据编号逗号串）。
    */
   private async syncReceivableFromReceipts(receivableId: string | null | undefined) {
-    const id = (receivableId || '').trim()
-    if (!id) return
-    const recv = await this.prisma.receivable.findUnique({
-      where: { id },
-      select: { id: true, invoiceAmount: true },
-    })
-    if (!recv) return
-    const linked = await this.prisma.receipt.findMany({
-      where: { receivableId: id },
-      select: { amount: true, receiptCode: true },
-      orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }],
-    })
-    const received = linked.reduce((sum, r) => {
-      const n = Number(r.amount.toString())
-      return sum + (Number.isFinite(n) ? n : 0)
-    }, 0)
-    const invoiceAmt = Number(recv.invoiceAmount.toString())
-    const outstanding = Math.max(0, (Number.isFinite(invoiceAmt) ? invoiceAmt : 0) - received)
-    await this.prisma.receivable.update({
-      where: { id },
-      data: {
-        receivedAmount: new Prisma.Decimal(Math.round(received * 100) / 100),
-        receivableAmount: new Prisma.Decimal(Math.round(outstanding * 100) / 100),
-        relatedReceiptRef: linked.map((r) => r.receiptCode).filter(Boolean).join(','),
-      },
-    })
+    await syncReceivableReceivedAmount(this.prisma, (receivableId || '').trim())
   }
 
   /** 关联应收时校验：金额 > 0 且不超过当前未收 */
@@ -597,6 +663,31 @@ export class ReceiptsService {
     }
   }
 
+  /** 单应收挂靠时写入一条分摊；无应收则清空分摊 */
+  private async replaceSingleAllocation(
+    db: Prisma.TransactionClient | PrismaService,
+    receiptId: string,
+    receivableId: string | null,
+    invoiceId: string | null,
+    amount: Prisma.Decimal,
+    actorId?: string | null,
+  ) {
+    await db.receiptAllocation.deleteMany({ where: { receiptId } })
+    if (!receivableId) return
+    await db.receiptAllocation.create({
+      data: {
+        receiptId,
+        receivableId,
+        invoiceId,
+        amount,
+        sortOrder: 0,
+        remark: '',
+        createdById: actorId || null,
+        updatedById: actorId || null,
+      },
+    })
+  }
+
   async create(dto: CreateReceiptDto, actorId?: string | null) {
     const links = await this.resolveLinks(dto)
     const receiptCode = s(dto.receiptCode) || (await this.nextReceiptCode())
@@ -610,25 +701,42 @@ export class ReceiptsService {
     await this.assertReceivablePaymentAmount(links.receivableId, amount)
 
     try {
-      const row = await this.prisma.receipt.create({
-        data: {
-          receiptCode,
-          kind,
-          customerId: links.customerId,
-          contractId: links.contractId,
-          invoiceId: links.invoiceId,
-          receivableId: links.receivableId,
-          paymentDate: parseDateOnly(dto.paymentDate, 'paymentDate'),
-          paymentMethod: s(dto.paymentMethod),
-          amount,
-          remark: s(dto.remark),
-          changeLog: s(dto.changeLog),
-          createdById: actorId || null,
-          updatedById: actorId || null,
-        },
-        include: receiptInclude,
+      const row = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.receipt.create({
+          data: {
+            receiptCode,
+            kind,
+            customerId: links.customerId,
+            contractId: links.contractId,
+            invoiceId: links.invoiceId,
+            receivableId: links.receivableId,
+            paymentDate: parseDateOnly(dto.paymentDate, 'paymentDate'),
+            paymentMethod: s(dto.paymentMethod),
+            amount,
+            remark: s(dto.remark),
+            changeLog: s(dto.changeLog),
+            createdById: actorId || null,
+            updatedById: actorId || null,
+          },
+          select: { id: true },
+        })
+        if (kind === ReceiptKind.invoice && links.receivableId) {
+          await this.replaceSingleAllocation(
+            tx,
+            created.id,
+            links.receivableId,
+            links.invoiceId,
+            amount,
+            actorId,
+          )
+        }
+        return tx.receipt.findUniqueOrThrow({
+          where: { id: created.id },
+          include: receiptInclude,
+        })
       })
       await this.syncReceivableFromReceipts(links.receivableId)
+      await this.recordCashFlowForReceipt(row, actorId)
       return toReceiptDto(row)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -704,6 +812,21 @@ export class ReceiptsService {
         where: { id: contract.id },
         data: { bookingDepositReceiptId: created.id },
       })
+      if (amount > 0.009) {
+        await this.cashFlows.recordReceiptIn(
+          {
+            receiptId: created.id,
+            amount,
+            flowDate: contract.paymentDate || new Date(),
+            paymentMethod: s(contract.paymentMethod),
+            contractId: contract.id,
+            customerId: contract.customerId,
+            remark: '定金收据入账',
+            actorId,
+          },
+          db,
+        )
+      }
       return created.id
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -794,33 +917,98 @@ export class ReceiptsService {
       kind = dto.kind
     }
 
-    const prevReceivableId = existing.receivableId
-    try {
-      const row = await this.prisma.receipt.update({
-        where: { id },
-        data: {
-          receiptCode,
-          ...(kind !== undefined ? { kind } : {}),
-          customerId,
-          contractId,
-          invoiceId,
-          receivableId,
-          paymentDate:
-            dto.paymentDate !== undefined
-              ? parseDateOnly(dto.paymentDate, 'paymentDate')
-              : undefined,
-          paymentMethod: dto.paymentMethod !== undefined ? s(dto.paymentMethod) : undefined,
-          amount: dto.amount !== undefined ? decimalField(dto.amount, 'amount') : undefined,
-          remark: dto.remark !== undefined ? s(dto.remark) : undefined,
-          changeLog: dto.changeLog !== undefined ? s(dto.changeLog) : undefined,
-          updatedById: actorId || null,
-        },
-        include: receiptInclude,
+    const prevAllocations = await this.prisma.receiptAllocation.findMany({
+      where: { receiptId: id },
+      select: { receivableId: true, amount: true },
+    })
+    const prevReceivableIds = [
+      ...prevAllocations.map((a) => a.receivableId),
+      existing.receivableId,
+    ]
+    const nextAmount =
+      dto.amount !== undefined ? decimalField(dto.amount, 'amount') : existing.amount
+    const nextKind = kind ?? existing.kind
+    const touchesMoneyOrLink =
+      dto.amount !== undefined ||
+      touchReceivable ||
+      touchInvoice ||
+      dto.paymentMethod !== undefined
+
+    if (prevAllocations.length > 1 && touchesMoneyOrLink) {
+      throw new BadRequestException(
+        '该收据已分摊到多张应收，请删除后重新收款；编辑仅支持改备注等非金额字段',
+      )
+    }
+
+    if (receivableId && nextKind === ReceiptKind.invoice) {
+      const oldOnThis = prevAllocations.find((a) => a.receivableId === receivableId)
+      const creditBack = Number(oldOnThis?.amount?.toString() ?? 0)
+      const recv = await this.prisma.receivable.findUnique({
+        where: { id: receivableId },
+        select: { receivableAmount: true, receivableCode: true },
       })
-      await this.syncReceivableFromReceipts(receivableId)
-      if (prevReceivableId && prevReceivableId !== receivableId) {
-        await this.syncReceivableFromReceipts(prevReceivableId)
+      if (!recv) throw new BadRequestException('Invalid receivableId')
+      const amt = Number(nextAmount.toString())
+      if (!Number.isFinite(amt) || amt <= 0) {
+        throw new BadRequestException('收款金额须大于 0')
       }
+      const outstanding = Number(recv.receivableAmount.toString())
+      const due =
+        (Number.isFinite(outstanding) ? outstanding : 0) +
+        (Number.isFinite(creditBack) ? creditBack : 0)
+      if (amt > due + 0.009) {
+        throw new BadRequestException(
+          `收款金额不可超过未收金额（应收 ${recv.receivableCode || receivableId} 未收 ${due.toFixed(2)}）`,
+        )
+      }
+    }
+
+    try {
+      const row = await this.prisma.$transaction(async (tx) => {
+        await tx.receipt.update({
+          where: { id },
+          data: {
+            receiptCode,
+            ...(kind !== undefined ? { kind } : {}),
+            customerId,
+            contractId,
+            invoiceId,
+            receivableId,
+            paymentDate:
+              dto.paymentDate !== undefined
+                ? parseDateOnly(dto.paymentDate, 'paymentDate')
+                : undefined,
+            paymentMethod: dto.paymentMethod !== undefined ? s(dto.paymentMethod) : undefined,
+            amount: dto.amount !== undefined ? nextAmount : undefined,
+            remark: dto.remark !== undefined ? s(dto.remark) : undefined,
+            changeLog: dto.changeLog !== undefined ? s(dto.changeLog) : undefined,
+            updatedById: actorId || null,
+          },
+        })
+        if (prevAllocations.length <= 1) {
+          if (nextKind === ReceiptKind.invoice) {
+            await this.replaceSingleAllocation(
+              tx,
+              id,
+              receivableId,
+              invoiceId,
+              nextAmount,
+              actorId,
+            )
+          } else {
+            await tx.receiptAllocation.deleteMany({ where: { receiptId: id } })
+          }
+        }
+        return tx.receipt.findUniqueOrThrow({
+          where: { id },
+          include: receiptInclude,
+        })
+      })
+      await syncReceivableReceivedAmounts(this.prisma, [
+        ...prevReceivableIds,
+        receivableId,
+      ])
+      await this.recordCashFlowForReceipt(row, actorId)
       return toReceiptDto(row)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -828,6 +1016,30 @@ export class ReceiptsService {
       }
       throw e
     }
+  }
+
+  private async recordCashFlowForReceipt(
+    row: {
+      id: string
+      amount: Prisma.Decimal | number
+      paymentDate: Date | null
+      paymentMethod: string
+      contractId: string | null
+      customerId: string
+    },
+    actorId?: string | null,
+  ) {
+    const amount = Number(row.amount?.toString?.() ?? row.amount ?? 0)
+    if (!(amount > 0.009)) return
+    await this.cashFlows.recordReceiptIn({
+      receiptId: row.id,
+      amount,
+      flowDate: row.paymentDate || new Date(),
+      paymentMethod: row.paymentMethod || '',
+      contractId: row.contractId,
+      customerId: row.customerId,
+      actorId,
+    })
   }
 
   private absPath(storageKey: string) {
@@ -946,13 +1158,19 @@ export class ReceiptsService {
   async remove(id: string) {
     const existing = await this.prisma.receipt.findUnique({
       where: { id },
-      include: { attachments: true },
+      include: {
+        attachments: true,
+        allocations: { select: { receivableId: true } },
+      },
     })
     if (!existing) throw new NotFoundException('Receipt not found')
     await this.access.assertCustomerId(existing.customerId)
-    const receivableId = existing.receivableId
+    const receivableIds = [
+      ...existing.allocations.map((a) => a.receivableId),
+      existing.receivableId,
+    ]
     try {
-      // 附件 Cascade；合约定金指针 SetNull
+      // 附件／分摊 Cascade；合约定金指针 SetNull
       await this.prisma.receipt.delete({ where: { id } })
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError) {
@@ -967,7 +1185,7 @@ export class ReceiptsService {
       await this.removeStoredAttachmentFile(att.storageKey)
     }
     await this.removeReceiptAttachmentDir(id)
-    await this.syncReceivableFromReceipts(receivableId)
+    await syncReceivableReceivedAmounts(this.prisma, receivableIds)
     return { success: true }
   }
 

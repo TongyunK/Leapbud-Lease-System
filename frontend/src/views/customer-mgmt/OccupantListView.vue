@@ -27,6 +27,7 @@ import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import AttachmentField from '@/components/AttachmentField.vue'
 import OccupantDetailDrawer from '@/components/OccupantDetailDrawer.vue'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
@@ -38,7 +39,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime } from '@/utils/format'
 import { packFilterValues } from '@/utils/columnFilter'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   occupantIoTemplateExampleRow,
@@ -58,7 +59,7 @@ const perms = useResourcePermissions('occupants')
 const { actionColW } = useActionColWidth()
 const listActionColWidth = computed(() =>
   actionColW([
-    t('common.detail'),
+    ACTION_COL_ICON,
     perms.update && t('common.edit'),
     perms.delete && t('common.delete'),
   ]),
@@ -754,13 +755,7 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
-                <button
-                  type="button"
-                  class="action-pill action-pill--view"
-                  @click.stop="openDetail(row)"
-                >
-                  {{ t('common.detail') }}
-                </button>
+                <ActionDetailButton @click="openDetail(row)" />
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"

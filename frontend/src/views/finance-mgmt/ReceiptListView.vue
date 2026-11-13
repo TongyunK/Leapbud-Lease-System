@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
+import { Plus, QuestionFilled, Search, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import {
@@ -21,7 +21,11 @@ import { fetchCustomers } from '@/api/customers'
 import { fetchContracts } from '@/api/contracts'
 import { fetchInvoices } from '@/api/invoices'
 import { fetchReceivables } from '@/api/receivables'
-import type { ReceiptAttachmentRecord, ReceiptRecord } from '@/types/receipt'
+import type {
+  ReceiptAllocationRecord,
+  ReceiptAttachmentRecord,
+  ReceiptRecord,
+} from '@/types/receipt'
 import { RECEIPT_KINDS, RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
 import { isPdfAttachment, isImageAttachment } from '@/utils/attachmentUrl'
 import { packFilterValues } from '@/utils/columnFilter'
@@ -39,7 +43,11 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import ReceiptDetailDrawer from '@/components/ReceiptDetailDrawer.vue'
+import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
+import RelatedCashFlowsDrawer from '@/components/RelatedCashFlowsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import type { CashFlowRecord } from '@/types/cash-flow'
+import { fetchCashFlow } from '@/api/cash-flows'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import RefreshListButton from '@/components/RefreshListButton.vue'
@@ -50,7 +58,8 @@ import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
-import { measureActionColWidth } from '@/composables/useActionColWidth'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
+import { ACTION_COL_ICON, measureActionColWidth } from '@/composables/useActionColWidth'
 import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
@@ -72,7 +81,7 @@ const perms = useResourcePermissions('receipts')
 const receiptActionColWidth = computed(() => {
   void locale.value
   // 按实际主列按钮测宽（与合约表同一套 CELL_PAD_RIGHT）
-  const labels = [t('receipt.printReceipt'), t('receipt.sendReceipt')]
+  const labels = [ACTION_COL_ICON, t('receipt.printReceipt'), t('receipt.sendReceipt')]
   if (perms.update) labels.push(t('common.edit'))
   if (perms.delete) labels.push(t('common.delete'))
   return measureActionColWidth(labels)
@@ -179,6 +188,10 @@ const drawerVisible = ref(false)
 const current = ref<ReceiptRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
+const relatedCashFlowsVisible = ref(false)
+const relatedListReceipt = ref<ReceiptRecord | null>(null)
+const cashFlowDrawer = ref(false)
+const cashFlowRecord = ref<CashFlowRecord | null>(null)
 
 const {
   filters,
@@ -192,10 +205,11 @@ const {
   clearAll,
   sortKey,
   sortOrder,
+  uniqueOptions,
 } = useTableSortFilter<ReceiptRecord>()
 
-/** 页头快捷筛选：null=全部 */
-const kindChipFilter = ref<'invoice' | 'booking_deposit' | null>(null)
+/** 页头快捷筛选：全部 / 发票收据 / 定金收据（互斥） */
+const kindChipFilter = ref<'all' | 'invoice' | 'booking_deposit'>('all')
 const kindChipCounts = ref<ReceiptKindCounts>({
   all: 0,
   invoice: 0,
@@ -204,7 +218,7 @@ const kindChipCounts = ref<ReceiptKindCounts>({
 
 const kindChips = computed(() => [
   {
-    key: null as 'invoice' | 'booking_deposit' | null,
+    key: 'all' as const,
     label: t('receipt.kindFilterAll'),
     count: kindChipCounts.value.all,
   },
@@ -223,7 +237,11 @@ const kindChips = computed(() => [
 async function loadKindChipCounts() {
   try {
     const { data } = await fetchReceiptKindCounts()
-    kindChipCounts.value = data
+    kindChipCounts.value = {
+      all: data.all ?? 0,
+      invoice: data.invoice ?? 0,
+      booking_deposit: data.booking_deposit ?? 0,
+    }
   } catch {
     /* interceptor */
   }
@@ -253,8 +271,9 @@ const {
       keyword: kw,
       customerNames: packFilterValues(f.customerName),
       paymentMethod: packFilterValues(f.paymentMethod),
-      // 页头胶囊优先；未选时才用表头「收據類型」细筛
-      kinds: chipKey ? [chipKey] : packFilterValues(f.kind),
+      kinds:
+        chipKey === 'all' ? packFilterValues(f.kind) : [chipKey],
+      cashFlowCounts: packFilterValues(f.cashFlowCount),
       receiptCodes: packFilterValues(f.receiptCode),
       contractCodes: packFilterValues(f.contractCode),
       invoiceCodes: packFilterValues(f.invoiceCode),
@@ -276,12 +295,46 @@ const {
   fetchPage: fetchReceipts,
 })
 
-function setKindChipFilter(key: 'invoice' | 'booking_deposit' | null) {
+const cashFlowCountFilterOptions = computed(() =>
+  uniqueOptions(list.value, (r) => String(r.cashFlowCount ?? 0)),
+)
+
+async function reloadListAndCounts() {
+  await Promise.all([loadList(), loadKindChipCounts()])
+}
+
+function setKindChipFilter(key: 'all' | 'invoice' | 'booking_deposit') {
   if (kindChipFilter.value === key) return
   kindChipFilter.value = key
   if (filters.kind?.length) setFilter('kind', [])
   resetPage()
   void loadList()
+}
+
+function onClearReceiptFilters() {
+  kindChipFilter.value = 'all'
+  onClearFilters()
+  void loadKindChipCounts()
+}
+
+const receiptConditionCount = computed(
+  () => activeConditionCount.value + (kindChipFilter.value !== 'all' ? 1 : 0),
+)
+
+function openCashFlowsSide(row: ReceiptRecord) {
+  if (!(row.cashFlowCount ?? 0)) return
+  relatedListReceipt.value = row
+  relatedCashFlowsVisible.value = true
+}
+
+async function openCashFlowSide(row: CashFlowRecord) {
+  try {
+    const { data } = await fetchCashFlow(row.id)
+    cashFlowRecord.value = data
+  } catch {
+    cashFlowRecord.value = row
+  }
+  cashFlowDrawer.value = true
 }
 
 const codeLayoutKey = computed(() =>
@@ -437,6 +490,7 @@ const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
 const emptyForm = () => ({
   customerId: '' as string,
   receiptCode: '',
+  kind: 'invoice' as string,
   contractId: '' as string,
   invoiceId: '' as string,
   receivableId: '' as string,
@@ -448,11 +502,17 @@ const emptyForm = () => ({
 })
 
 const form = reactive(emptyForm())
+/** 编辑多应收合并收据时的分摊只读行 */
+const formAllocations = ref<ReceiptAllocationRecord[]>([])
 const formExistingAttachments = ref<ReceiptAttachmentRecord[]>([])
 const formPendingAttachments = ref<Array<{ key: string; file: File }>>([])
 const formRemovedAttachmentIds = ref<string[]>([])
 const attachmentFileInput = ref<HTMLInputElement | null>(null)
 const saving = ref(false)
+
+const isMultiAllocationEdit = computed(
+  () => !!editing.value && formAllocations.value.length > 1,
+)
 
 function resetFormAttachments() {
   formExistingAttachments.value = []
@@ -1099,37 +1159,78 @@ watch(
 
 function openCreate() {
   editing.value = null
+  formAllocations.value = []
   Object.assign(form, emptyForm())
   resetFormAttachments()
   resetFormSelectOptions()
   formVisible.value = true
 }
 
-function openEdit(row: ReceiptRecord) {
+async function openEdit(row: ReceiptRecord) {
   editing.value = row
+  let detail = row
+  try {
+    const { data } = await fetchReceipt(row.id)
+    if (data) detail = data
+  } catch {
+    /* 列表行兜底 */
+  }
+  editing.value = detail
+  const allocs = [...(detail.allocations || [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+  )
+  formAllocations.value = allocs
+  const primaryReceivableId =
+    detail.receivableId || (allocs.length === 1 ? allocs[0]!.receivableId : '') || ''
   Object.assign(form, {
-    customerId: row.customerId || '',
-    receiptCode: row.receiptCode || '',
-    contractId: row.contractId || '',
-    invoiceId: row.invoiceId || '',
-    receivableId: row.receivableId || '',
-    paymentDate: row.paymentDate || '',
-    paymentMethod: row.paymentMethod || RECEIPT_PAYMENT_METHODS[0],
-    amount: row.amount,
-    remark: row.remark || '',
-    changeLog: row.changeLog || '',
+    customerId: detail.customerId || '',
+    receiptCode: detail.receiptCode || '',
+    kind: detail.kind || 'invoice',
+    contractId: detail.contractId || '',
+    invoiceId: detail.invoiceId || '',
+    receivableId: primaryReceivableId,
+    paymentDate: detail.paymentDate || '',
+    paymentMethod: detail.paymentMethod || RECEIPT_PAYMENT_METHODS[0],
+    amount: detail.amount,
+    remark: detail.remark || '',
+    changeLog: detail.changeLog || '',
   })
-  formExistingAttachments.value = [...(row.attachments || [])]
+  formExistingAttachments.value = [...(detail.attachments || [])]
   formPendingAttachments.value = []
   formRemovedAttachmentIds.value = []
-  seedFormSelectsFromRow(row)
+  seedFormSelectsFromRow(detail)
+  if (allocs.length === 1 && allocs[0] && !detail.receivableId) {
+    const a = allocs[0]
+    receivableSelectOptions.value = [
+      {
+        id: a.receivableId,
+        receivableCode: a.receivableCode,
+        invoiceCode: a.invoiceCode,
+        customerName: detail.customerName,
+        contractCode: detail.contractCode,
+      } as ReceivableRecord,
+    ]
+  }
   formVisible.value = true
 }
 
 function payloadFromForm(): ReceiptWritePayload {
+  // 多摊收据：不可改金额／应收／收款方式（与后端校验一致），只允许改备注等
+  if (isMultiAllocationEdit.value) {
+    return {
+      customerId: form.customerId.trim() || undefined,
+      receiptCode: form.receiptCode.trim() || undefined,
+      kind: form.kind || undefined,
+      contractId: form.contractId.trim() || null,
+      paymentDate: form.paymentDate || undefined,
+      remark: form.remark.trim() || undefined,
+      changeLog: form.changeLog.trim() || undefined,
+    }
+  }
   return {
     customerId: form.customerId.trim() || undefined,
     receiptCode: form.receiptCode.trim() || undefined,
+    kind: form.kind || undefined,
     contractId: form.contractId.trim() || null,
     invoiceId: form.invoiceId.trim() || null,
     receivableId: form.receivableId.trim() || null,
@@ -1152,8 +1253,20 @@ async function syncFormAttachments(receiptId: string) {
 }
 
 async function saveForm() {
-  if (!form.customerId.trim() && !form.receivableId.trim() && !form.invoiceId.trim()) {
-    ElMessage.warning(t('receipt.customerRequired'))
+  if (
+    !form.customerId.trim() &&
+    !form.receivableId.trim() &&
+    !form.invoiceId.trim() &&
+    !isMultiAllocationEdit.value
+  ) {
+    await ElMessageBox.alert(
+      t('receipt.customerRequired'),
+      editing.value ? t('receipt.edit') : t('receipt.create'),
+      {
+        type: 'warning',
+        confirmButtonText: t('common.confirm'),
+      },
+    )
     return
   }
   saving.value = true
@@ -1161,22 +1274,37 @@ async function saveForm() {
     const payload = payloadFromForm()
     let receiptId = editing.value?.id || ''
     if (editing.value) {
-      await updateReceiptApi(editing.value.id, payload)
+      await updateReceiptApi(editing.value.id, payload, { silentError: true })
       receiptId = editing.value.id
-      ElMessage.success(t('receipt.updated'))
+      await ElMessageBox.alert(t('receipt.updated'), t('receipt.edit'), {
+        type: 'success',
+        confirmButtonText: t('common.confirm'),
+      })
     } else {
-      const { data } = await createReceiptApi(payload)
+      const { data } = await createReceiptApi(payload, { silentError: true })
       receiptId = data.id
-      ElMessage.success(t('receipt.created'))
+      await ElMessageBox.alert(t('receipt.created'), t('receipt.create'), {
+        type: 'success',
+        confirmButtonText: t('common.confirm'),
+      })
     }
     if (receiptId) {
       await syncFormAttachments(receiptId)
     }
     formVisible.value = false
+    formAllocations.value = []
     resetFormAttachments()
     await Promise.all([loadList(), loadKindChipCounts()])
-  } catch {
-    /* interceptor */
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('common.failed')
+    try {
+      await ElMessageBox.alert(msg, editing.value ? t('receipt.edit') : t('receipt.create'), {
+        type: 'error',
+        confirmButtonText: t('common.confirm'),
+      })
+    } catch {
+      /* dismiss */
+    }
   } finally {
     saving.value = false
   }
@@ -1393,13 +1521,13 @@ async function onImportFile(ev: Event) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head admin-page-head--with-chips">
-      <RefreshListButton :loading="loading" @refresh="() => Promise.all([loadList(), loadKindChipCounts()])" />
+      <RefreshListButton :loading="loading" @refresh="() => void reloadListAndCounts()" />
       <h2>{{ t('menu.receipts') }}</h2>
       <div class="building-chips-rail">
         <div class="building-chips" role="tablist" :aria-label="t('receipt.kindFilterAria')">
           <button
             v-for="chip in kindChips"
-            :key="chip.key ?? 'all'"
+            :key="chip.key"
             type="button"
             class="building-chip"
             role="tab"
@@ -1420,7 +1548,7 @@ async function onImportFile(ev: Event) {
           :prefix-icon="Search"
           :placeholder="t('receipt.searchPlaceholder')"
         />
-        <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
+        <ClearTableFiltersButton :count="receiptConditionCount" @clear="onClearReceiptFilters" />
         <el-button
           v-if="perms.create" v-admin-glow="perms.codes.create"
           type="primary"
@@ -1784,6 +1912,26 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('receipt.fields.cashFlowCount'), { interactive: true, contentMin: 88 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('receipt.fields.cashFlowCount')"
+                filterable
+                sortable
+                :options="cashFlowCountFilterOptions"
+                :model-value="filters.cashFlowCount || []"
+                :sort-order="sortOrderOf('cashFlowCount')"
+                @update:model-value="(v) => setFilter('cashFlowCount', v)"
+                @update:sort-order="(v) => setSort('cashFlowCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.cashFlowCount ?? 0" @click="openCashFlowsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="textColW(t('receipt.fields.changeLog'), { interactive: true, kind: 'long' })"
             show-overflow-tooltip
           >
@@ -1845,6 +1993,7 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row)" />
                 <button
                   type="button"
                   class="action-pill action-pill--leave"
@@ -1919,10 +2068,26 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-invoice="(id) => openInvoiceSide(id, 'ltr')"
       @open-receivable="(id) => openReceivableSide(id, 'ltr')"
+      @open-cash-flows="openCashFlowsSide"
+      @booking-deposit-changed="() => Promise.all([loadList(), loadKindChipCounts()])"
     />
     <RelatedEntityDrawers
       ref="relationDrawers"
       @changed="() => Promise.all([loadList(), loadKindChipCounts()])"
+    />
+    <RelatedCashFlowsDrawer
+      v-model="relatedCashFlowsVisible"
+      :receipt-id="relatedListReceipt?.id"
+      :title-context="relatedListReceipt?.receiptCode || ''"
+      @open-cash-flow="openCashFlowSide"
+    />
+    <CashFlowDetailDrawer
+      v-model="cashFlowDrawer"
+      :record="cashFlowRecord"
+      @open-contract="(id) => openContractSide(id, 'ltr')"
+      @open-customer="(id) => openCustomerSide(id, 'ltr')"
+      @open-receipt="(id) => relationDrawers?.openReceiptSide(id)"
+      @open-refund-order="(id) => relationDrawers?.openRefundOrderSide(id)"
     />
 
     <el-dialog
@@ -1938,7 +2103,43 @@ async function onImportFile(ev: Event) {
           <el-form-item :label="t('receipt.fields.receiptCode')">
             <el-input v-model="form.receiptCode" :placeholder="t('receipt.codeAutoHint')" />
           </el-form-item>
-          <el-form-item :label="t('receipt.fields.receivableCode')">
+          <el-form-item :label="t('receipt.fields.kind')">
+            <el-select v-model="form.kind" style="width: 100%">
+              <el-option
+                v-for="k in RECEIPT_KINDS"
+                :key="k"
+                :label="kindLabel(k)"
+                :value="k"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item
+            v-if="isMultiAllocationEdit"
+            class="span-2"
+          >
+            <template #label>
+              <span class="form-label-with-tip">
+                {{ t('receipt.sections.allocations') }}
+                <el-tooltip :content="t('receipt.multiAllocEditHint')" placement="top">
+                  <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
+            </template>
+            <ul class="receipt-alloc-form">
+              <li v-for="a in formAllocations" :key="a.id" class="receipt-alloc-form__row">
+                <button
+                  type="button"
+                  class="fk-link"
+                  @click="openReceivableSide(a.receivableId, 'ltr')"
+                >
+                  {{ a.invoiceCode || a.receivableCode || '—' }}
+                </button>
+                <span class="receipt-alloc-form__code">{{ a.receivableCode || '—' }}</span>
+                <strong>{{ moneyOrDash(a.amount) }}</strong>
+              </li>
+            </ul>
+          </el-form-item>
+          <el-form-item v-else :label="t('receipt.fields.receivableCode')">
             <SelectWithViewAction
               clearable
               :disabled="!form.receivableId"
@@ -2051,7 +2252,12 @@ async function onImportFile(ev: Event) {
             />
           </el-form-item>
           <el-form-item :label="t('receipt.fields.paymentMethod')">
-            <el-select v-model="form.paymentMethod" filterable style="width: 100%">
+            <el-select
+              v-model="form.paymentMethod"
+              filterable
+              style="width: 100%"
+              :disabled="isMultiAllocationEdit"
+            >
               <el-option
                 v-for="m in RECEIPT_PAYMENT_METHODS"
                 :key="m"
@@ -2066,6 +2272,7 @@ async function onImportFile(ev: Event) {
               :min="0"
               :precision="2"
               :controls="false"
+              :disabled="isMultiAllocationEdit"
               style="width: 100%"
             />
           </el-form-item>
@@ -2188,6 +2395,53 @@ async function onImportFile(ev: Event) {
 
 .form-grid .span-2 {
   grid-column: 1 / -1;
+}
+
+.form-label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+}
+
+.receipt-alloc-form {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.receipt-alloc-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f4f7f5;
+  border: 1px solid #e4ebe6;
+}
+
+.receipt-alloc-form__code {
+  font-size: 12px;
+  color: #6a7a70;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-alloc-form__row strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--lb-brand, #0f4a32);
+  justify-self: end;
 }
 
 .select-option-ellipsis {

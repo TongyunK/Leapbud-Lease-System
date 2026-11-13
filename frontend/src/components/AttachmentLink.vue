@@ -43,11 +43,9 @@ function onOpen() {
       </span>
       <span>{{ name || t('attachment.open') }}</span>
     </button>
-    <el-image-viewer
+    <AttachmentImageViewer
       v-if="imageViewerVisible && url"
       :url-list="[url]"
-      teleported
-      hide-on-click-modal
       @close="imageViewerVisible = false"
     />
   </template>

@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('users')
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { OfficeBuilding, Plus, Search } from '@element-plus/icons-vue'
+import { OfficeBuilding, Plus, QuestionFilled, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchBuildings } from '@/api/buildings'
 import { fetchRoles } from '@/api/roles'
@@ -783,30 +783,40 @@ async function onDelete(row: UserRecord) {
           <el-form-item v-if="!editing" class="span-2" :label="t('user.fields.password')" required>
             <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
           </el-form-item>
-          <el-form-item :label="t('user.fields.buildings')" class="span-2">
-            <p v-if="isAllBuildingsRole(form.role)" class="form-hint">{{ t('user.buildingsAdminHint') }}</p>
-            <template v-else>
-              <el-select
-                ref="buildingSelectRef"
-                v-model="form.buildingIds"
-                class="user-building-select"
-                popper-class="user-building-popper"
-                multiple
-                filterable
-                collapse-tags
-                collapse-tags-tooltip
-                :max-collapse-tags="buildingTagLimit"
-                style="width: 100%"
-              >
-                <el-option v-for="b in buildingOptions" :key="b.id" :label="b.name" :value="b.id">
-                  <span class="user-building-option">
-                    <el-icon><OfficeBuilding /></el-icon>
-                    <span>{{ b.name }}</span>
-                  </span>
-                </el-option>
-              </el-select>
-              <p class="form-hint">{{ t('user.buildingsHint') }}</p>
+          <el-form-item class="span-2">
+            <template #label>
+              <span class="form-label-with-tip">
+                {{ t('user.fields.buildings') }}
+                <el-tooltip
+                  v-if="!isAllBuildingsRole(form.role)"
+                  :content="t('user.buildingsHint')"
+                  placement="top"
+                >
+                  <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
             </template>
+            <p v-if="isAllBuildingsRole(form.role)" class="form-hint">{{ t('user.buildingsAdminHint') }}</p>
+            <el-select
+              v-else
+              ref="buildingSelectRef"
+              v-model="form.buildingIds"
+              class="user-building-select"
+              popper-class="user-building-popper"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              :max-collapse-tags="buildingTagLimit"
+              style="width: 100%"
+            >
+              <el-option v-for="b in buildingOptions" :key="b.id" :label="b.name" :value="b.id">
+                <span class="user-building-option">
+                  <el-icon><OfficeBuilding /></el-icon>
+                  <span>{{ b.name }}</span>
+                </span>
+              </el-option>
+            </el-select>
           </el-form-item>
         </div>
         <AuditDetailSection
@@ -880,6 +890,19 @@ async function onDelete(row: UserRecord) {
 
 .reset-hint {
   margin: 0 0 12px;
+}
+
+.form-label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .form-hint {

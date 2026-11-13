@@ -23,6 +23,8 @@
   --lb-main-bottom: 0px;
   --lb-main-width: 100vw;
   --lb-main-height: 100vh;
+  /* 图片预览须盖过抬高的业务弹窗／抽屉（≥4600）；与 useOverlayStackZ.OVERLAY_IMAGE_PREVIEW_Z 一致 */
+  --lb-image-viewer-z: 9800;
   --el-color-primary: #0f4a32;
   --el-color-primary-light-3: #3d7358;
   --el-color-primary-light-5: #6e9784;
@@ -148,6 +150,17 @@ button {
 .el-picker__popper {
   scrollbar-width: thin;
   scrollbar-color: var(--lb-scrollbar-thumb) var(--lb-scrollbar-track);
+}
+
+/**
+ * 全站 Tooltip：长说明自动换行（仅 role=tooltip，不影响 select／日期等 popper）
+ */
+.el-popper[role='tooltip'] {
+  max-width: min(360px, calc(100vw - 24px));
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.5;
 }
 
 .auth-shell {
@@ -1312,6 +1325,52 @@ button {
   text-overflow: clip;
 }
 
+/* 关联表格抽屉：金额统计条（固定在表下，不随表体左右滚动） */
+.related-amount-stats {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #d7e6f4;
+  background: linear-gradient(180deg, #f7fbff 0%, #eef5fc 100%);
+}
+
+.related-amount-stats__caption {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #3b82c4;
+  letter-spacing: 0.02em;
+}
+
+.related-amount-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 12px;
+}
+
+.related-amount-stats__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.related-amount-stats__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #6a7a88;
+}
+
+.related-amount-stats__value {
+  font-size: 0.92rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: #2b6cb0;
+  line-height: 1.25;
+}
+
 /* 编号列内外键链接：勿再 ellipsis，列宽已按编号测满 */
 .table-card .el-table .col-code .fk-link,
 .related-list__table .col-code .fk-link {
@@ -1473,6 +1532,52 @@ button {
 .lb-count-list-pill__num {
   min-width: 0.7em;
   text-align: center;
+}
+
+/** 金额旁「查看」：与关联计数 pill 同系品牌绿圆角 */
+.lb-inline-view-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 1.55rem;
+  padding: 0 0.62rem 0 0.48rem;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid #c5ddd0;
+  background: linear-gradient(180deg, #f4faf6 0%, #e8f3ec 100%);
+  color: var(--lb-brand, #0f4a32);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.lb-inline-view-pill:hover {
+  border-color: #9ecbb3;
+  background: linear-gradient(180deg, #eef8f2 0%, #dcefe4 100%);
+  color: #0c3d29;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 1px 2px rgba(15, 74, 50, 0.08);
+}
+
+.lb-inline-view-pill:focus-visible {
+  outline: 2px solid rgba(15, 74, 50, 0.35);
+  outline-offset: 2px;
+}
+
+.lb-inline-view-pill__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.92;
 }
 
 /* Global switch: force brand green (beat Element Plus injected CSS) */
@@ -1810,6 +1915,40 @@ button {
   line-height: 1;
 }
 
+/** 操作列「详情」icon：品牌绿浅底，区别于灰色 --view 文字按钮 */
+.action-pill--detail {
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 26%, #d7ded9);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 9%, #fff);
+  color: var(--lb-brand-mid, #2a6b4d);
+  border-radius: 8px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.action-pill--detail:hover {
+  border-color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
+  color: var(--lb-brand, #0f4a32);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
+}
+
+.action-pill--detail:active {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #fff);
+  box-shadow: none;
+}
+
+.action-pill__detail-icon {
+  display: inline-flex;
+  opacity: 0.92;
+}
+
+.action-pill--detail:hover .action-pill__detail-icon {
+  opacity: 1;
+}
+
 .action-pill--key {
   border: 1px solid #3d7358;
   background: #3d7358;
@@ -1926,6 +2065,18 @@ button {
   border-color: #73807a;
 }
 
+/** 合约「解除合約」：深灰，区别于普通 muted */
+.action-pill--cancel-contract {
+  border: 1px solid #4a5550;
+  background: #4a5550;
+  color: #fff;
+}
+
+.action-pill--cancel-contract:hover:not(:disabled) {
+  background: #3a433f;
+  border-color: #3a433f;
+}
+
 /** 操作列「…」触发器：轻量描边，不抢主操作 */
 .action-pill--more {
   min-width: 2.2em;
@@ -1968,6 +2119,15 @@ button {
   box-shadow:
     0 8px 22px rgba(15, 40, 30, 0.1),
     0 1px 3px rgba(15, 40, 30, 0.05);
+  /* 空间不足时由内联 max-height + overflow-y 裁切滚动 */
+  overscroll-behavior: contain;
+}
+
+/* 加收定金弹窗内 select／日期：盖过更多面板与弹窗层 */
+.top-up-dlg-popper.el-popper,
+.top-up-dlg-popper.el-select__popper,
+.top-up-dlg-popper.el-picker__popper {
+  z-index: 5000 !important;
 }
 
 @media (max-width: 1279.98px) {
@@ -2516,6 +2676,20 @@ button {
 }
 
 /* 合约：房间下拉顶部租用方式筛选 + 选项右侧可租状态 */
+/* fit-input-width 会跟窄的「查看」选择框同宽，徽章易溢出白底外；强制更宽并裁切 */
+.contract-room-select-popper.el-popper,
+.contract-room-select-popper.el-select__popper,
+.invoice-short-room-select-popper.el-popper,
+.invoice-short-room-select-popper.el-select__popper {
+  min-width: min(440px, 92vw) !important;
+  background: var(--el-bg-color-overlay, #fff);
+}
+
+.contract-room-select-popper .el-select-dropdown,
+.invoice-short-room-select-popper .el-select-dropdown {
+  background: var(--el-bg-color-overlay, #fff);
+}
+
 .contract-room-select-popper .el-select-dropdown__header {
   padding: 8px 10px 6px;
   border-bottom: 1px solid #e6ebe8;
@@ -2556,11 +2730,14 @@ button {
   box-shadow: 0 0 0 1px #0f4a32 inset;
 }
 
-.contract-room-select-popper .el-select-dropdown__item {
+.contract-room-select-popper .el-select-dropdown__item,
+.invoice-short-room-select-popper .el-select-dropdown__item {
   height: auto;
   min-height: 34px;
   padding: 7px 12px;
   line-height: 1.35;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .contract-room-option {
@@ -2569,6 +2746,8 @@ button {
   gap: 8px;
   min-width: 0;
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .contract-room-option .select-option-ellipsis {
@@ -2576,9 +2755,14 @@ button {
   min-width: 0;
 }
 
-.contract-room-option__badge {
-  flex: 0 0 auto;
+.contract-room-option__badge,
+.contract-room-option .lb-status {
+  flex: 0 1 auto;
   max-width: 46%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.72rem !important;
   padding: 2px 8px 2px 7px !important;
 }
@@ -2633,13 +2817,6 @@ button {
   font-size: 14px;
 }
 
-.invoice-short-room-select-popper .el-select-dropdown__item {
-  height: auto;
-  min-height: 34px;
-  padding: 7px 12px;
-  line-height: 1.35;
-}
-
 .invoice-short-room-empty {
   padding: 12px 14px;
   color: #6b7c72;
@@ -2649,8 +2826,9 @@ button {
 }
 
 .invoice-short-room-option__size {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   max-width: 40%;
+  min-width: 0;
   padding: 2px 8px;
   border-radius: 999px;
   background: #eef6f1;
@@ -2659,6 +2837,8 @@ button {
   font-weight: 650;
   line-height: 1.3;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lb-pager__btn {
@@ -2858,6 +3038,22 @@ button {
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(2px);
+}
+
+/*
+ * 图片预览兜底：盖过抬高的业务弹窗／抽屉。
+ * --lb-image-viewer-z 由 allocPreviewZ() 动态写入（勿写死，否则栈顶 > 9800 时预览会落在弹窗下）。
+ * 业务代码请用 AttachmentImageViewer；此规则防止遗漏的裸 el-image-viewer / el-image preview。
+ */
+.el-image-viewer__wrapper {
+  z-index: var(--lb-image-viewer-z, 9800) !important;
+}
+
+/* MessageBox 挂到业务弹窗 overlay 内时：铺满视口并压过弹窗内容（勿靠抬全局 z-index） */
+.el-overlay > .el-overlay.is-message-box {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 10 !important;
 }
 
 .el-message-box,
@@ -3429,6 +3625,19 @@ button {
   flex: 0 0 auto;
 }
 
+/**
+ * 关联列表抽屉（左侧 Related*）工具栏按钮：
+ * 对齐合约详情等右侧抽屉 header「列印」默认 el-button 尺寸（勿用表格操作列小 pill）。
+ */
+.related-list__actions .action-pill {
+  min-height: 32px;
+  padding: 8px 15px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
 .detail-section + .detail-section {
   margin-top: 22px;
 }
@@ -3463,7 +3672,8 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.detail-grid .detail-span-2 {
+.detail-grid .detail-span-2,
+.detail-grid .full {
   grid-column: 1 / -1;
 }
 

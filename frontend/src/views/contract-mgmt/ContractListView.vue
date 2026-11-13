@@ -36,7 +36,7 @@ import { fetchRoom, fetchRooms } from '@/api/rooms'
 import { fetchUsers } from '@/api/users'
 import { fetchContractConfigs } from '@/api/contract-configs'
 import type {
-  ContractOtherFeeNestedRecord,
+  ContractLoanItemNestedRecord,
   ContractPeriodRecord,
   ContractRecord,
 } from '@/types/contract'
@@ -44,8 +44,9 @@ import type { InvoiceRecord } from '@/types/invoice'
 import type { ReceivableRecord } from '@/types/receivable'
 import type { ReceiptRecord } from '@/types/receipt'
 import type { ContractPeriodListRecord } from '@/types/contract-period'
-import type { LeaseTerminationRecord } from '@/types/lease-termination'
-import type { ContractOtherFeeRecord } from '@/types/contract-other-fee'
+import type { ContractSettlementRecord } from '@/types/contract-settlement'
+import type { ContractLoanItemRecord } from '@/types/contract-loan-item'
+import type { DepositDeductionRecord } from '@/types/deposit-deduction'
 import type { DepositRefundRecord } from '@/types/deposit-refund'
 import {
   CONTRACT_PAYMENT_CYCLES,
@@ -59,6 +60,11 @@ import {
   isSigningContractStatus,
 } from '@/types/contract'
 import { RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
+import {
+  fetchBookingDepositByContractApi,
+  topUpBookingDepositApi,
+  type BookingDepositReceiptSummary,
+} from '@/api/receipts'
 import type { ContractConfigOption } from '@/types/contract-config'
 import { KEY_DEPOSIT_CODES } from '@/types/contract-config'
 import type { CustomerRecord } from '@/types/customer'
@@ -79,12 +85,25 @@ import RelatedInvoicesDrawer from '@/components/RelatedInvoicesDrawer.vue'
 import RelatedReceivablesDrawer from '@/components/RelatedReceivablesDrawer.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
 import RelatedPeriodsDrawer from '@/components/RelatedPeriodsDrawer.vue'
-import RelatedTerminationsDrawer from '@/components/RelatedTerminationsDrawer.vue'
-import RelatedOtherFeesDrawer from '@/components/RelatedOtherFeesDrawer.vue'
+import RelatedSettlementsDrawer from '@/components/RelatedSettlementsDrawer.vue'
+import RelatedLoanItemsDrawer from '@/components/RelatedLoanItemsDrawer.vue'
+import RelatedDepositDeductionsDrawer from '@/components/RelatedDepositDeductionsDrawer.vue'
 import RelatedDepositRefundsDrawer from '@/components/RelatedDepositRefundsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ContractReceivePaymentDialog from '@/components/ContractReceivePaymentDialog.vue'
+import ContractTerminateDialog from '@/components/ContractTerminateDialog.vue'
+import ContractVacateDetailDialog from '@/components/ContractVacateDetailDialog.vue'
+import RefundOrderDetailDrawer from '@/components/RefundOrderDetailDrawer.vue'
+import RelatedCashFlowsDrawer from '@/components/RelatedCashFlowsDrawer.vue'
+import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
+import ContractCancelDialog from '@/components/ContractCancelDialog.vue'
+import ContractSettlementRefundDialog from '@/components/ContractSettlementRefundDialog.vue'
+import { fetchContractSettlements } from '@/api/contract-settlements'
+import { fetchRefundOrder } from '@/api/refund-orders'
+import { fetchCashFlow } from '@/api/cash-flows'
+import type { RefundOrderRecord } from '@/types/refund-order'
+import type { CashFlowRecord } from '@/types/cash-flow'
 import CountListPill from '@/components/CountListPill.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import RefreshListButton from '@/components/RefreshListButton.vue'
@@ -97,8 +116,13 @@ import {
   roomLeaseCapabilityTone,
   type StatusTone,
 } from '@/constants/statusBadges'
-import { measureActionColWidth } from '@/composables/useActionColWidth'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
+import { ACTION_COL_ICON, measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
+import {
+  OVERLAY_ABOVE_FEATURE_MENU_Z,
+  useOverlayStackZ,
+} from '@/composables/useOverlayStackZ'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { useUserStore } from '@/stores/user'
 import { useBuildingScopeStore } from '@/stores/buildingScope'
@@ -134,19 +158,346 @@ const isMobile = useIsMobile()
 const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const perms = useResourcePermissions('contracts')
+const receiptPerms = useResourcePermissions('receipts')
+const refundOrderPerms = useResourcePermissions('refundOrders')
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
   useTableColWidth()
 
 const receivePayVisible = ref(false)
 const receivePayContract = ref<ContractRecord | null>(null)
+const receivePayZIndex = ref<number | undefined>(undefined)
+/** 退租／取消详情弹窗内收款／退款完成后刷新 */
+const endDetailRefreshKey = ref(0)
 
-function onReceivePayment(row: ContractRecord) {
+function onReceivePayment(row: ContractRecord, opts?: { zIndex?: number }) {
   receivePayContract.value = row
+  if (opts?.zIndex != null) {
+    raiseFloor(opts.zIndex)
+    receivePayZIndex.value = allocZ(opts.zIndex)
+  } else if (contractMoreVisible.value) {
+    receivePayZIndex.value = allocZ(FEATURE_DIALOG_ABOVE_MORE_Z)
+  } else {
+    receivePayZIndex.value = allocZ()
+  }
   receivePayVisible.value = true
 }
 
-function onTerminateLeasePlaceholder() {
-  ElMessage.info(t('contract.featureComingSoon'))
+const terminateVisible = ref(false)
+const terminateContract = ref<ContractRecord | null>(null)
+const terminateZIndex = ref<number | undefined>(undefined)
+const vacateDetailVisible = ref(false)
+const vacateDetailContract = ref<ContractRecord | null>(null)
+/** 详情弹窗结算类型：退租 VACATE／取消 CANCEL */
+const endDetailSettlementType = ref<'VACATE' | 'CANCEL'>('VACATE')
+const refundOrderDrawerVisible = ref(false)
+const refundOrderRecord = ref<RefundOrderRecord | null>(null)
+const refundOrderCashFlowsVisible = ref(false)
+const refundOrderCashFlowsZIndex = ref<number | undefined>(undefined)
+const refundOrderCashFlowDrawerVisible = ref(false)
+const refundOrderCashFlowDetailZIndex = ref<number | undefined>(undefined)
+const refundOrderCashFlowRecord = ref<CashFlowRecord | null>(null)
+const cancelVisible = ref(false)
+const cancelContract = ref<ContractRecord | null>(null)
+const settlementRefundVisible = ref(false)
+const settlementRefundRecord = ref<ContractSettlementRecord | null>(null)
+const settlementRefundZIndex = ref<number | undefined>(undefined)
+
+function canTerminateContract(row: ContractRecord) {
+  const st = (row.status || '').trim()
+  return st === '租賃中' || st === '退租中' || st === '已續約'
+}
+
+/** 已退租（或已有终止结算）时可查看退租结算详情 */
+function canViewVacateSettlement(row: ContractRecord | null | undefined) {
+  if (!row) return false
+  if ((row.terminationCount ?? 0) > 0) return true
+  return (row.status || '').trim() === '已退租'
+}
+
+function isCancelledContractStatus(status?: string | null) {
+  return (status || '').trim() === '已取消'
+}
+
+/**
+ * 結束组主按钮：取消／退租／详情（按状态互斥）
+ * - 簽約中 → 取消
+ * - 可退租 → 退租
+ * - 已退租／有结算 → 详情（退租结算）
+ * - 已取消 → 详情（取消结算）
+ */
+type ContractEndAction = 'cancel' | 'terminate' | 'vacateDetail' | 'cancelDetail'
+
+function endActionOf(row: ContractRecord | null | undefined): ContractEndAction | null {
+  if (!row) return null
+  if (canTerminateContract(row)) return 'terminate'
+  if (canViewVacateSettlement(row)) return 'vacateDetail'
+  if (isSigningContractStatus(row.status)) return perms.update ? 'cancel' : null
+  if (isCancelledContractStatus(row.status)) return 'cancelDetail'
+  return null
+}
+
+function endActionLabel(row: ContractRecord | null | undefined) {
+  const action = endActionOf(row)
+  if (action === 'terminate') return t('contract.terminateLease')
+  if (action === 'cancel') return t('contract.cancel')
+  if (action === 'vacateDetail' || action === 'cancelDetail') {
+    return t('contract.viewVacateSettlement')
+  }
+  return t('contract.viewVacateSettlement')
+}
+
+function endActionDisabledHint(row: ContractRecord | null | undefined) {
+  if (endActionOf(row)) return undefined
+  if (isSigningContractStatus(row?.status) && !perms.update) {
+    return t('contract.cancelOnlySigning')
+  }
+  return t('contract.terminateOnlyLeased')
+}
+
+function onTerminateLease(row: ContractRecord) {
+  if (!canTerminateContract(row)) return
+  terminateContract.value = row
+  terminateZIndex.value = allocZ(
+    contractMoreVisible.value ? FEATURE_DIALOG_ABOVE_MORE_Z : undefined,
+  )
+  terminateVisible.value = true
+}
+
+/** 更多菜单結束主按钮：按状态打开取消／退租／对应详情 */
+function onContractEndAction(row: ContractRecord) {
+  const action = endActionOf(row)
+  if (!action) return
+  if (action === 'terminate') {
+    onTerminateLease(row)
+    return
+  }
+  if (action === 'cancel') {
+    openCancelContract(row)
+    return
+  }
+  if (action === 'vacateDetail') {
+    openEndSettlementDetail(row, 'VACATE')
+    return
+  }
+  openEndSettlementDetail(row, 'CANCEL')
+}
+
+/** 退租／取消结算共用详情弹窗 */
+function openEndSettlementDetail(row: ContractRecord, type: 'VACATE' | 'CANCEL') {
+  endDetailSettlementType.value = type
+  vacateDetailContract.value = row
+  vacateDetailZIndex.value = allocZ(
+    contractMoreVisible.value ? FEATURE_DIALOG_ABOVE_MORE_Z : undefined,
+  )
+  vacateDetailVisible.value = true
+}
+
+function openVacateDetail(row: ContractRecord) {
+  openEndSettlementDetail(row, 'VACATE')
+}
+
+function openReceivableFromVacate(id: string) {
+  void relationDrawers.value?.openReceivableSide(id, {
+    zIndex: vacateDetailZIndex.value,
+  })
+}
+
+async function openRefundOrderFromVacate(id: string) {
+  if (!id) return
+  try {
+    const { data } = await fetchRefundOrder(id)
+    refundOrderRecord.value = data
+    refundOrderDrawerZIndex.value = allocZ(vacateDetailZIndex.value)
+    refundOrderDrawerVisible.value = true
+  } catch {
+    /* silent: list request already surfaces errors when needed */
+  }
+}
+
+function openRefundOrderFromCancel(id: string, opts?: { zIndex?: number }) {
+  if (!id) return
+  void relationDrawers.value?.openRefundOrderSide(id, opts)
+}
+
+async function openRefundOrderFromSettlementRefund(
+  id: string,
+  opts?: { zIndex?: number },
+) {
+  if (!id) return
+  try {
+    const { data } = await fetchRefundOrder(id)
+    refundOrderRecord.value = data
+    const base = opts?.zIndex ?? settlementRefundZIndex.value
+    if (base != null) raiseFloor(base)
+    refundOrderDrawerZIndex.value = allocZ(base)
+    refundOrderDrawerVisible.value = true
+  } catch {
+    /* interceptor */
+  }
+}
+
+function openRefundOrderCashFlows(row: RefundOrderRecord) {
+  if (!(row.cashFlowCount ?? 0)) return
+  refundOrderRecord.value = row
+  refundOrderCashFlowsZIndex.value = allocZ(refundOrderDrawerZIndex.value)
+  refundOrderCashFlowsVisible.value = true
+}
+
+async function openRefundOrderCashFlowDetail(row: CashFlowRecord) {
+  try {
+    const { data } = await fetchCashFlow(row.id)
+    refundOrderCashFlowRecord.value = data
+  } catch {
+    refundOrderCashFlowRecord.value = row
+  }
+  refundOrderCashFlowDetailZIndex.value = allocZ(refundOrderCashFlowsZIndex.value)
+  refundOrderCashFlowDrawerVisible.value = true
+}
+
+function openCancelContract(row: ContractRecord) {
+  if (!perms.update) return
+  if (!isSigningContractStatus(row.status)) {
+    void ElMessageBox.alert(
+      t('contract.cancelOnlySigning'),
+      t('contract.cancel'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
+    return
+  }
+  cancelContract.value = row
+  cancelVisible.value = true
+}
+
+function canCancelRefund(row?: ContractRecord | null) {
+  if (!row || !isCancelledContractStatus(row.status)) return false
+  return row.cancelRefundPending !== false
+}
+
+/** 结算是否仍有待退（可办理退款单打款） */
+function settlementHasRefundPending(row: ContractSettlementRecord) {
+  const st = (row.refundStatus || row.status || '').trim()
+  if (st === 'pending_refund' || st === 'partial') return true
+  const due = Number(row.refundDueTotal) || 0
+  const got = Number(row.refundedTotal) || 0
+  return due - got > 0.009
+}
+
+/**
+ * 合约「办理退款」入口（取消／退租统一：退款单打款，refundOrders:update）
+ */
+function canOfferContractRefund(row?: ContractRecord | null) {
+  if (!row || !refundOrderPerms.update) return false
+  if (canCancelRefund(row)) return true
+  if (canViewVacateSettlement(row)) return true
+  return false
+}
+
+function contractRefundDisabledHint(row?: ContractRecord | null) {
+  if (!row) return t('contract.refundEntryUnavailable')
+  if (!refundOrderPerms.update) {
+    return t('contract.vacateRefundNoPerm')
+  }
+  if (isCancelledContractStatus(row.status)) {
+    return t('contract.cancelRefundNothingPending')
+  }
+  if (canViewVacateSettlement(row)) {
+    return t('contract.vacateRefundNothingPending')
+  }
+  return t('contract.refundEntryUnavailable')
+}
+
+/** 打开结算退款单打款弹窗（取消 CANCEL / 退租 VACATE 共用样式） */
+async function openSettlementRefundByType(
+  row: ContractRecord,
+  type: 'CANCEL' | 'VACATE',
+  opts?: { zIndex?: number },
+) {
+  if (!refundOrderPerms.update) {
+    await ElMessageBox.alert(
+      t('contract.vacateRefundNoPerm'),
+      t('contract.cancelRefund'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
+    return
+  }
+  const emptyHint =
+    type === 'CANCEL'
+      ? t('contract.cancelRefundNothingPending')
+      : t('contract.vacateRefundNothingPending')
+  const failHint =
+    type === 'CANCEL'
+      ? t('contract.cancelRefundLoadFailed')
+      : t('contract.vacateRefundLoadFailed')
+  try {
+    const { data } = await fetchContractSettlements({
+      contractId: row.id,
+      types: [type],
+      pageSize: 20,
+    })
+    const settlement =
+      (data.items || []).find((s) => settlementHasRefundPending(s)) || null
+    if (!settlement) {
+      if (type === 'CANCEL') row.cancelRefundPending = false
+      await ElMessageBox.alert(
+        emptyHint,
+        t('contract.cancelRefund'),
+        messageBoxOpts({ type: 'info', confirmButtonText: t('common.confirm') }),
+      )
+      return
+    }
+    settlementRefundRecord.value = settlement
+    const base =
+      opts?.zIndex ??
+      (contractMoreVisible.value ? FEATURE_DIALOG_ABOVE_MORE_Z : undefined)
+    if (base != null) raiseFloor(base)
+    settlementRefundZIndex.value = allocZ(base)
+    settlementRefundVisible.value = true
+  } catch {
+    await ElMessageBox.alert(
+      failHint,
+      t('contract.cancelRefund'),
+      messageBoxOpts({ type: 'error', confirmButtonText: t('common.confirm') }),
+    )
+  }
+}
+
+/** 统一入口：取消／退租均走结算退款单打款弹窗 */
+async function openContractRefund(row: ContractRecord, opts?: { zIndex?: number }) {
+  if (canCancelRefund(row)) {
+    await openSettlementRefundByType(row, 'CANCEL', opts)
+    return
+  }
+  if (canViewVacateSettlement(row)) {
+    await openSettlementRefundByType(row, 'VACATE', opts)
+    return
+  }
+  await ElMessageBox.alert(
+    t('contract.refundEntryUnavailable'),
+    t('contract.cancelRefund'),
+    messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+  )
+}
+
+function onCollectFromEndDetail() {
+  const row = vacateDetailContract.value
+  if (!row) return
+  onReceivePayment(row, { zIndex: vacateDetailZIndex.value })
+}
+
+function onRefundFromEndDetail() {
+  const row = vacateDetailContract.value
+  if (!row) return
+  void openContractRefund(row, { zIndex: vacateDetailZIndex.value })
+}
+
+function onReceivePayCollected() {
+  void loadList()
+  if (vacateDetailVisible.value) endDetailRefreshKey.value += 1
+}
+
+function onSettlementRefundDone() {
+  void loadList()
+  if (vacateDetailVisible.value) endDetailRefreshKey.value += 1
 }
 
 function onRenewContractPlaceholder() {
@@ -157,13 +508,71 @@ function onRenewContractPlaceholder() {
 const contractMoreRow = ref<ContractRecord | null>(null)
 const contractMoreVisible = ref(false)
 const contractMoreStyle = ref<Record<string, string>>({})
-/** 更多面板 z-index；其上的 MessageBox 须更高，否则会被面板挡住 */
+/** 更多面板 z-index；功能弹窗打开时压低，让默认 EP overlay（≈2000+）盖住 */
 const CONTRACT_MORE_MENU_Z = 3200
-const MSG_BOX_ABOVE_MORE_Z = 4600
+const CONTRACT_MORE_MENU_Z_UNDER_OVERLAY = 1500
+/**
+ * 仅用于仍须盖过「更多」面板的功能弹窗（取消／开单等）。
+ * 勿再给 MessageBox 传高 zIndex——EP 打开时会 nextZIndex() 覆盖，提示会落到弹窗下；
+ * 全局已把 MessageBox append 到当前弹窗 overlay 内。
+ */
+const FEATURE_DIALOG_ABOVE_MORE_Z = OVERLAY_ABOVE_FEATURE_MENU_Z
+const { allocZ, raiseFloor } = useOverlayStackZ()
+const vacateDetailZIndex = ref<number | undefined>(undefined)
+const refundOrderDrawerZIndex = ref<number | undefined>(undefined)
 
 function messageBoxOpts(base: Record<string, unknown> = {}) {
-  if (!contractMoreVisible.value) return base
-  return { ...base, zIndex: MSG_BOX_ABOVE_MORE_Z }
+  return base
+}
+
+/** 功能弹窗／抽屉是否打开（用于压低更多面板 z-index，不阻止悬停关闭） */
+function isContractMoreFeatureUiOpen() {
+  return (
+    openOrderVisible.value ||
+    topUpVisible.value ||
+    terminateVisible.value ||
+    vacateDetailVisible.value ||
+    cancelVisible.value ||
+    settlementRefundVisible.value ||
+    relatedInvoicesDrawerVisible.value
+  )
+}
+
+/** MessageBox 确认中（取消／删除）：悬停移开时仍保留面板上下文 */
+function hasOpenMessageBox() {
+  return !!document.querySelector(
+    '.el-message-box__wrapper, .el-overlay-message-box, .el-overlay.is-message-box',
+  )
+}
+
+/** 刚点开功能时短暂钉住，避免弹层盖住瞬间 mouseleave／blur 抢先关面板 */
+let contractMoreFeaturePinUntil = 0
+
+function pinContractMoreForFeatureUi() {
+  clearContractMoreCloseTimer()
+  contractMoreFeaturePinUntil = Date.now() + 600
+  syncContractMoreMenuZIndex()
+}
+
+function shouldKeepContractMoreOpen() {
+  if (hasOpenMessageBox()) return true
+  if (isContractMoreFeatureUiOpen()) return true
+  if (Date.now() < contractMoreFeaturePinUntil) return true
+  return false
+}
+
+function contractMoreMenuZIndex() {
+  return shouldKeepContractMoreOpen()
+    ? CONTRACT_MORE_MENU_Z_UNDER_OVERLAY
+    : CONTRACT_MORE_MENU_Z
+}
+
+function syncContractMoreMenuZIndex() {
+  if (!contractMoreVisible.value) return
+  contractMoreStyle.value = {
+    ...contractMoreStyle.value,
+    zIndex: String(contractMoreMenuZIndex()),
+  }
 }
 
 /** @returns 是否已完成删除（确认并成功）；取消 MessageBox 时为 false，面板应保持打开 */
@@ -366,19 +775,33 @@ const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(nu
 
 // 相关记录抽屉
 const relatedInvoicesDrawerVisible = ref(false)
+const relatedInvoicesZIndex = ref<number | undefined>(undefined)
 const relatedReceivablesDrawerVisible = ref(false)
+const relatedReceivablesZIndex = ref<number | undefined>(undefined)
 const relatedReceiptsDrawerVisible = ref(false)
+const relatedReceiptsZIndex = ref<number | undefined>(undefined)
+const relatedCashFlowsVisible = ref(false)
+const relatedCashFlowsZIndex = ref<number | undefined>(undefined)
+const relatedCashFlowDrawerVisible = ref(false)
+const relatedCashFlowDetailZIndex = ref<number | undefined>(undefined)
+const relatedCashFlowRecord = ref<CashFlowRecord | null>(null)
 const relatedPeriodsDrawerVisible = ref(false)
-const relatedTerminationsDrawerVisible = ref(false)
-const relatedOtherFeesDrawerVisible = ref(false)
+const relatedPeriodsZIndex = ref<number | undefined>(undefined)
+const relatedSettlementsDrawerVisible = ref(false)
+const relatedSettlementsZIndex = ref<number | undefined>(undefined)
+const relatedLoanItemsDrawerVisible = ref(false)
+const relatedLoanItemsZIndex = ref<number | undefined>(undefined)
 const relatedDepositDeductionsDrawerVisible = ref(false)
+const relatedDepositDeductionsZIndex = ref<number | undefined>(undefined)
 const relatedDepositRefundsDrawerVisible = ref(false)
+const relatedDepositRefundsZIndex = ref<number | undefined>(undefined)
 const relatedInvoicesContract = ref<ContractRecord | null>(null)
 const relatedReceivablesContract = ref<ContractRecord | null>(null)
 const relatedReceiptsContract = ref<ContractRecord | null>(null)
+const relatedCashFlowsContract = ref<ContractRecord | null>(null)
 const relatedPeriodsContract = ref<ContractRecord | null>(null)
-const relatedTerminationsContract = ref<ContractRecord | null>(null)
-const relatedOtherFeesContract = ref<ContractRecord | null>(null)
+const relatedSettlementsContract = ref<ContractRecord | null>(null)
+const relatedLoanItemsContract = ref<ContractRecord | null>(null)
 const relatedDepositDeductionsContract = ref<ContractRecord | null>(null)
 const relatedDepositRefundsContract = ref<ContractRecord | null>(null)
 
@@ -784,17 +1207,265 @@ const formReadonly = computed(
   () => Boolean(editing.value && !isSigningContractStatus(editing.value.status)),
 )
 
+/**
+ * 编辑合约时定金本金／收款信息只读：未收也须走「加收定金」，勿在编辑弹窗直接改金额。
+ * 新建合约仍可在表单一次性填写已收定金。
+ */
+const bookingDepositLocked = computed(() => Boolean(editing.value))
+
+/** 签约中 + 收据新增权限 → 可加收（含创建时未收定金、后续首次收取） */
+function canTopUpBookingDeposit(row: ContractRecord | null | undefined) {
+  return Boolean(row?.id) && isSigningContractStatus(row?.status) && receiptPerms.create
+}
+
+function topUpBookingDepositDisabledReason(row: ContractRecord | null | undefined) {
+  if (!row) return t('receipt.bookingDeposit.topUpOnlySigning')
+  if (!receiptPerms.create) return t('receipt.bookingDeposit.topUpNeedPermission')
+  if (!isSigningContractStatus(row.status)) return t('receipt.bookingDeposit.topUpOnlySigning')
+  return ''
+}
+
+const canTopUpBookingDepositInForm = computed(
+  () => Boolean(editing.value) && !formReadonly.value && canTopUpBookingDeposit(editing.value),
+)
+
+/** 加收弹窗：尚无定金收据时不可选「合并」 */
+const topUpHasExistingReceipts = computed(() => topUpReceiptOptions.value.length > 0)
+
+const topUpVisible = ref(false)
+const topUpSubmitting = ref(false)
+/** 加收目标合约（编辑弹窗或更多菜单共用） */
+const topUpTarget = ref<ContractRecord | null>(null)
+const topUpReceiptOptions = ref<BookingDepositReceiptSummary[]>([])
+const topUpReceiptsLoading = ref(false)
+/** 目标收据收款方式（合并校验用；来自账户接口或合约定金方式兜底） */
+const topUpReceiptMethods = ref<Record<string, string>>({})
+const topUpForm = reactive({
+  mode: 'new_receipt' as 'new_receipt' | 'merge',
+  mergeReceiptId: '' as string,
+  amount: null as number | null,
+  paymentDate: '' as string,
+  paymentMethod: null as string | null,
+  paymentVoucher: '',
+  remark: '',
+})
+
+function todayYmdLocal() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const mergeTargetReceiptMethod = computed(() => {
+  const id = topUpForm.mergeReceiptId
+  if (!id) return null
+  const fromMap = (topUpReceiptMethods.value[id] || '').trim()
+  if (fromMap) return fromMap
+  // 兜底：合约当前定金收款方式（多为首张）
+  const fromTarget = (topUpTarget.value?.paymentMethod || '').trim()
+  if (fromTarget) return fromTarget
+  if (editing.value?.id && topUpTarget.value?.id === editing.value.id) {
+    return (form.paymentMethod || '').trim() || null
+  }
+  return null
+})
+
+function applyMergePaymentMethodLock() {
+  if (topUpForm.mode !== 'merge') return
+  topUpForm.paymentMethod = mergeTargetReceiptMethod.value
+}
+
+function setTopUpMode(mode: 'new_receipt' | 'merge') {
+  if (mode === 'merge' && !topUpHasExistingReceipts.value) {
+    topUpForm.mode = 'new_receipt'
+    return
+  }
+  topUpForm.mode = mode
+  if (mode === 'merge') {
+    if (!topUpForm.mergeReceiptId && topUpReceiptOptions.value.length) {
+      // 默认合并到最新一张（更可能尚未交给租客）
+      const newest = topUpReceiptOptions.value[topUpReceiptOptions.value.length - 1]
+      topUpForm.mergeReceiptId = newest?.id || ''
+    }
+    applyMergePaymentMethodLock()
+  }
+}
+
+async function loadTopUpReceiptOptions(contractId: string) {
+  topUpReceiptsLoading.value = true
+  try {
+    const { data } = await fetchBookingDepositByContractApi(contractId)
+    const list = data?.receipts?.length
+      ? data.receipts
+      : data?.receiptId
+        ? [
+            {
+              id: data.receiptId,
+              receiptCode: data.receiptCode || '',
+              amount: Number(data.principal ?? 0),
+            },
+          ]
+        : []
+    topUpReceiptOptions.value = list
+    const fallbackMethod = (topUpTarget.value?.paymentMethod || form.paymentMethod || '').trim()
+    const methods: Record<string, string> = {}
+    for (const r of list) {
+      methods[r.id] = (r.paymentMethod || '').trim() || fallbackMethod
+    }
+    topUpReceiptMethods.value = methods
+    if (!topUpForm.mergeReceiptId && list.length) {
+      topUpForm.mergeReceiptId = list[list.length - 1]!.id
+    }
+    if (!list.length) topUpForm.mode = 'new_receipt'
+    if (topUpForm.mode === 'merge') applyMergePaymentMethodLock()
+  } catch {
+    topUpReceiptOptions.value = []
+    topUpReceiptMethods.value = {}
+    topUpForm.mode = 'new_receipt'
+  } finally {
+    topUpReceiptsLoading.value = false
+  }
+}
+
+function openTopUpBookingDepositFor(row: ContractRecord | null | undefined) {
+  if (!canTopUpBookingDeposit(row) || !row) return false
+  topUpTarget.value = row
+  topUpForm.mode = 'new_receipt'
+  topUpForm.mergeReceiptId = ''
+  topUpForm.amount = null
+  topUpForm.paymentDate = todayYmdLocal()
+  topUpForm.paymentMethod = null
+  topUpForm.paymentVoucher = ''
+  topUpForm.remark = ''
+  topUpReceiptOptions.value = []
+  topUpVisible.value = true
+  void loadTopUpReceiptOptions(row.id)
+  return true
+}
+
+function openTopUpBookingDeposit() {
+  if (!canTopUpBookingDepositInForm.value) return
+  openTopUpBookingDepositFor(editing.value)
+}
+
+async function submitTopUpBookingDeposit() {
+  const contractId = topUpTarget.value?.id?.trim() || editing.value?.id?.trim()
+  const amount = Number(topUpForm.amount ?? 0)
+  if (!contractId) return
+  if (!Number.isFinite(amount) || amount <= 0) {
+    await ElMessageBox.alert(
+      t('receipt.bookingDeposit.topUpNeedAmount'),
+      t('receipt.bookingDeposit.topUpTitle'),
+      { type: 'warning', confirmButtonText: t('common.confirm') },
+    )
+    return
+  }
+  if (!topUpForm.paymentDate) {
+    await ElMessageBox.alert(
+      t('receipt.bookingDeposit.topUpNeedDate'),
+      t('receipt.bookingDeposit.topUpTitle'),
+      { type: 'warning', confirmButtonText: t('common.confirm') },
+    )
+    return
+  }
+  if (topUpForm.mode === 'new_receipt' && !(topUpForm.paymentMethod || '').trim()) {
+    await ElMessageBox.alert(
+      t('contract.fields.paymentMethodRequired'),
+      t('receipt.bookingDeposit.topUpTitle'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
+    return
+  }
+  if (topUpForm.mode === 'merge') {
+    if (!topUpHasExistingReceipts.value) {
+      await ElMessageBox.alert(
+        t('receipt.bookingDeposit.topUpMergeNeedReceipt'),
+        t('receipt.bookingDeposit.topUpTitle'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+      return
+    }
+    if (!topUpForm.mergeReceiptId.trim()) {
+      await ElMessageBox.alert(
+        t('receipt.bookingDeposit.topUpNeedMergeReceipt'),
+        t('receipt.bookingDeposit.topUpTitle'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+      return
+    }
+    const targetMethod = mergeTargetReceiptMethod.value
+    const chosen = (topUpForm.paymentMethod || '').trim()
+    if (targetMethod && chosen && targetMethod !== chosen) {
+      await ElMessageBox.alert(
+        t('receipt.bookingDeposit.topUpMergeMethodConflict', { method: targetMethod }),
+        t('receipt.bookingDeposit.topUpTitle'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+      return
+    }
+    if (targetMethod) topUpForm.paymentMethod = targetMethod
+  }
+  topUpSubmitting.value = true
+  try {
+    await topUpBookingDepositApi(
+      {
+        contractId,
+        amount,
+        paymentDate: topUpForm.paymentDate,
+        mode: topUpForm.mode,
+        mergeReceiptId:
+          topUpForm.mode === 'merge' ? topUpForm.mergeReceiptId || undefined : undefined,
+        paymentMethod: topUpForm.paymentMethod || undefined,
+        remark: topUpForm.remark.trim() || undefined,
+        paymentVoucher: topUpForm.paymentVoucher.trim() || undefined,
+      },
+      { silentError: true },
+    )
+    const { data } = await fetchContract(contractId)
+    if (editing.value?.id === contractId) {
+      editing.value = data
+      form.bookingDeposit = data.bookingDeposit
+      form.paymentDate = data.paymentDate || ''
+      form.paymentMethod = data.paymentMethod?.trim() || null
+      form.paymentVoucher = data.paymentVoucher || ''
+    }
+    topUpTarget.value = data
+    topUpVisible.value = false
+    await loadList()
+    await ElMessageBox.alert(
+      t('receipt.bookingDeposit.topUpDone'),
+      t('receipt.bookingDeposit.topUpTitle'),
+      { type: 'success', confirmButtonText: t('common.confirm') },
+    )
+  } catch (e) {
+    const msg = e instanceof Error && e.message ? e.message : t('common.failed')
+    try {
+      await ElMessageBox.alert(msg, t('receipt.bookingDeposit.topUpTitle'), {
+        type: 'error',
+        confirmButtonText: t('common.confirm'),
+      })
+    } catch {
+      /* dismiss */
+    }
+  } finally {
+    topUpSubmitting.value = false
+  }
+}
+
 const contractActionColWidth = computed(() => {
   void locale.value
   // 按实际主列按钮测宽，勿再 Math.max(three)：否则会多出右侧空白
   const labels = perms.update
     ? [
+        ACTION_COL_ICON,
         t('common.edit'),
         t('contract.receivePayment'),
         t('contract.printAgreement'),
         '…',
       ]
-    : [t('contract.receivePayment'), t('contract.printAgreement'), '…']
+    : [ACTION_COL_ICON, t('contract.receivePayment'), t('contract.printAgreement'), '…']
   return measureActionColWidth(labels)
 })
 
@@ -1084,17 +1755,17 @@ function isLoanItemRowComplete(row: LoanItemFormRow) {
   )
 }
 
-const otherFees = ref<LoanItemFormRow[]>([])
+const loanItems = ref<LoanItemFormRow[]>([])
 const LOAN_ITEM_PAGE_SIZE = 5
 const loanItemPage = ref(1)
 
 const loanItemTotalPages = computed(() =>
-  Math.max(1, Math.ceil(otherFees.value.length / LOAN_ITEM_PAGE_SIZE) || 1),
+  Math.max(1, Math.ceil(loanItems.value.length / LOAN_ITEM_PAGE_SIZE) || 1),
 )
 
 const pagedLoanItems = computed(() => {
   const start = (loanItemPage.value - 1) * LOAN_ITEM_PAGE_SIZE
-  return otherFees.value.slice(start, start + LOAN_ITEM_PAGE_SIZE).map((row, i) => ({
+  return loanItems.value.slice(start, start + LOAN_ITEM_PAGE_SIZE).map((row, i) => ({
     row,
     index: start + i,
   }))
@@ -1105,16 +1776,16 @@ function clampLoanItemPage() {
 }
 
 function addLoanItem() {
-  otherFees.value.push(defaultLoanItemRow())
-  loanItemPage.value = Math.ceil(otherFees.value.length / LOAN_ITEM_PAGE_SIZE)
+  loanItems.value.push(defaultLoanItemRow())
+  loanItemPage.value = Math.ceil(loanItems.value.length / LOAN_ITEM_PAGE_SIZE)
 }
 
 function removeLoanItem(idx: number) {
-  otherFees.value.splice(idx, 1)
+  loanItems.value.splice(idx, 1)
   clampLoanItemPage()
 }
 
-function mapLoanItemsFromRecord(fees?: ContractOtherFeeNestedRecord[] | null): LoanItemFormRow[] {
+function mapLoanItemsFromRecord(fees?: ContractLoanItemNestedRecord[] | null): LoanItemFormRow[] {
   if (!fees?.length) return []
   return fees.map((f) => ({
     uid: f.id || newLoanItemUid(),
@@ -1237,7 +1908,7 @@ const computedMailboxKeyDeposit = computed(() =>
 /** 借出物品按金合计（数量 × 按金） */
 const computedLoanItemsDeposit = computed(() =>
   Math.round(
-    otherFees.value.reduce((sum, f) => sum + loanItemSubtotal(f), 0) * 100,
+    loanItems.value.reduce((sum, f) => sum + loanItemSubtotal(f), 0) * 100,
   ) / 100,
 )
 
@@ -1589,14 +2260,33 @@ const requirementSelectOptions = computed(() => {
   return [...map.values()]
 })
 
+/** 合约可选关联的需求：未跟进／已取消（大厦范围由列表接口 BuildingAccess + 顶栏大厦注入） */
+const CONTRACT_LINKABLE_REQUIREMENT_STATUSES = ['未跟進', '已取消'] as const
+
 async function loadRequirementsForCustomer(customerId: string) {
   if (!String(customerId ?? '').trim()) {
     customerRequirements.value = []
     return
   }
   try {
-    const { data } = await fetchCustomerRequirements({ customerId })
+    const { data } = await fetchCustomerRequirements({
+      customerId,
+      statuses: [...CONTRACT_LINKABLE_REQUIREMENT_STATUSES],
+      pageSize: 100,
+    })
     customerRequirements.value = data.items
+    // 编辑时保留当前已挂需求（可能已是跟进中／已签约，不在可选列表）
+    const currentId = String(form.requirementId || editing.value?.requirementId || '').trim()
+    if (
+      currentId &&
+      !customerRequirements.value.some((r) => r.id === currentId) &&
+      !pinnedRequirements.value.some((r) => r.id === currentId)
+    ) {
+      const pinned =
+        pinnedRequirements.value.find((r) => r.id === currentId) ||
+        requirementSeedFromContract(currentId, customerId)
+      if (pinned) pinRequirementOption(pinned)
+    }
   } catch {
     customerRequirements.value = []
   }
@@ -1912,6 +2602,21 @@ watch(
   },
 )
 
+watch(
+  [
+    openOrderVisible,
+    topUpVisible,
+    terminateVisible,
+    vacateDetailVisible,
+    cancelVisible,
+    settlementRefundVisible,
+    relatedInvoicesDrawerVisible,
+  ],
+  () => {
+    syncContractMoreMenuZIndex()
+  },
+)
+
 function openCreate() {
   if (!perms.create) return
   editing.value = null
@@ -1923,7 +2628,7 @@ function openCreate() {
   if (uid) form.salesManagerId = uid
   periods.value = [defaultPeriodRow()]
   periodPage.value = 1
-  otherFees.value = []
+  loanItems.value = []
   loanItemPage.value = 1
   customerRequirements.value = []
   pinnedRequirements.value = []
@@ -2349,7 +3054,7 @@ function goToLoanItemIndex(absoluteIdx: number) {
 }
 
 async function startEditLoanItemIndex(uid: string, currentIndex: number) {
-  if (otherFees.value.length <= 1) return
+  if (loanItems.value.length <= 1) return
   loanItemIndexCommitLock = false
   editingLoanItemIndexUid.value = uid
   editingLoanItemIndexFrom.value = currentIndex
@@ -2378,14 +3083,14 @@ function commitEditLoanItemIndex() {
     loanItemIndexCommitLock = false
     return
   }
-  const total = otherFees.value.length
+  const total = loanItems.value.length
   const raw = Number.parseInt(draft, 10)
   if (!Number.isFinite(raw)) {
     loanItemIndexCommitLock = false
     return
   }
   const toIdx = Math.min(total, Math.max(1, raw)) - 1
-  const list = otherFees.value
+  const list = loanItems.value
   if (list[fromIdx]?.uid !== uid) {
     loanItemIndexCommitLock = false
     return
@@ -2430,7 +3135,7 @@ function onLoanItemDrop(targetUid: string, e: DragEvent) {
   dragLoanItemUid.value = null
   dragOverLoanItemUid.value = null
   if (!fromUid || fromUid === targetUid) return
-  const list = otherFees.value
+  const list = loanItems.value
   const fromIdx = list.findIndex((p) => p.uid === fromUid)
   const toIdx = list.findIndex((p) => p.uid === targetUid)
   if (fromIdx < 0 || toIdx < 0) return
@@ -2487,13 +3192,13 @@ async function openEdit(row: ContractRecord) {
       }))
     : [defaultPeriodRow()]
   periodPage.value = 1
-  otherFees.value = mapLoanItemsFromRecord(row.otherFees)
+  loanItems.value = mapLoanItemsFromRecord(row.loanItems)
   loanItemPage.value = 1
   // 列表若未带齐借出物品，再拉详情补全
-  if (!row.otherFees?.length && (row.otherFeeCount ?? 0) > 0) {
+  if (!row.loanItems?.length && (row.loanItemCount ?? 0) > 0) {
     try {
       const { data } = await fetchContract(row.id)
-      otherFees.value = mapLoanItemsFromRecord(data.otherFees)
+      loanItems.value = mapLoanItemsFromRecord(data.loanItems)
     } catch {
       /* keep empty */
     }
@@ -2576,7 +3281,7 @@ function payloadFromForm(issueNow = false) {
         endDate: p.endDate,
         sortOrder: i,
       })),
-    otherFees: otherFees.value
+    loanItems: loanItems.value
       .filter((f) => isLoanItemRowComplete(f))
       .map((f, i) => ({
         description: f.description.trim(),
@@ -2602,17 +3307,25 @@ async function saveForm(mode: 'save' | 'issue' = 'save') {
     ElMessage.warning(t('contract.partLabelRequired'))
     return
   }
-  if (form.bookingDeposit == null || Number.isNaN(Number(form.bookingDeposit))) {
-    ElMessage.warning(t('contract.fields.bookingDepositRequired'))
-    return
-  }
-  if (!(form.paymentMethod || '').trim()) {
-    ElMessage.warning(t('contract.fields.paymentMethodRequired'))
-    return
-  }
-  if (!form.paymentVoucher.trim()) {
-    ElMessage.warning(t('contract.fields.paymentVoucherRequired'))
-    return
+  // 新增时若已收定金>0：收款方式、定金凭证必填
+  const bookingAmt = Number(form.bookingDeposit ?? 0)
+  if (!editing.value && Number.isFinite(bookingAmt) && bookingAmt > 0) {
+    if (!(form.paymentMethod || '').trim()) {
+      await ElMessageBox.alert(
+        t('contract.fields.paymentMethodRequired'),
+        t('contract.create'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+      return
+    }
+    if (!form.paymentVoucher.trim()) {
+      await ElMessageBox.alert(
+        t('contract.fields.paymentVoucherRequired'),
+        t('contract.create'),
+        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+      )
+      return
+    }
   }
   const issueNow = mode === 'issue'
   if (issueNow && !form.attachment.trim()) {
@@ -2630,7 +3343,7 @@ async function saveForm(mode: 'save' | 'issue' = 'save') {
     ElMessage.warning(t('contract.periodNeedUsage'))
     return
   }
-  const incompleteLoan = otherFees.value.find(
+  const incompleteLoan = loanItems.value.find(
     (f) => !isLoanItemRowEmpty(f) && !isLoanItemRowComplete(f),
   )
   if (incompleteLoan) {
@@ -2667,38 +3380,19 @@ async function saveForm(mode: 'save' | 'issue' = 'save') {
   }
 }
 
-/** @returns 是否已取消成功；MessageBox 未确认或状态不允许时为 false */
-async function onCancelContract(row: ContractRecord): Promise<boolean> {
-  if (!perms.update) return false
-  if (!isSigningContractStatus(row.status)) {
+async function onCancelContractDone() {
+  closeContractMoreMenu()
+  if (current.value?.id && cancelContract.value?.id === current.value.id) {
     try {
-      await ElMessageBox.alert(
-        t('contract.cancelOnlySigning'),
-        t('contract.cancel'),
-        messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
-      )
+      const { data } = await fetchContract(current.value.id)
+      current.value = data
     } catch {
-      /* dismiss */
+      /* interceptor */
     }
-    return false
   }
-  try {
-    await ElMessageBox.confirm(
-      t('contract.cancelConfirm', { code: row.contractCode }),
-      t('contract.cancel'),
-      messageBoxOpts({ type: 'warning' }),
-    )
-    const { data } = await updateContractApi(row.id, { status: '已取消' })
-    const idx = list.value.findIndex((r) => r.id === row.id)
-    if (idx >= 0) list.value[idx] = { ...list.value[idx], ...data }
-    if (current.value?.id === row.id) current.value = { ...current.value, ...data }
-    ElMessage.success(t('contract.cancelled'))
-    void loadExpiringSoonCount()
-    return true
-  } catch {
-    /* cancel / interceptor */
-    return false
-  }
+  void loadExpiringSoonCount()
+  await loadHeadChipCounts()
+  await loadList()
 }
 
 function statusLabel(status: string) {
@@ -2752,31 +3446,46 @@ function onRowClick(row: ContractRecord, column: { type?: string } | undefined, 
   void openDetail(row, 'rtl')
 }
 
-async function openCustomerSide(customerId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  await relationDrawers.value?.openCustomerSide(customerId, direction)
+async function openCustomerSide(
+  customerId?: string | null,
+  direction: 'ltr' | 'rtl' = 'ltr',
+  opts?: { zIndex?: number },
+) {
+  await relationDrawers.value?.openCustomerSide(customerId, direction, opts)
 }
 
-async function openRoomSide(roomId?: string | null, direction: 'ltr' | 'rtl' = 'ltr') {
-  await relationDrawers.value?.openRoomSide(roomId, direction)
+async function openRoomSide(
+  roomId?: string | null,
+  direction: 'ltr' | 'rtl' = 'ltr',
+  opts?: { zIndex?: number },
+) {
+  await relationDrawers.value?.openRoomSide(roomId, direction, opts)
 }
 
-async function openBuildingSide(buildingId?: string | null) {
-  await relationDrawers.value?.openBuildingSide(buildingId)
+async function openBuildingSide(buildingId?: string | null, opts?: { zIndex?: number }) {
+  await relationDrawers.value?.openBuildingSide(buildingId, opts)
 }
 
-async function openRequirementSide(requirementId?: string | null) {
-  await relationDrawers.value?.openRequirementSide(requirementId)
+async function openRequirementSide(requirementId?: string | null, opts?: { zIndex?: number }) {
+  await relationDrawers.value?.openRequirementSide(requirementId, opts)
 }
 
-function openInvoicesList(row: ContractRecord) {
+/** 关联列表抽屉：始终 alloc 一层，若从抬高弹窗打开则盖过父层 */
+function allocRelatedListZ(above?: number) {
+  return allocZ(above)
+}
+
+function openInvoicesList(row: ContractRecord, opts?: { zIndex?: number }) {
   if (!row.invoiceCount) return
   relatedInvoicesContract.value = row
+  relatedInvoicesZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedInvoicesDrawerVisible.value = true
 }
 
 /** 操作列「發票記錄」：即使尚無發票也可打開關聯抽屜 */
-function openInvoicesFromAction(row: ContractRecord) {
+function openInvoicesFromAction(row: ContractRecord, opts?: { zIndex?: number }) {
   relatedInvoicesContract.value = row
+  relatedInvoicesZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedInvoicesDrawerVisible.value = true
 }
 
@@ -2792,22 +3501,61 @@ function clearContractMoreCloseTimer() {
 
 function closeContractMoreMenu() {
   clearContractMoreCloseTimer()
+  contractMoreFeaturePinUntil = 0
   contractMoreVisible.value = false
   contractMoreRow.value = null
 }
 
-function positionContractMoreMenu(btn: HTMLElement, row: ContractRecord) {
+async function positionContractMoreMenu(btn: HTMLElement, row: ContractRecord) {
   const rect = btn.getBoundingClientRect()
-  // 右缘对齐「…」按钮右缘；中/英宽度不同时向左伸展，右侧距离保持一致
+  const gap = 6
+  const edge = 8
+  const right = Math.round(Math.max(edge, window.innerWidth - rect.right))
+  // 先按向下展开占位，量高后再决定上／下
   contractMoreRow.value = row
   contractMoreStyle.value = {
     position: 'fixed',
-    top: `${Math.round(rect.bottom + 6)}px`,
-    right: `${Math.round(Math.max(8, window.innerWidth - rect.right))}px`,
+    top: `${Math.round(rect.bottom + gap)}px`,
+    bottom: 'auto',
+    right: `${right}px`,
     left: 'auto',
-    zIndex: String(CONTRACT_MORE_MENU_Z),
+    maxHeight: 'none',
+    overflowY: 'visible',
+    zIndex: String(contractMoreMenuZIndex()),
   }
   contractMoreVisible.value = true
+  await nextTick()
+  const menu = document.querySelector('.contract-more-menu') as HTMLElement | null
+  if (!menu || contractMoreRow.value?.id !== row.id) return
+  const menuH = menu.offsetHeight
+  const spaceBelow = window.innerHeight - rect.bottom - gap - edge
+  const spaceAbove = rect.top - gap - edge
+  const openBelow = spaceBelow >= menuH || spaceBelow >= spaceAbove
+  if (openBelow) {
+    const needScroll = menuH > spaceBelow
+    contractMoreStyle.value = {
+      position: 'fixed',
+      top: `${Math.round(rect.bottom + gap)}px`,
+      bottom: 'auto',
+      right: `${right}px`,
+      left: 'auto',
+      maxHeight: needScroll ? `${Math.max(120, Math.floor(spaceBelow))}px` : 'none',
+      overflowY: needScroll ? 'auto' : 'visible',
+      zIndex: String(contractMoreMenuZIndex()),
+    }
+  } else {
+    const needScroll = menuH > spaceAbove
+    contractMoreStyle.value = {
+      position: 'fixed',
+      top: 'auto',
+      bottom: `${Math.round(window.innerHeight - rect.top + gap)}px`,
+      right: `${right}px`,
+      left: 'auto',
+      maxHeight: needScroll ? `${Math.max(120, Math.floor(spaceAbove))}px` : 'none',
+      overflowY: needScroll ? 'auto' : 'visible',
+      zIndex: String(contractMoreMenuZIndex()),
+    }
+  }
 }
 
 /** 悬停打开面板（同列切换时直接换行） */
@@ -2818,21 +3566,24 @@ function onContractMoreHoverEnter(row: ContractRecord, ev: MouseEvent) {
   positionContractMoreMenu(btn, row)
 }
 
-/** 离开按钮或面板：短暂延迟关闭，便于移入面板 */
+/** 离开按钮或面板：短暂延迟关闭（纯悬停移开会关；功能弹窗／MessageBox 打开期间不关） */
 function scheduleCloseContractMoreMenu() {
   clearContractMoreCloseTimer()
   contractMoreCloseTimer = setTimeout(() => {
     contractMoreCloseTimer = null
-    // MessageBox 打开期间保持面板，避免确认框失去上下文
-    if (
-      document.querySelector(
-        '.el-message-box__wrapper, .el-overlay-message-box, .el-overlay.is-message-box',
-      )
-    ) {
-      return
-    }
+    if (shouldKeepContractMoreOpen()) return
     closeContractMoreMenu()
   }, MORE_HOVER_CLOSE_MS)
+}
+
+/** 「…」失焦：焦点进入更多面板内时不关 */
+function onContractMoreTriggerBlur(ev: FocusEvent) {
+  const next = ev.relatedTarget as HTMLElement | null
+  if (next?.closest?.('.contract-more-menu')) {
+    clearContractMoreCloseTimer()
+    return
+  }
+  scheduleCloseContractMoreMenu()
 }
 
 /** 点击：同按钮再点关闭；否则打开（键盘/触控仍可用） */
@@ -2848,39 +3599,49 @@ function openContractMoreMenu(row: ContractRecord, ev: MouseEvent) {
 }
 
 /**
- * 从更多面板执行操作：弹出 MessageBox 时不关面板；
- * 仅在进入下一界面（开单弹窗 / 发票抽屉等）或操作成功后关闭。
+ * 从更多面板执行操作：打开功能弹窗／抽屉时不关面板；
+ * 取消／删除等操作成功后再关。
  */
 function onContractMorePick(cmd: string) {
   const row = contractMoreRow.value
   if (!row) return
   if (cmd === 'openOrder') {
-    void (async () => {
-      const opened = await onOpenOrderClick(row)
-      if (opened) closeContractMoreMenu()
-    })()
+    if (!canOpenOrderSign(row)) return
+    pinContractMoreForFeatureUi()
+    void onOpenOrderClick(row).then(() => {
+      pinContractMoreForFeatureUi()
+    })
+    return
+  }
+  if (cmd === 'topUpBookingDeposit') {
+    if (!canTopUpBookingDeposit(row)) return
+    pinContractMoreForFeatureUi()
+    openTopUpBookingDepositFor(row)
+    pinContractMoreForFeatureUi()
     return
   }
   if (cmd === 'invoices') {
-    closeContractMoreMenu()
+    pinContractMoreForFeatureUi()
     openInvoicesFromAction(row)
+    pinContractMoreForFeatureUi()
     return
   }
   if (cmd === 'renew') {
-    closeContractMoreMenu()
     onRenewContractPlaceholder()
     return
   }
-  if (cmd === 'terminate') {
-    closeContractMoreMenu()
-    onTerminateLeasePlaceholder()
+  if (cmd === 'end') {
+    if (!endActionOf(row)) return
+    pinContractMoreForFeatureUi()
+    onContractEndAction(row)
+    pinContractMoreForFeatureUi()
     return
   }
-  if (cmd === 'cancel') {
-    void (async () => {
-      const done = await onCancelContract(row)
-      if (done) closeContractMoreMenu()
-    })()
+  if (cmd === 'cancelRefund') {
+    if (!canOfferContractRefund(row)) return
+    pinContractMoreForFeatureUi()
+    void openContractRefund(row)
+    pinContractMoreForFeatureUi()
     return
   }
   if (cmd === 'delete') {
@@ -2895,93 +3656,170 @@ function onContractMoreDocPointer(ev: Event) {
   if (!contractMoreVisible.value) return
   const t = ev.target as HTMLElement | null
   if (t?.closest('.contract-more-menu, .action-pill--more')) return
-  // MessageBox 打开期间点遮罩/对话框，勿关掉更多面板
+  // MessageBox／功能弹窗／抽屉内点击：保留更多面板
   if (
     t?.closest(
-      '.el-message-box, .el-message-box__wrapper, .el-overlay-message-box, .el-overlay.is-message-box',
+      [
+        '.el-message-box',
+        '.el-message-box__wrapper',
+        '.el-overlay-message-box',
+        '.el-overlay.is-message-box',
+        '.el-overlay-dialog',
+        '.el-dialog',
+        '.el-dialog__wrapper',
+        '.el-overlay.is-drawer',
+        '.el-drawer',
+        '.el-drawer__wrapper',
+      ].join(', '),
     )
   ) {
     return
   }
+  if (shouldKeepContractMoreOpen()) return
   closeContractMoreMenu()
 }
 
 function onContractMoreScrollOrResize() {
-  if (contractMoreVisible.value) closeContractMoreMenu()
+  if (!contractMoreVisible.value) return
+  // 功能弹窗／MessageBox 期间保留；否则滚动／缩放关掉以免错位
+  if (shouldKeepContractMoreOpen()) return
+  closeContractMoreMenu()
 }
 
-function openReceivablesList(row: ContractRecord) {
+function openReceivablesList(row: ContractRecord, opts?: { zIndex?: number }) {
   if (!row.receivableCount) return
   relatedReceivablesContract.value = row
+  relatedReceivablesZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedReceivablesDrawerVisible.value = true
 }
 
-function openReceiptsList(row: ContractRecord) {
-  if (!row.receiptCount) return
+function openReceiptsList(row: ContractRecord, opts?: { force?: boolean; zIndex?: number }) {
+  if (!opts?.force && !row.receiptCount) return
   relatedReceiptsContract.value = row
+  relatedReceiptsZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedReceiptsDrawerVisible.value = true
 }
 
-function openPeriodsList(row: ContractRecord) {
+/** 收款／退租弹窗内打开收款记录：必须盖过当前弹窗 */
+function openReceiptsFromReceivePay(row: ContractRecord) {
+  const above =
+    receivePayVisible.value && receivePayZIndex.value != null
+      ? receivePayZIndex.value
+      : terminateVisible.value && terminateZIndex.value != null
+        ? terminateZIndex.value
+        : undefined
+  openReceiptsList(row, { force: true, zIndex: above })
+}
+
+function openCashFlowsList(row: ContractRecord, opts?: { zIndex?: number }) {
+  if (!(row.cashFlowCount ?? 0)) return
+  relatedCashFlowsContract.value = row
+  relatedCashFlowsZIndex.value = allocRelatedListZ(opts?.zIndex)
+  relatedCashFlowsVisible.value = true
+}
+
+async function openContractCashFlowDetail(row: CashFlowRecord) {
+  try {
+    const { data } = await fetchCashFlow(row.id)
+    relatedCashFlowRecord.value = data
+  } catch {
+    relatedCashFlowRecord.value = row
+  }
+  relatedCashFlowDetailZIndex.value = allocZ(relatedCashFlowsZIndex.value)
+  relatedCashFlowDrawerVisible.value = true
+}
+
+function openPeriodsList(row: ContractRecord, opts?: { zIndex?: number }) {
   if (!row.periodCount) return
   relatedPeriodsContract.value = row
+  relatedPeriodsZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedPeriodsDrawerVisible.value = true
 }
 
 function openTerminationsList(row: ContractRecord) {
-  if (!row.terminationCount) return
-  relatedTerminationsContract.value = row
-  relatedTerminationsDrawerVisible.value = true
+  if (!canViewVacateSettlement(row)) return
+  openVacateDetail(row)
 }
 
-function openOtherFeesList(row: ContractRecord) {
-  if (!row.otherFeeCount) return
-  relatedOtherFeesContract.value = row
-  relatedOtherFeesDrawerVisible.value = true
+function openLoanItemsList(row: ContractRecord, opts?: { zIndex?: number }) {
+  if (!row.loanItemCount) return
+  relatedLoanItemsContract.value = row
+  relatedLoanItemsZIndex.value = allocRelatedListZ(opts?.zIndex)
+  relatedLoanItemsDrawerVisible.value = true
 }
 
-function openDepositDeductionsList(row: ContractRecord) {
+function openDepositDeductionsList(row: ContractRecord, opts?: { zIndex?: number }) {
   if (!row.depositDeductionCount) return
   relatedDepositDeductionsContract.value = row
+  relatedDepositDeductionsZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedDepositDeductionsDrawerVisible.value = true
 }
 
-function openDepositRefundsList(row: ContractRecord) {
+function openDepositRefundsList(row: ContractRecord, opts?: { zIndex?: number }) {
   if (!row.depositRefundCount) return
   relatedDepositRefundsContract.value = row
+  relatedDepositRefundsZIndex.value = allocRelatedListZ(opts?.zIndex)
   relatedDepositRefundsDrawerVisible.value = true
 }
 
+async function onContractBookingDepositChanged() {
+  await loadList()
+  const id = current.value?.id
+  if (!id) return
+  try {
+    const { data } = await fetchContract(id)
+    current.value = data
+  } catch {
+    /* 列表已刷新；详情保持原样即可 */
+  }
+}
+
 function onOpenInvoiceFromList(invoice: InvoiceRecord) {
-  void relationDrawers.value?.openInvoiceSide(invoice.id)
+  void relationDrawers.value?.openInvoiceSide(invoice.id, {
+    zIndex: relatedInvoicesZIndex.value,
+  })
 }
 
 function onOpenReceivableFromList(receivable: ReceivableRecord) {
-  void relationDrawers.value?.openReceivableSide(receivable.id)
+  void relationDrawers.value?.openReceivableSide(receivable.id, {
+    zIndex: relatedReceivablesZIndex.value,
+  })
 }
 
 function onOpenReceiptFromList(receipt: ReceiptRecord) {
-  void relationDrawers.value?.openReceiptSide(receipt.id)
+  void relationDrawers.value?.openReceiptSide(receipt.id, {
+    zIndex: relatedReceiptsZIndex.value,
+  })
 }
 
 function onOpenPeriodFromList(period: ContractPeriodListRecord) {
-  void relationDrawers.value?.openPeriodSide(period.id)
+  void relationDrawers.value?.openPeriodSide(period.id, {
+    zIndex: relatedPeriodsZIndex.value,
+  })
 }
 
-function onOpenTerminationFromList(termination: LeaseTerminationRecord) {
-  void relationDrawers.value?.openTerminationSide(termination.id)
+function onOpenSettlementFromList(settlement: ContractSettlementRecord) {
+  void relationDrawers.value?.openSettlementSide(settlement.id, {
+    zIndex: relatedSettlementsZIndex.value,
+  })
 }
 
-function onOpenOtherFeeFromList(fee: ContractOtherFeeRecord) {
-  void relationDrawers.value?.openOtherFeeSide(fee.id, 'contractOtherFee')
+function onOpenLoanItemFromList(fee: ContractLoanItemRecord) {
+  void relationDrawers.value?.openLoanItemSide(fee.id, {
+    zIndex: relatedLoanItemsZIndex.value,
+  })
 }
 
-function onOpenDepositDeductionFromList(fee: ContractOtherFeeRecord) {
-  void relationDrawers.value?.openOtherFeeSide(fee.id, 'depositDeduction')
+function onOpenDepositDeductionFromList(fee: DepositDeductionRecord) {
+  void relationDrawers.value?.openDepositDeductionSide(fee.id, {
+    zIndex: relatedDepositDeductionsZIndex.value,
+  })
 }
 
 function onOpenDepositRefundFromList(record: DepositRefundRecord) {
-  void relationDrawers.value?.openDepositRefundSide(record.id)
+  void relationDrawers.value?.openDepositRefundSide(record.id, {
+    zIndex: relatedDepositRefundsZIndex.value,
+  })
 }
 </script>
 
@@ -3721,19 +4559,19 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </template>
           </el-table-column>
           <el-table-column
-            :min-width="colW(t('contract.fields.otherFeeCount'), { interactive: true, contentMin: 88 })"
+            :min-width="colW(t('contract.fields.loanItemCount'), { interactive: true, contentMin: 88 })"
             align="center"
           >
             <template #header>
               <TableColumnHeader
-                :label="t('contract.fields.otherFeeCount')"
+                :label="t('contract.fields.loanItemCount')"
                 sortable
-                :sort-order="sortOrderOf('otherFeeCount')"
-                @update:sort-order="(v) => setSort('otherFeeCount', v)"
+                :sort-order="sortOrderOf('loanItemCount')"
+                @update:sort-order="(v) => setSort('loanItemCount', v)"
               />
             </template>
             <template #default="{ row }">
-              <CountListPill :count="row.otherFeeCount ?? 0" @click="openOtherFeesList(row)" />
+              <CountListPill :count="row.loanItemCount ?? 0" @click="openLoanItemsList(row)" />
             </template>
           </el-table-column>
           <el-table-column
@@ -3771,6 +4609,25 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               <CountListPill
                 :count="row.depositRefundCount ?? 0"
                 @click="openDepositRefundsList(row)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('contract.fields.cashFlowCount'), { interactive: true, contentMin: 96 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('contract.fields.cashFlowCount')"
+                sortable
+                :sort-order="sortOrderOf('cashFlowCount')"
+                @update:sort-order="(v) => setSort('cashFlowCount', v)"
+              />
+            </template>
+            <template #default="{ row }">
+              <CountListPill
+                :count="row.cashFlowCount ?? 0"
+                @click="openCashFlowsList(row)"
               />
             </template>
           </el-table-column>
@@ -3821,6 +4678,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row as ContractRecord)" />
                 <button
                   v-if="perms.update"
                   v-admin-glow="perms.codes.update"
@@ -3862,7 +4720,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   @mouseenter="onContractMoreHoverEnter(row as ContractRecord, $event)"
                   @mouseleave="scheduleCloseContractMoreMenu"
                   @focus="onContractMoreHoverEnter(row as ContractRecord, $event)"
-                  @blur="scheduleCloseContractMoreMenu"
+                  @blur="onContractMoreTriggerBlur"
                   @click.stop="openContractMoreMenu(row as ContractRecord, $event)"
                 >
                   …
@@ -3925,9 +4783,31 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               type="button"
               class="action-pill action-pill--info"
               role="menuitem"
+              :disabled="!canOpenOrderSign(contractMoreRow)"
+              :title="
+                canOpenOrderSign(contractMoreRow)
+                  ? undefined
+                  : t('contract.openOrderOnlySigning')
+              "
               @click="onContractMorePick('openOrder')"
             >
               {{ t('contract.openOrder') }}
+            </button>
+            <button
+              v-if="receiptPerms.create"
+              v-admin-glow="receiptPerms.codes.create"
+              type="button"
+              class="action-pill action-pill--accent"
+              role="menuitem"
+              :disabled="!canTopUpBookingDeposit(contractMoreRow)"
+              :title="
+                canTopUpBookingDeposit(contractMoreRow)
+                  ? undefined
+                  : topUpBookingDepositDisabledReason(contractMoreRow)
+              "
+              @click="onContractMorePick('topUpBookingDeposit')"
+            >
+              {{ t('receipt.bookingDeposit.topUpAction') }}
             </button>
             <button
               type="button"
@@ -3956,22 +4836,38 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           <div class="contract-more-menu__label">{{ t('contract.moreGroupEnd') }}</div>
           <div class="contract-more-menu__pills">
             <button
+              v-admin-glow="
+                endActionOf(contractMoreRow) === 'cancel' ? perms.codes.update : ''
+              "
               type="button"
-              class="action-pill action-pill--danger"
+              class="action-pill"
+              :class="
+                endActionOf(contractMoreRow) === 'cancel'
+                  ? 'action-pill--cancel-contract'
+                  : 'action-pill--danger'
+              "
               role="menuitem"
-              @click="onContractMorePick('terminate')"
+              :disabled="!endActionOf(contractMoreRow)"
+              :title="endActionDisabledHint(contractMoreRow)"
+              @click="onContractMorePick('end')"
             >
-              {{ t('contract.terminateLease') }}
+              {{ endActionLabel(contractMoreRow) }}
             </button>
             <button
-              v-if="perms.update && canOpenOrderSign(contractMoreRow)"
-              v-admin-glow="perms.codes.update"
+              v-if="refundOrderPerms.update"
+              v-admin-glow="refundOrderPerms.codes.update"
               type="button"
-              class="action-pill action-pill--muted"
+              class="action-pill action-pill--accent"
               role="menuitem"
-              @click="onContractMorePick('cancel')"
+              :disabled="!canOfferContractRefund(contractMoreRow)"
+              :title="
+                canOfferContractRefund(contractMoreRow)
+                  ? undefined
+                  : contractRefundDisabledHint(contractMoreRow)
+              "
+              @click="onContractMorePick('cancelRefund')"
             >
-              {{ t('contract.cancel') }}
+              {{ t('contract.cancelRefund') }}
             </button>
             <button
               v-if="perms.delete"
@@ -3999,87 +4895,186 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       @open-invoices="openInvoicesList"
       @open-receivables="openReceivablesList"
       @open-receipts="openReceiptsList"
-      @open-periods="openPeriodsList"
-      @open-terminations="openTerminationsList"
-      @open-other-fees="openOtherFeesList"
-      @open-deposit-deductions="openDepositDeductionsList"
-      @open-deposit-refunds="openDepositRefundsList"
-      @open-booking-deposit-receipt="(id) => relationDrawers?.openReceiptSide(id)"
+      @open-cash-flows="openCashFlowsList"
+      @open-settlement="(id) => relationDrawers?.openSettlementSide(id)"
+      @open-loan-items="openLoanItemsList"
+      @open-booking-deposit-receipt="(id, opts) => relationDrawers?.openReceiptSide(id, opts)"
+      @open-invoice="(id, opts) => relationDrawers?.openInvoiceSide(id, opts)"
+      @booking-deposit-changed="onContractBookingDepositChanged"
     />
     <RelatedEntityDrawers ref="relationDrawers" @changed="loadList" />
 
     <ContractReceivePaymentDialog
       v-model="receivePayVisible"
       :contract="receivePayContract"
-      @open-contract="(id) => relationDrawers?.openContractSide(id)"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
-      @collected="loadList"
+      :z-index="receivePayZIndex"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: receivePayZIndex })"
+      @open-customer="(id) => openCustomerSide(id, 'ltr', { zIndex: receivePayZIndex })"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id, { zIndex: receivePayZIndex })"
+      @open-receipts="openReceiptsFromReceivePay"
+      @collected="onReceivePayCollected"
+    />
+
+    <ContractTerminateDialog
+      v-model="terminateVisible"
+      :contract="terminateContract"
+      :z-index="terminateZIndex"
+      @done="loadList"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: terminateZIndex })"
+      @open-customer="(id) => openCustomerSide(id, 'ltr', { zIndex: terminateZIndex })"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id, { zIndex: terminateZIndex })"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id, { zIndex: terminateZIndex })"
+      @open-receipts="openReceiptsFromReceivePay"
+    />
+
+    <ContractVacateDetailDialog
+      v-model="vacateDetailVisible"
+      :contract="vacateDetailContract"
+      :settlement-type="endDetailSettlementType"
+      :z-index="vacateDetailZIndex"
+      :refresh-key="endDetailRefreshKey"
+      @open-receivable="openReceivableFromVacate"
+      @open-refund-order="openRefundOrderFromVacate"
+      @collect-payment="onCollectFromEndDetail"
+      @refund="onRefundFromEndDetail"
+    />
+    <RefundOrderDetailDrawer
+      v-model="refundOrderDrawerVisible"
+      :record="refundOrderRecord"
+      desktop-direction="ltr"
+      :z-index="refundOrderDrawerZIndex"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: refundOrderDrawerZIndex })"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr', { zIndex: refundOrderDrawerZIndex })"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr', { zIndex: refundOrderDrawerZIndex })"
+      @open-settlement="(id) => relationDrawers?.openSettlementSide(id, { zIndex: refundOrderDrawerZIndex })"
+      @open-cash-flows="openRefundOrderCashFlows"
+    />
+    <RelatedCashFlowsDrawer
+      v-model="refundOrderCashFlowsVisible"
+      :refund-order-id="refundOrderRecord?.id"
+      :title-context="refundOrderRecord?.refundCode || ''"
+      desktop-direction="ltr"
+      :z-index="refundOrderCashFlowsZIndex"
+      @open-cash-flow="openRefundOrderCashFlowDetail"
+    />
+    <CashFlowDetailDrawer
+      v-model="refundOrderCashFlowDrawerVisible"
+      :record="refundOrderCashFlowRecord"
+      desktop-direction="ltr"
+      :z-index="refundOrderCashFlowDetailZIndex"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: refundOrderCashFlowDetailZIndex })"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr', { zIndex: refundOrderCashFlowDetailZIndex })"
+      @open-receipt="(id) => relationDrawers?.openReceiptSide(id, { zIndex: refundOrderCashFlowDetailZIndex })"
+      @open-refund-order="(id) => relationDrawers?.openRefundOrderSide(id, { zIndex: refundOrderCashFlowDetailZIndex })"
+    />
+    <RelatedCashFlowsDrawer
+      v-model="relatedCashFlowsVisible"
+      :contract-id="relatedCashFlowsContract?.id"
+      :title-context="relatedCashFlowsContract?.contractCode || ''"
+      desktop-direction="ltr"
+      :z-index="relatedCashFlowsZIndex"
+      @open-cash-flow="openContractCashFlowDetail"
+    />
+    <CashFlowDetailDrawer
+      v-model="relatedCashFlowDrawerVisible"
+      :record="relatedCashFlowRecord"
+      desktop-direction="ltr"
+      :z-index="relatedCashFlowDetailZIndex"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: relatedCashFlowDetailZIndex })"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr', { zIndex: relatedCashFlowDetailZIndex })"
+      @open-receipt="(id) => relationDrawers?.openReceiptSide(id, { zIndex: relatedCashFlowDetailZIndex })"
+      @open-refund-order="(id) => relationDrawers?.openRefundOrderSide(id, { zIndex: relatedCashFlowDetailZIndex })"
+    />
+
+    <ContractSettlementRefundDialog
+      v-model="settlementRefundVisible"
+      :settlement="settlementRefundRecord"
+      :z-index="settlementRefundZIndex"
+      @done="onSettlementRefundDone"
+      @open-refund-order="openRefundOrderFromSettlementRefund"
+    />
+    <ContractCancelDialog
+      v-model="cancelVisible"
+      :contract="cancelContract"
+      :z-index="contractMoreVisible ? FEATURE_DIALOG_ABOVE_MORE_Z : undefined"
+      @done="onCancelContractDone"
+      @open-invoice="(id, opts) => relationDrawers?.openInvoiceSide(id, opts)"
+      @open-receipt="(id, opts) => relationDrawers?.openReceiptSide(id, opts)"
+      @open-settlement="(id, opts) => relationDrawers?.openSettlementSide(id, opts)"
+      @open-refund-order="openRefundOrderFromCancel"
     />
 
     <RelatedInvoicesDrawer
       v-model="relatedInvoicesDrawerVisible"
       :contract="relatedInvoicesContract"
       desktop-direction="ltr"
+      :z-index="relatedInvoicesZIndex"
       @open-invoice="onOpenInvoiceFromList"
-      @open-contract="(id) => relationDrawers?.openContractSide(id)"
-      @open-customer="(id) => openCustomerSide(id, 'ltr')"
-      @open-room="(id) => openRoomSide(id, 'ltr')"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: relatedInvoicesZIndex })"
+      @open-customer="(id) => openCustomerSide(id, 'ltr', { zIndex: relatedInvoicesZIndex })"
+      @open-room="(id) => openRoomSide(id, 'ltr', { zIndex: relatedInvoicesZIndex })"
       @changed="loadList"
     />
     <RelatedReceivablesDrawer
       v-model="relatedReceivablesDrawerVisible"
       :contract="relatedReceivablesContract"
       desktop-direction="ltr"
+      :z-index="relatedReceivablesZIndex"
       @open-receivable="onOpenReceivableFromList"
-      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
-      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id, { zIndex: relatedReceivablesZIndex })"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: relatedReceivablesZIndex })"
       @changed="loadList"
     />
     <RelatedReceiptsDrawer
       v-model="relatedReceiptsDrawerVisible"
       :contract="relatedReceiptsContract"
       desktop-direction="ltr"
+      :z-index="relatedReceiptsZIndex"
       @open-receipt="onOpenReceiptFromList"
-      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
-      @open-contract="(id) => relationDrawers?.openContractSide(id)"
-      @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @open-receipt-by-id="(id) => relationDrawers?.openReceiptSide(id, { zIndex: relatedReceiptsZIndex })"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id, { zIndex: relatedReceiptsZIndex })"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: relatedReceiptsZIndex })"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id, { zIndex: relatedReceiptsZIndex })"
       @changed="loadList"
     />
     <RelatedPeriodsDrawer
       v-model="relatedPeriodsDrawerVisible"
       :contract="relatedPeriodsContract"
       desktop-direction="ltr"
+      :z-index="relatedPeriodsZIndex"
       @open-period="onOpenPeriodFromList"
-      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr', { zIndex: relatedPeriodsZIndex })"
     />
-    <RelatedTerminationsDrawer
-      v-model="relatedTerminationsDrawerVisible"
-      :contract="relatedTerminationsContract"
+    <RelatedSettlementsDrawer
+      v-model="relatedSettlementsDrawerVisible"
+      :contract="relatedSettlementsContract"
+      type="VACATE"
       desktop-direction="ltr"
-      @open-termination="onOpenTerminationFromList"
-      @open-contract="(id) => relationDrawers?.openContractSide(id)"
-      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
+      :z-index="relatedSettlementsZIndex"
+      @open-settlement="onOpenSettlementFromList"
+      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: relatedSettlementsZIndex })"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr', { zIndex: relatedSettlementsZIndex })"
     />
-    <RelatedOtherFeesDrawer
-      v-model="relatedOtherFeesDrawerVisible"
-      :contract="relatedOtherFeesContract"
+    <RelatedLoanItemsDrawer
+      v-model="relatedLoanItemsDrawerVisible"
+      :contract="relatedLoanItemsContract"
       desktop-direction="ltr"
-      @open-fee="onOpenOtherFeeFromList"
-      @open-termination="(id) => relationDrawers?.openTerminationSide(id)"
+      :z-index="relatedLoanItemsZIndex"
+      @open-fee="onOpenLoanItemFromList"
     />
-    <RelatedOtherFeesDrawer
+    <RelatedDepositDeductionsDrawer
       v-model="relatedDepositDeductionsDrawerVisible"
       :contract="relatedDepositDeductionsContract"
-      mode="depositDeduction"
       desktop-direction="ltr"
+      :z-index="relatedDepositDeductionsZIndex"
       @open-fee="onOpenDepositDeductionFromList"
-      @open-termination="(id) => relationDrawers?.openTerminationSide(id)"
+      @open-settlement="(id) => relationDrawers?.openSettlementSide(id, { zIndex: relatedDepositDeductionsZIndex })"
     />
     <RelatedDepositRefundsDrawer
       v-model="relatedDepositRefundsDrawerVisible"
       :contract="relatedDepositRefundsContract"
       desktop-direction="ltr"
+      :z-index="relatedDepositRefundsZIndex"
       @open-deposit-refund="onOpenDepositRefundFromList"
     />
 
@@ -4088,6 +5083,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       :title="t('contract.openOrderTitle')"
       :width="isMobile ? '94%' : '480px'"
       destroy-on-close
+      append-to-body
+      :z-index="contractMoreVisible ? FEATURE_DIALOG_ABOVE_MORE_Z : undefined"
     >
       <p class="form-hint">{{ t('contract.openOrderHint') }}</p>
       <el-form label-position="top">
@@ -4111,13 +5108,26 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
     <el-dialog
       v-model="formVisible"
-      :title="
-        formReadonly ? t('contract.view') : editing ? t('contract.edit') : t('contract.create')
-      "
       :width="dialogWidth"
+      class="lb-dialog contract-form-dialog"
       destroy-on-close
     >
-      <p v-if="formReadonly" class="form-hint">{{ t('contract.viewOnlyHint') }}</p>
+      <template #header="{ titleId, titleClass }">
+        <div class="contract-form-dlg-header">
+          <span :id="titleId" :class="titleClass">
+            {{
+              formReadonly
+                ? t('contract.view')
+                : editing
+                  ? t('contract.edit')
+                  : t('contract.create')
+            }}
+          </span>
+          <span v-if="formReadonly" class="contract-form-dlg-header__hint">
+            {{ t('contract.viewOnlyHint') }}
+          </span>
+        </div>
+      </template>
       <div class="contract-form-body" :class="{ 'is-readonly': formReadonly }">
       <el-form label-position="top">
         <section class="form-section">
@@ -4142,7 +5152,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   filterable
                   remote
                   reserve-keyword
-                  fit-input-width
                   style="width: 100%"
                   popper-class="contract-room-select-popper"
                   :placeholder="t('contract.fields.roomCode')"
@@ -4541,11 +5550,11 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 {{ t('contract.addLoanItem') }}
               </el-button>
             </div>
-            <div v-if="otherFees.length > LOAN_ITEM_PAGE_SIZE" class="period-table-pager">
+            <div v-if="loanItems.length > LOAN_ITEM_PAGE_SIZE" class="period-table-pager">
               <el-pagination
                 v-model:current-page="loanItemPage"
                 :page-size="LOAN_ITEM_PAGE_SIZE"
-                :total="otherFees.length"
+                :total="loanItems.length"
                 layout="total, prev, pager, next"
                 small
                 background
@@ -4562,25 +5571,25 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               <div class="period-table__head" role="row">
                 <div class="period-table__cell period-table__cell--index" role="columnheader">#</div>
                 <div class="period-table__cell loan-item-table__cell--desc" role="columnheader">
-                  <span class="req">*</span>{{ t('contractOtherFee.fields.description') }}
+                  <span class="req">*</span>{{ t('contractLoanItem.fields.description') }}
                 </div>
                 <div class="period-table__cell loan-item-table__cell--qty" role="columnheader">
-                  <span class="req">*</span>{{ t('contractOtherFee.fields.quantity') }}
+                  <span class="req">*</span>{{ t('contractLoanItem.fields.quantity') }}
                 </div>
                 <div class="period-table__cell loan-item-table__cell--unit" role="columnheader">
-                  <span class="req">*</span>{{ t('contractOtherFee.fields.unitAmount') }}
+                  <span class="req">*</span>{{ t('contractLoanItem.fields.unitAmount') }}
                 </div>
                 <div class="period-table__cell loan-item-table__cell--sub" role="columnheader">
-                  {{ t('contractOtherFee.fields.subtotal') }}
+                  {{ t('contractLoanItem.fields.subtotal') }}
                 </div>
                 <div class="period-table__cell loan-item-table__cell--remark" role="columnheader">
-                  {{ t('contractOtherFee.fields.remark') }}
+                  {{ t('contractLoanItem.fields.remark') }}
                 </div>
                 <div class="period-table__cell loan-item-table__cell--actions" role="columnheader"></div>
               </div>
               <div
                 class="period-table__body"
-                :class="{ 'period-table__body--fixed': otherFees.length > LOAN_ITEM_PAGE_SIZE }"
+                :class="{ 'period-table__body--fixed': loanItems.length > LOAN_ITEM_PAGE_SIZE }"
               >
                 <div
                   v-for="{ row, index } in pagedLoanItems"
@@ -4639,7 +5648,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   <div class="period-table__cell loan-item-table__cell--desc" role="cell">
                     <el-input
                       v-model="row.description"
-                      :placeholder="t('contractOtherFee.fields.description')"
+                      :placeholder="t('contractLoanItem.fields.description')"
                     />
                   </div>
                   <div class="period-table__cell loan-item-table__cell--qty" role="cell">
@@ -4666,14 +5675,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   <div class="period-table__cell loan-item-table__cell--remark" role="cell">
                     <el-input
                       v-model="row.remark"
-                      :placeholder="t('contractOtherFee.fields.remark')"
+                      :placeholder="t('contractLoanItem.fields.remark')"
                     />
                   </div>
                   <div class="period-table__cell loan-item-table__cell--actions" role="cell">
                     <el-button type="danger" link :icon="Delete" @click="removeLoanItem(index)" />
                   </div>
                 </div>
-                <div v-if="!otherFees.length" class="loan-item-table__empty">
+                <div v-if="!loanItems.length" class="loan-item-table__empty">
                   {{ t('contract.loanItemsEmpty') }}
                 </div>
               </div>
@@ -4693,6 +5702,30 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 style="width: 100%"
               />
             </el-form-item>
+            <el-form-item :label="t('contract.fields.electricityRate')">
+              <el-input-number
+                v-model="form.electricityRate"
+                :min="0"
+                :precision="2"
+                :step="0.1"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item :label="t('contract.fields.paymentCycle')">
+              <el-select
+                v-model="form.paymentCycle"
+                filterable
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="pc in CONTRACT_PAYMENT_CYCLES"
+                  :key="pc"
+                  :label="pc"
+                  :value="pc"
+                />
+              </el-select>
+            </el-form-item>
             <el-form-item :label="t('contract.fields.roomDeposit')">
               <el-input-number
                 v-model="form.roomDeposit"
@@ -4703,21 +5736,27 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 @change="onRoomDepositUserChange"
               />
             </el-form-item>
+            <el-form-item>
+              <template #label>
+                <span class="form-label-with-tip">
+                  {{ t('contract.fields.loanItemsDeposit') }}
+                  <el-tooltip
+                    :content="t('contract.fields.loanItemsDepositHint')"
+                    placement="top"
+                  >
+                    <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
+              <div class="total-deposit-field">
+                <span class="total-deposit-field__value">{{ formatMoney(computedLoanItemsDeposit) }}</span>
+              </div>
+            </el-form-item>
             <el-form-item :label="t('contract.fields.miscDeposit')">
               <el-input-number
                 v-model="form.miscDeposit"
                 :min="0"
                 :precision="2"
-                controls-position="right"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('contract.fields.electricityRate')">
-              <el-input-number
-                v-model="form.electricityRate"
-                :min="0"
-                :precision="2"
-                :step="0.01"
                 controls-position="right"
                 style="width: 100%"
               />
@@ -4740,20 +5779,6 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 style="width: 100%"
               />
             </el-form-item>
-            <el-form-item :label="t('contract.fields.paymentCycle')">
-              <el-select
-                v-model="form.paymentCycle"
-                filterable
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="pc in CONTRACT_PAYMENT_CYCLES"
-                  :key="pc"
-                  :label="pc"
-                  :value="pc"
-                />
-              </el-select>
-            </el-form-item>
             <el-form-item>
               <template #label>
                 <span class="form-label-with-tip">
@@ -4774,15 +5799,44 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
         </section>
 
         <section class="form-section">
-          <h3>{{ t('contract.sections.payment') }}</h3>
+          <div class="period-section-head">
+            <div class="period-section-head__left">
+              <h3>{{ t('contract.sections.payment') }}</h3>
+              <el-button
+                v-if="canTopUpBookingDepositInForm"
+                v-admin-glow="receiptPerms.codes.create"
+                type="primary"
+                size="small"
+                plain
+                :icon="Plus"
+                class="period-add-btn"
+                @click="openTopUpBookingDeposit"
+              >
+                {{ t('receipt.bookingDeposit.topUpAction') }}
+              </el-button>
+            </div>
+          </div>
           <div class="form-grid form-grid--finance">
-            <el-form-item :label="t('contract.fields.bookingDeposit')" required>
+            <el-form-item>
+              <template #label>
+                <span class="form-label-with-tip">
+                  {{ t('contract.fields.bookingDeposit') }}
+                  <el-tooltip
+                    v-if="bookingDepositLocked"
+                    :content="t('contract.fields.bookingDepositLockedHint')"
+                    placement="top"
+                  >
+                    <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
               <el-input-number
                 v-model="form.bookingDeposit"
                 :min="0"
                 :precision="2"
                 controls-position="right"
                 style="width: 100%"
+                :disabled="formReadonly || bookingDepositLocked"
               />
             </el-form-item>
             <el-form-item :label="t('contract.fields.paymentDate')">
@@ -4791,9 +5845,13 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 type="date"
                 value-format="YYYY-MM-DD"
                 style="width: 100%"
+                :disabled="formReadonly || bookingDepositLocked"
               />
             </el-form-item>
-            <el-form-item :label="t('receipt.fields.paymentMethod')" required>
+            <el-form-item
+              :label="t('receipt.fields.paymentMethod')"
+              :required="!editing && Number(form.bookingDeposit ?? 0) > 0"
+            >
               <el-select
                 v-model="form.paymentMethod"
                 filterable
@@ -4801,7 +5859,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 :value-on-clear="null"
                 style="width: 100%"
                 :placeholder="t('common.pleaseSelect')"
-                :disabled="formReadonly"
+                :disabled="formReadonly || bookingDepositLocked"
               >
                 <el-option
                   v-for="pm in RECEIPT_PAYMENT_METHODS"
@@ -4811,8 +5869,13 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 />
               </el-select>
             </el-form-item>
-            <el-form-item :label="t('contract.fields.paymentVoucher')" required class="span-3">
-              <AttachmentField v-model="form.paymentVoucher" :disabled="formReadonly" />
+            <el-form-item
+              v-if="!editing"
+              :label="t('contract.fields.paymentVoucher')"
+              class="span-3"
+              :required="Number(form.bookingDeposit ?? 0) > 0"
+            >
+              <AttachmentField v-model="form.paymentVoucher" />
             </el-form-item>
           </div>
         </section>
@@ -4833,11 +5896,20 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               })
             "
           />
-          <el-form-item :label="t('contract.fields.attachment')">
+          <el-form-item>
+            <template #label>
+              <span class="form-label-with-tip">
+                {{ t('contract.fields.attachment') }}
+                <el-tooltip
+                  v-if="!formReadonly"
+                  :content="t('contract.issueNowHint')"
+                  placement="top"
+                >
+                  <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
+            </template>
             <AttachmentField v-model="form.attachment" :disabled="formReadonly" />
-            <p v-if="!formReadonly" class="form-hint form-hint--inline">
-              {{ t('contract.issueNowHint') }}
-            </p>
           </el-form-item>
           <el-form-item :label="t('contract.fields.remark')">
             <el-input v-model="form.remark" type="textarea" :rows="2" />
@@ -4883,6 +5955,183 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             {{ t('contract.issueNow') }}
           </el-button>
         </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="topUpVisible"
+      width="480px"
+      append-to-body
+      destroy-on-close
+      class="lb-dialog"
+    >
+      <template #header="{ titleId, titleClass }">
+        <div class="top-up-dlg-header">
+          <span :id="titleId" :class="titleClass">
+            {{ t('receipt.bookingDeposit.topUpTitle') }}
+          </span>
+          <el-tooltip
+            :content="t('receipt.bookingDeposit.topUpHint')"
+            placement="top"
+            :show-after="200"
+          >
+            <el-icon class="form-label-tip" :size="16"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </div>
+      </template>
+      <el-form label-position="top">
+        <el-form-item :label="t('receipt.bookingDeposit.topUpMode')" required>
+          <div class="top-up-mode-cards" role="radiogroup">
+            <button
+              type="button"
+              class="top-up-mode-card"
+              :class="{ 'is-active': topUpForm.mode === 'new_receipt' }"
+              role="radio"
+              :aria-checked="topUpForm.mode === 'new_receipt'"
+              @click="setTopUpMode('new_receipt')"
+            >
+              <span class="top-up-mode-card__radio" aria-hidden="true" />
+              <span class="top-up-mode-card__title-row">
+                <span class="top-up-mode-card__title">
+                  {{ t('receipt.bookingDeposit.topUpModeNew') }}
+                </span>
+                <el-tooltip
+                  :content="t('receipt.bookingDeposit.topUpModeNewHint')"
+                  placement="top"
+                  :show-after="200"
+                >
+                  <el-icon
+                    class="form-label-tip"
+                    :size="14"
+                    @click.stop
+                    @mousedown.stop
+                  >
+                    <QuestionFilled />
+                  </el-icon>
+                </el-tooltip>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="top-up-mode-card"
+              :class="{
+                'is-active': topUpForm.mode === 'merge',
+                'is-disabled': !topUpHasExistingReceipts,
+              }"
+              role="radio"
+              :aria-checked="topUpForm.mode === 'merge'"
+              :aria-disabled="!topUpHasExistingReceipts"
+              :disabled="!topUpHasExistingReceipts"
+              :title="
+                topUpHasExistingReceipts
+                  ? undefined
+                  : t('receipt.bookingDeposit.topUpMergeNeedReceipt')
+              "
+              @click="setTopUpMode('merge')"
+            >
+              <span class="top-up-mode-card__radio" aria-hidden="true" />
+              <span class="top-up-mode-card__title-row">
+                <span class="top-up-mode-card__title">
+                  {{ t('receipt.bookingDeposit.topUpModeMerge') }}
+                </span>
+                <el-tooltip
+                  :content="
+                    topUpHasExistingReceipts
+                      ? t('receipt.bookingDeposit.topUpModeMergeHint')
+                      : t('receipt.bookingDeposit.topUpMergeNeedReceipt')
+                  "
+                  placement="top"
+                  :show-after="200"
+                >
+                  <el-icon
+                    class="form-label-tip"
+                    :size="14"
+                    @click.stop
+                    @mousedown.stop
+                  >
+                    <QuestionFilled />
+                  </el-icon>
+                </el-tooltip>
+              </span>
+            </button>
+          </div>
+        </el-form-item>
+        <el-form-item
+          v-if="topUpForm.mode === 'merge'"
+          :label="t('receipt.bookingDeposit.topUpMergeTarget')"
+          required
+        >
+          <el-select
+            v-model="topUpForm.mergeReceiptId"
+            filterable
+            style="width: 100%"
+            :loading="topUpReceiptsLoading"
+            :placeholder="t('common.pleaseSelect')"
+            popper-class="top-up-dlg-popper"
+            @change="applyMergePaymentMethodLock"
+          >
+            <el-option
+              v-for="r in topUpReceiptOptions"
+              :key="r.id"
+              :label="`${r.receiptCode}（${formatMoney(r.amount)}）`"
+              :value="r.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('receipt.bookingDeposit.topUpAmount')" required>
+          <el-input-number
+            v-model="topUpForm.amount"
+            :min="0.01"
+            :precision="2"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item :label="t('receipt.bookingDeposit.topUpDate')" required>
+          <el-date-picker
+            v-model="topUpForm.paymentDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+            popper-class="top-up-dlg-popper"
+          />
+        </el-form-item>
+        <el-form-item
+          :label="t('receipt.fields.paymentMethod')"
+          :required="topUpForm.mode === 'new_receipt'"
+        >
+          <el-select
+            v-model="topUpForm.paymentMethod"
+            filterable
+            clearable
+            :value-on-clear="null"
+            style="width: 100%"
+            :placeholder="t('common.pleaseSelect')"
+            :disabled="topUpForm.mode === 'merge' && !!mergeTargetReceiptMethod"
+            popper-class="top-up-dlg-popper"
+          >
+            <el-option v-for="pm in RECEIPT_PAYMENT_METHODS" :key="pm" :label="pm" :value="pm" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('contract.fields.paymentVoucher')">
+          <AttachmentField v-model="topUpForm.paymentVoucher" />
+        </el-form-item>
+        <el-form-item :label="t('receipt.fields.remark')">
+          <el-input v-model="topUpForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="topUpSubmitting" @click="topUpVisible = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          class="lb-btn-primary"
+          :loading="topUpSubmitting"
+          @click="submitTopUpBookingDeposit"
+        >
+          {{ t('common.submit') }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -5035,20 +6284,39 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   color: var(--lb-muted, #6a7a70);
 }
 
-.form-hint--inline {
-  margin: 6px 0 0;
-}
-
 .contract-form-body.is-readonly {
   pointer-events: none;
   user-select: text;
   opacity: 0.96;
 }
 
-/* 只读时仍允许预览已上传附件 */
-.contract-form-body.is-readonly :deep(.attachment-field__chip) {
+/* 只读时仍允许预览已上传附件、查看问号说明 */
+.contract-form-body.is-readonly :deep(.attachment-field__chip),
+.contract-form-body.is-readonly :deep(.form-label-tip),
+.contract-form-body.is-readonly :deep(.form-label-with-tip .el-tooltip__trigger) {
   pointer-events: auto;
   cursor: pointer;
+}
+
+.contract-form-dlg-header {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding-right: 72px; /* 留出全屏／关闭按钮 */
+}
+
+.contract-form-dlg-header__hint {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #8a6a45;
+  background: #fff7ed;
+  border: 1px solid #f0d2a8;
+  border-radius: 8px;
+  padding: 3px 10px;
+  max-width: min(100%, 420px);
 }
 
 .form-grid {
@@ -5105,6 +6373,94 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   padding: 4px 12px;
   height: 26px;
 }
+
+.top-up-dlg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.top-up-mode-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.top-up-mode-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid #d7e2db;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.top-up-mode-card:hover:not(:disabled):not(.is-disabled) {
+  border-color: color-mix(in srgb, var(--lb-brand) 45%, #d7e2db);
+  background: color-mix(in srgb, var(--lb-brand) 4%, #fff);
+}
+
+.top-up-mode-card.is-active {
+  border-color: var(--lb-brand);
+  background: color-mix(in srgb, var(--lb-brand) 8%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand) 35%, transparent);
+}
+
+.top-up-mode-card.is-disabled,
+.top-up-mode-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.top-up-mode-card__radio {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #9aab9f;
+  border-radius: 50%;
+  background: #fff;
+  position: relative;
+}
+
+.top-up-mode-card.is-active .top-up-mode-card__radio {
+  border-color: var(--lb-brand);
+}
+
+.top-up-mode-card.is-active .top-up-mode-card__radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--lb-brand);
+}
+
+.top-up-mode-card__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.top-up-mode-card__title {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #143628;
+  line-height: 1.35;
+}
+
 
 .form-section--periods,
 .form-section--loan-items {

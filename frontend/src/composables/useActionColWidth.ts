@@ -5,6 +5,13 @@ import { useI18n } from 'vue-i18n'
 const PILL_PAD_BORDER = 30
 /** 与 .action-pill--more 一致：左右 8 + border 1*2（勿用普通 pill 的 30，否则合约「…」右侧会空一大截） */
 const MORE_PILL_PAD_BORDER = 18
+/** 与 .action-pill--icon 一致：固定宽 30px（详情等纯图标按钮） */
+const ICON_PILL_WIDTH = 30
+/**
+ * 传给 actionColW / measureActionColWidth 的图标按钮占位标记（勿当作用户可见文案）。
+ * 例：`actionColW([ACTION_COL_ICON, perms.update && t('common.edit')])`
+ */
+export const ACTION_COL_ICON = '__icon__'
 const PILL_GAP = 6
 /** 与 td.col-actions > .cell 左侧 10px 一致（合约表基准） */
 const CELL_PAD_LEFT = 10
@@ -121,7 +128,12 @@ function isMorePillLabel(label: string): boolean {
   return s === '…' || s === '...' || s === '⋯'
 }
 
+function isIconPillLabel(label: string): boolean {
+  return label.trim() === ACTION_COL_ICON
+}
+
 function estimatePillWidth(label: string): number {
+  if (isIconPillLabel(label)) return ICON_PILL_WIDTH
   if (isMorePillLabel(label)) {
     // 对齐 .action-pill--more：padding 8/8 + border，且 min-width: 2.2em
     const minW = 2.2 * resolveActionFontSizePx()
@@ -153,19 +165,18 @@ export function useActionColWidth() {
 
   const actionColWidth = computed(() => {
     void locale.value
-    const detail = t('common.detail')
     const edit = t('common.edit')
     const del = t('common.delete')
     return {
-      /** 仅详情 */
-      one: measureActionColWidth([detail]),
-      /** 详情+编辑 与 编辑+删除 取较大值 */
+      /** 仅详情（图标） */
+      one: measureActionColWidth([ACTION_COL_ICON]),
+      /** 详情图标+编辑 与 编辑+删除 取较大值 */
       two: Math.max(
-        measureActionColWidth([detail, edit]),
+        measureActionColWidth([ACTION_COL_ICON, edit]),
         measureActionColWidth([edit, del]),
       ),
-      /** 详情+编辑+删除 */
-      three: measureActionColWidth([detail, edit, del]),
+      /** 详情图标+编辑+删除 */
+      three: measureActionColWidth([ACTION_COL_ICON, edit, del]),
     }
   })
 

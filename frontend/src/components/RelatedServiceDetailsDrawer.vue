@@ -6,6 +6,8 @@ import type { InvoiceServiceDetailListRecord } from '@/types/invoice-service-det
 import { fetchInvoiceServiceDetails } from '@/api/invoice-service-details'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { useRelatedAmountStats } from '@/composables/useRelatedTableAmountSummary'
+import RelatedAmountStatsBar from '@/components/RelatedAmountStatsBar.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import { formatMoney } from '@/utils/format'
 import { useTableColWidth } from '@/composables/useTableColWidth'
@@ -18,12 +20,17 @@ const props = withDefaults(
     titleContext?: string
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     invoiceId: undefined,
     titleContext: undefined,
     desktopDirection: 'ltr',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -60,6 +67,16 @@ const filtered = computed(() => {
 
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } =
   useClientPagination(filtered)
+const {
+  items: amountStats,
+  visible: amountStatsVisible,
+  caption: amountStatsCaption,
+} = useRelatedAmountStats({
+  rows: filtered,
+  fields: [
+    { prop: 'subtotal', label: t('invoiceServiceDetail.fields.subtotal') },
+  ],
+})
 
 watch(keyword, () => resetPage())
 
@@ -110,6 +127,10 @@ function onRowClick(row: InvoiceServiceDetailListRecord, column?: { type?: strin
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">
@@ -170,6 +191,7 @@ function onRowClick(row: InvoiceServiceDetailListRecord, column?: { type?: strin
             </template>
           </el-table-column>
           <el-table-column
+            prop="subtotal"
             :label="t('invoiceServiceDetail.fields.subtotal')"
             :min-width="colW(t('invoiceServiceDetail.fields.subtotal'), { contentMin: 100 })"
             align="right"
@@ -187,6 +209,12 @@ function onRowClick(row: InvoiceServiceDetailListRecord, column?: { type?: strin
           </el-table-column>
         </el-table>
       </div>
+
+      <RelatedAmountStatsBar
+        v-if="amountStatsVisible"
+        :items="amountStats"
+        :caption="amountStatsCaption"
+      />
 
       <div v-if="total" class="related-list__pager">
         <TablePagination

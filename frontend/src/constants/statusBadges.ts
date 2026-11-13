@@ -83,8 +83,9 @@ export function customerStatusTone(status: string | null | undefined): StatusTon
   return CUSTOMER_STATUS_TONES[key] || 'neutral'
 }
 
-/** 客户需求状态色：蓝 / 绿 / 红 */
+/** 客户需求状态色：灰 / 蓝 / 绿 / 红 */
 const CUSTOMER_REQUIREMENT_STATUS_TONES: Record<string, StatusTone> = {
+  未跟進: 'neutral',
   跟進中: 'contracting',
   已簽約: 'idle',
   已取消: 'terminating',
@@ -136,10 +137,13 @@ export function contractOccupancyTone(occupancyMode: string | null | undefined):
     : 'leased'
 }
 
-/** 按金退还状态色：草稿灰 / 未退按金橙 / 已退按金绿 / 已取消红 */
+/** 按金退还状态色：草稿灰 / 未退橙 / 部分已退橙 / 已退绿 / 已取消红（兼容旧文案） */
 const DEPOSIT_REFUND_STATUS_TONES: Record<string, StatusTone> = {
   草稿: 'neutral',
+  未退: 'signing',
   未退按金: 'signing',
+  部分已退: 'signing',
+  已退: 'idle',
   已退按金: 'idle',
   已取消: 'terminating',
 }
@@ -147,6 +151,70 @@ const DEPOSIT_REFUND_STATUS_TONES: Record<string, StatusTone> = {
 export function depositRefundStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '').trim()
   return DEPOSIT_REFUND_STATUS_TONES[key] || 'neutral'
+}
+
+/** 合约终止结算状态色 */
+const CONTRACT_SETTLEMENT_STATUS_TONES: Record<string, StatusTone> = {
+  pending_refund: 'signing',
+  partial: 'contracting',
+  settled: 'idle',
+  /** 兼容历史数据（迁移前） */
+  executed: 'idle',
+  cancelled: 'idle',
+}
+
+export function contractSettlementStatusTone(status: string | null | undefined): StatusTone {
+  const key = (status || '').trim()
+  return CONTRACT_SETTLEMENT_STATUS_TONES[key] || 'neutral'
+}
+
+/** 应退状态色（同原结算状态） */
+export function contractSettlementRefundStatusTone(
+  status: string | null | undefined,
+): StatusTone {
+  return contractSettlementStatusTone(status)
+}
+
+/** 应收（应补）状态色 */
+const CONTRACT_SETTLEMENT_COLLECT_STATUS_TONES: Record<string, StatusTone> = {
+  none: 'neutral',
+  pending_collect: 'signing',
+  partial: 'contracting',
+  settled: 'idle',
+}
+
+export function contractSettlementCollectStatusTone(
+  status: string | null | undefined,
+): StatusTone {
+  const key = (status || '').trim()
+  return CONTRACT_SETTLEMENT_COLLECT_STATUS_TONES[key] || 'neutral'
+}
+
+export function contractSettlementTypeTone(type: string | null | undefined): StatusTone {
+  return (type || '').trim() === 'CANCEL' ? 'terminating' : 'leasing'
+}
+
+/** 退款单状态色 */
+const REFUND_ORDER_STATUS_TONES: Record<string, StatusTone> = {
+  pending: 'signing',
+  partial: 'contracting',
+  paid: 'idle',
+  cancelled: 'terminating',
+}
+
+export function refundOrderStatusTone(status: string | null | undefined): StatusTone {
+  const key = (status || '').trim()
+  return REFUND_ORDER_STATUS_TONES[key] || 'neutral'
+}
+
+/** 资金流水方向色：入账绿 / 出账橙 */
+export function cashFlowDirectionTone(direction: string | null | undefined): StatusTone {
+  return (direction || '').trim() === 'out' ? 'signing' : 'idle'
+}
+
+/** 资金流水来源类型色：收据绿 / 退款单橙（与入账／出账对齐） */
+export function cashFlowSourceTypeTone(sourceType: string | null | undefined): StatusTone {
+  return (sourceType || '').trim() === 'refund_order' ? 'signing' : 'idle'
 }
 
 /** 发票状态色：待开票橙 / 已开票绿 / 已取消红 */
@@ -159,6 +227,19 @@ const INVOICE_STATUS_TONES: Record<string, StatusTone> = {
 export function invoiceStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '').trim()
   return INVOICE_STATUS_TONES[key] || 'neutral'
+}
+
+/** 应收有效性：有效绿 / 失效红（按所属发票是否已取消） */
+export function receivableValidityTone(
+  invoiceStatus: string | null | undefined,
+): StatusTone {
+  return (invoiceStatus || '').trim() === '已取消' ? 'terminating' : 'idle'
+}
+
+export function receivableValidityKey(
+  invoiceStatus: string | null | undefined,
+): 'active' | 'invalid' {
+  return (invoiceStatus || '').trim() === '已取消' ? 'invalid' : 'active'
 }
 
 /** 发票产生方式：用户手动橙 / 系统自动绿 */

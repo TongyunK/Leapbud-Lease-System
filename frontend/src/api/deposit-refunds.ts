@@ -1,6 +1,9 @@
 import request from './request'
 import type { ImportBatchResult } from './customers'
-import type { DepositRefundRecord } from '@/types/deposit-refund'
+import type {
+  DepositRefundAttachmentRecord,
+  DepositRefundRecord,
+} from '@/types/deposit-refund'
 import type { DepositRefundImportPayload } from '@/utils/depositRefundExport'
 import type { PaginatedResult } from '@/types/pagination'
 
@@ -13,9 +16,8 @@ export type DepositRefundWritePayload = {
   refundDate?: string
   totalDeposit?: number
   actualRefundAmount?: number
+  bookingDepositRefundAmount?: number
   handlerId?: string | null
-  voucherImage?: string
-  voucherAttachment?: string
   remark?: string
 }
 
@@ -81,15 +83,19 @@ export function fetchDepositRefund(id: string) {
   return request.get<DepositRefundRecord>(`/deposit-refunds/${id}`)
 }
 
-export function createDepositRefundApi(payload: DepositRefundWritePayload) {
-  return request.post<DepositRefundRecord>('/deposit-refunds', payload)
+export function createDepositRefundApi(
+  payload: DepositRefundWritePayload,
+  opts?: { silentError?: boolean },
+) {
+  return request.post<DepositRefundRecord>('/deposit-refunds', payload, opts)
 }
 
 export function updateDepositRefundApi(
   id: string,
   payload: Partial<DepositRefundWritePayload>,
+  opts?: { silentError?: boolean },
 ) {
-  return request.patch<DepositRefundRecord>(`/deposit-refunds/${id}`, payload)
+  return request.patch<DepositRefundRecord>(`/deposit-refunds/${id}`, payload, opts)
 }
 
 export function deleteDepositRefundApi(id: string) {
@@ -105,4 +111,37 @@ export function batchDeleteDepositRefundsApi(ids: string[]) {
 
 export function importDepositRefundsApi(items: DepositRefundImportPayload[]) {
   return request.post<ImportBatchResult>('/deposit-refunds/import', { items })
+}
+
+export function uploadDepositRefundAttachmentsApi(depositRefundId: string, files: File[]) {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  return request.post<DepositRefundAttachmentRecord[]>(
+    `/deposit-refunds/${depositRefundId}/attachments`,
+    fd,
+  )
+}
+
+export function deleteDepositRefundAttachmentApi(
+  depositRefundId: string,
+  attachmentId: string,
+) {
+  return request.delete<{ success: boolean }>(
+    `/deposit-refunds/${depositRefundId}/attachments/${attachmentId}`,
+  )
+}
+
+/** 拉取按金退还凭证二进制（需 JWT），用于 Auth 预览 */
+export async function fetchDepositRefundAttachmentBlob(
+  depositRefundId: string,
+  attachmentId: string,
+) {
+  const res = await request.get<Blob>(
+    `/deposit-refunds/${depositRefundId}/attachments/${attachmentId}/file`,
+    {
+      responseType: 'blob',
+      silentError: true,
+    },
+  )
+  return res.data
 }

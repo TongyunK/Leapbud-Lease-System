@@ -17,8 +17,13 @@ const props = withDefaults(
     contract: ContractRecord | null
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
-  { desktopDirection: 'ltr', size: undefined },
+  { desktopDirection: 'ltr', size: undefined ,
+    zIndex: undefined,
+  },
 )
 
 const emit = defineEmits<{
@@ -102,6 +107,10 @@ function onRowClick(row: ContractPeriodListRecord, column?: { type?: string }, e
     :title="title"
     :direction="direction"
     class="responsive-drawer related-list-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <div v-loading="loading" class="related-list">
       <div class="related-list__toolbar">

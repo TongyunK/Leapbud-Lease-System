@@ -6,7 +6,12 @@ import {
   NotFoundException,
   StreamableFile,
 } from '@nestjs/common';
-import { Prisma, RoomLeaseCapability, RoomStatus } from '@prisma/client';
+import {
+  ContractSettlementType,
+  Prisma,
+  RoomLeaseCapability,
+  RoomStatus,
+} from '@prisma/client';
 import * as fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import * as path from 'path';
@@ -569,7 +574,7 @@ export class RoomsService {
     if (key === 'contractCount') return [{ contracts: { _count: dir } }, { roomCode: 'asc' }];
     if (key === 'invoiceCount') return [{ invoices: { _count: dir } }, { roomCode: 'asc' }];
     if (key === 'terminationCount') {
-      return [{ leaseTerminations: { _count: dir } }, { roomCode: 'asc' }];
+      return [{ contractSettlements: { _count: dir } }, { roomCode: 'asc' }];
     }
     if (key === 'depositRefundCount') {
       return [{ depositRefunds: { _count: dir } }, { roomCode: 'asc' }];
@@ -856,14 +861,17 @@ export class RoomsService {
       where: { id },
       include: {
         _count: {
-          select: { contracts: true, leaseTerminations: true },
+          select: {
+            contracts: true,
+            contractSettlements: { where: { type: ContractSettlementType.VACATE } },
+          },
         },
         images: true,
       },
     });
     if (!existing) throw new NotFoundException(`Room ${id} not found`);
     await this.access.assertBuildingId(existing.buildingId);
-    if (existing._count.contracts > 0 || existing._count.leaseTerminations > 0) {
+    if (existing._count.contracts > 0 || existing._count.contractSettlements > 0) {
       throw new ConflictException(
         `Room「${existing.roomCode}」仍有關聯合約或退租記錄，無法刪除`,
       );

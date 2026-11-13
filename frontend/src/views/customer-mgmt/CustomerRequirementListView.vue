@@ -55,7 +55,8 @@ import ExportIcon from '@/components/icons/ExportIcon.vue'
 import RefreshListButton from '@/components/RefreshListButton.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
-import { measureActionColWidth } from '@/composables/useActionColWidth'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
+import { ACTION_COL_ICON, measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useUserStore } from '@/stores/user'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
@@ -85,7 +86,7 @@ const perms = useResourcePermissions('customerRequirements')
 /** 跟進 / 取消：按权限与当前语言文案测宽（英文 Follow up 比「编辑」宽） */
 const requirementActionColWidth = computed(() => {
   void locale.value
-  const labels: string[] = []
+  const labels: string[] = [ACTION_COL_ICON]
   if (perms.update) labels.push(t('customerRequirement.followUp'))
   if (perms.delete) labels.push(t('common.cancel'))
   return measureActionColWidth(labels)
@@ -343,7 +344,7 @@ const form = reactive({
   customerId: '',
   salesManagerId: '' as string,
   requirementDate: todayIso(),
-  status: '跟進中',
+  status: '未跟進',
   rentalType: 'long' as (typeof CUSTOMER_REQUIREMENT_RENTAL_TYPES)[number],
   leaseDurationAmount: null as number | null,
   leaseDurationUnit: 'month' as LeaseDurationUnit,
@@ -536,7 +537,7 @@ async function openCreate() {
     customerId: '',
     salesManagerId: myId,
     requirementDate: todayIso(),
-    status: '跟進中',
+    status: '未跟進',
     rentalType: 'long',
     leaseDurationAmount: null,
     leaseDurationUnit: 'month' as LeaseDurationUnit,
@@ -573,7 +574,7 @@ function openEdit(row: CustomerRequirementRecord) {
     customerId: row.customerId,
     salesManagerId: row.salesManagerId || '',
     requirementDate: row.requirementDate || todayIso(),
-    status: row.status || '跟進中',
+    status: row.status || '未跟進',
     rentalType,
     leaseDurationAmount: lease.amount,
     leaseDurationUnit: lease.unit,
@@ -1255,7 +1256,6 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
           <el-table-column
-            v-if="perms.canEditOrDelete"
             :label="t('common.actions')"
             :width="requirementActionColWidth"
             fixed="right"
@@ -1264,6 +1264,7 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row as CustomerRequirementRecord)" />
                 <button
                   v-if="perms.update"
                   v-admin-glow="perms.codes.update"

@@ -23,14 +23,14 @@ export class OpenContractOrderDto {
   attachment!: string;
 }
 
-/** 借出物品 / 其他费用（嵌套写入，仅合约级、不含退租关联项） */
-export class ContractOtherFeeInputDto {
-  @ApiPropertyOptional({ description: '费用项 ID（全量替换时忽略）' })
+/** 借出物品（嵌套写入） */
+export class ContractLoanItemInputDto {
+  @ApiPropertyOptional({ description: '借出行 ID（全量替换时忽略）' })
   @IsOptional()
   @IsString()
   id?: string;
 
-  @ApiProperty({ example: '更衣櫃鎖匙', description: '物品 / 费用描述' })
+  @ApiProperty({ example: '更衣櫃鎖匙', description: '物品描述' })
   @IsString()
   @MinLength(1)
   description!: string;
@@ -62,6 +62,9 @@ export class ContractOtherFeeInputDto {
   @IsInt()
   sortOrder?: number;
 }
+
+/** @deprecated 使用 ContractLoanItemInputDto */
+export class ContractOtherFeeInputDto extends ContractLoanItemInputDto {}
 
 /** 合约期（嵌套写入） */
 export class ContractPeriodInputDto {
@@ -264,13 +267,13 @@ export class CreateContractDto {
   @Type(() => ContractPeriodInputDto)
   periods?: ContractPeriodInputDto[];
 
-  @ApiPropertyOptional({ type: [ContractOtherFeeInputDto], description: '借出物品（全量替换合约级费用）' })
+  @ApiPropertyOptional({ type: [ContractLoanItemInputDto], description: '借出物品（全量替换）' })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
-  @Type(() => ContractOtherFeeInputDto)
-  otherFees?: ContractOtherFeeInputDto[];
+  @Type(() => ContractLoanItemInputDto)
+  loanItems?: ContractLoanItemInputDto[];
 
   @ApiPropertyOptional({
     description: '直接开单：须已上传签约文件，创建后状态为「租賃中」；否则固定「簽約中」',
@@ -449,14 +452,14 @@ export class UpdateContractDto {
   @Type(() => ContractPeriodInputDto)
   periods?: ContractPeriodInputDto[];
 
-  /** 传入则整表替换合约级借出物品（不含已关联退租的费用行） */
-  @ApiPropertyOptional({ type: [ContractOtherFeeInputDto] })
+  /** 传入则整表替换借出物品 */
+  @ApiPropertyOptional({ type: [ContractLoanItemInputDto] })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
-  @Type(() => ContractOtherFeeInputDto)
-  otherFees?: ContractOtherFeeInputDto[];
+  @Type(() => ContractLoanItemInputDto)
+  loanItems?: ContractLoanItemInputDto[];
 
   @ApiPropertyOptional({
     description: '直接开单：须已上传签约文件，保存后状态改为「租賃中」',

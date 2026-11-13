@@ -330,7 +330,7 @@ async function openMenus(row: RoleRecord) {
   checkedMenuIds.value = []
   try {
     const [menusRes, roleMenusRes] = await Promise.all([
-      fetchMenus({ flat: false }),
+      fetchMenus({ flat: false, activeOnly: true }),
       fetchRoleMenusApi(row.id),
     ])
     menuTree.value = menusRes.data ?? []

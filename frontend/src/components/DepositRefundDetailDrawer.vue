@@ -5,6 +5,7 @@ import type { DepositRefundRecord } from '@/types/deposit-refund'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import DepositRefundAttachmentList from '@/components/DepositRefundAttachmentList.vue'
 import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { depositRefundStatusTone } from '@/constants/statusBadges'
@@ -17,10 +18,15 @@ const props = withDefaults(
     record: DepositRefundRecord | null
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     desktopDirection: 'rtl',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -49,6 +55,19 @@ function statusLabel(status: string) {
   const key = `depositRefund.status.${status}`
   return t(key) === key ? status : t(key)
 }
+
+/** 应退按金（已收按金 − 扣除后的快照；兼容旧单无 refundDueAmount） */
+const refundDue = computed(() => {
+  const r = props.record
+  if (!r) return null
+  const due = Number(r.refundDueAmount)
+  if (Number.isFinite(due) && due >= 0) return due
+  return Number(r.actualRefundAmount) || 0
+})
+
+const refundRemaining = computed(() =>
+  Math.max(0, refundDue.value - (Number(props.record?.actualRefundAmount) || 0)),
+)
 </script>
 
 <template>
@@ -57,6 +76,10 @@ function statusLabel(status: string) {
     :size="drawerSize"
     :direction="direction"
     class="responsive-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <template #header="{ titleId, titleClass }">
       <DrawerDetailHeader
@@ -144,20 +167,29 @@ function statusLabel(status: string) {
         <h3>{{ t('depositRefund.sections.finance') }}</h3>
         <dl class="detail-grid two">
           <div>
-            <dt>{{ t('depositRefund.fields.totalDeposit') }}</dt>
-            <dd>{{ money(record.totalDeposit) }}</dd>
+            <dt>{{ t('depositRefund.fields.refundDueAmount') }}</dt>
+            <dd>{{ money(refundDue) }}</dd>
           </div>
           <div>
             <dt>{{ t('depositRefund.fields.actualRefundAmount') }}</dt>
             <dd>{{ money(record.actualRefundAmount) }}</dd>
           </div>
-          <div class="full">
-            <dt>{{ t('depositRefund.fields.voucherImage') }}</dt>
-            <dd class="path-text">{{ dash(record.voucherImage) }}</dd>
+          <div>
+            <dt>{{ t('depositRefund.fields.refundRemaining') }}</dt>
+            <dd>{{ money(refundRemaining) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('depositRefund.fields.bookingDepositRefundAmount') }}</dt>
+            <dd>{{ money(record.bookingDepositRefundAmount) }}</dd>
           </div>
           <div class="full">
-            <dt>{{ t('depositRefund.fields.voucherAttachment') }}</dt>
-            <dd class="path-text">{{ dash(record.voucherAttachment) }}</dd>
+            <dt>{{ t('depositRefund.fields.attachments') }}</dt>
+            <dd>
+              <DepositRefundAttachmentList
+                :deposit-refund-id="record.id"
+                :attachments="record.attachments || []"
+              />
+            </dd>
           </div>
           <div class="full">
             <dt>{{ t('depositRefund.fields.remark') }}</dt>
@@ -166,7 +198,7 @@ function statusLabel(status: string) {
         </dl>
       </section>
 
-            <section class="detail-section">
+      <section class="detail-section">
         <h3>{{ t('depositRefund.sections.relatedRecords') }}</h3>
         <dl class="detail-grid two">
           <div>

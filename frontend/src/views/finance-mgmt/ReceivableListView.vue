@@ -36,7 +36,11 @@ import ReceivableDetailDrawer from '@/components/ReceivableDetailDrawer.vue'
 import ReceivableReceivePaymentDialog from '@/components/ReceivableReceivePaymentDialog.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
+import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
+import RelatedCashFlowsDrawer from '@/components/RelatedCashFlowsDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
+import type { CashFlowRecord } from '@/types/cash-flow'
+import { fetchCashFlow } from '@/api/cash-flows'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import RefreshListButton from '@/components/RefreshListButton.vue'
@@ -47,7 +51,13 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { packFilterValues } from '@/utils/columnFilter'
-import { measureActionColWidth } from '@/composables/useActionColWidth'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import {
+  receivableValidityKey,
+  receivableValidityTone,
+} from '@/constants/statusBadges'
+import { ACTION_COL_ICON, measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import {
   receivableIoTemplateExampleRow,
@@ -67,7 +77,7 @@ const perms = useResourcePermissions('receivables')
 const receiptPerms = useResourcePermissions('receipts')
 const receivableActionColWidth = computed(() => {
   void locale.value
-  const labels: string[] = []
+  const labels: string[] = [ACTION_COL_ICON]
   if (receiptPerms.create) labels.push(t('receivable.receivePayment'))
   if (perms.update) labels.push(t('common.edit'))
   if (perms.delete) labels.push(t('common.delete'))
@@ -77,11 +87,21 @@ const {
   colW,
   textColW,
   codeColW,
+  statusColW,
   datetimeColWidth,
   auditUserColWidth,
   tableLayoutKey,
 } = useTableColWidth()
 const receiptLinkTableEn = computed(() => String(locale.value).toLowerCase().startsWith('en'))
+const validityLabels = computed(() => [
+  t('receivable.quickFilterActive'),
+  t('receivable.quickFilterInvalid'),
+])
+function validityLabel(invoiceStatus: string | null | undefined) {
+  return receivableValidityKey(invoiceStatus) === 'invalid'
+    ? t('receivable.quickFilterInvalid')
+    : t('receivable.quickFilterActive')
+}
 
 const keyword = ref('')
 const formVisible = ref(false)
@@ -127,6 +147,8 @@ function defaultLinkedReceiptRow(): LinkedReceiptFormRow {
   }
 }
 const linkedReceipts = ref<LinkedReceiptFormRow[]>([])
+/** 定金抵扣动账（计入已收，与现金收据并列） */
+const linkedDepositApplies = ref<Array<{ id: string; amount: number }>>([])
 const RECEIPT_LINK_PAGE_SIZE = 5
 const receiptLinkPage = ref(1)
 const receiptSelectOptions = ref<ReceiptRecord[]>([])
@@ -140,7 +162,10 @@ let receiptSelectScrollHandler: ((e: Event) => void) | null = null
 
 const drawerVisible = ref(false)
 const relatedReceiptsDrawer = ref(false)
+const relatedCashFlowsVisible = ref(false)
 const relatedListReceivable = ref<ReceivableRecord | null>(null)
+const cashFlowDrawer = ref(false)
+const cashFlowRecord = ref<CashFlowRecord | null>(null)
 const current = ref<ReceivableRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
@@ -183,31 +208,49 @@ const {
 } = useTableSortFilter<ReceivableRecord>()
 
 /**
- * 页头快捷筛选（对齐合约）：
- * - 全部 / 待收款：互斥
- * - 已逾期：可与待收款叠加（AND）
+ * 页头快捷筛选：
+ * - 全部 / 有效 / 失效：互斥（默认有效；按所属发票是否已取消）
+ * - 待收款 / 已逾期：可叠加开关（AND；落在当前有效性范围内）
  */
-const outstandingFilter = ref<'outstanding' | null>(null)
+const outstandingFilter = ref(false)
 const overdueFilter = ref(false)
-const quickCounts = ref<ReceivableQuickCounts>({ all: 0, outstanding: 0, overdue: 0 })
+const validityFilter = ref<'all' | 'active' | 'invalid'>('active')
+const quickCounts = ref<ReceivableQuickCounts>({
+  all: 0,
+  outstanding: 0,
+  overdue: 0,
+  active: 0,
+  invalid: 0,
+})
 
-const outstandingFilterChips = computed(() => [
+const validityFilterChips = computed(() => [
   {
-    key: null as 'outstanding' | null,
+    key: 'all' as const,
     label: t('receivable.quickFilterAll'),
     count: quickCounts.value.all,
   },
   {
-    key: 'outstanding' as const,
-    label: t('receivable.quickFilterOutstanding'),
-    count: quickCounts.value.outstanding,
+    key: 'active' as const,
+    label: t('receivable.quickFilterActive'),
+    count: quickCounts.value.active,
+  },
+  {
+    key: 'invalid' as const,
+    label: t('receivable.quickFilterInvalid'),
+    count: quickCounts.value.invalid,
   },
 ])
 
 async function loadQuickCounts() {
   try {
-    const { data } = await fetchReceivableQuickCounts()
-    quickCounts.value = data
+    const { data } = await fetchReceivableQuickCounts({ validity: validityFilter.value })
+    quickCounts.value = {
+      all: data.all ?? 0,
+      outstanding: data.outstanding ?? 0,
+      overdue: data.overdue ?? 0,
+      active: data.active ?? 0,
+      invalid: data.invalid ?? 0,
+    }
   } catch {
     /* interceptor */
   }
@@ -240,6 +283,7 @@ const {
       customerNames: packFilterValues(f.customerName),
       invoiceAmounts: packFilterValues(f.invoiceAmount),
       receivedAmounts: packFilterValues(f.receivedAmount),
+      refundedAmounts: packFilterValues(f.refundedAmount),
       receivableAmounts: packFilterValues(f.receivableAmount),
       createdBys: packFilterValues(f.createdBy),
       sortBy,
@@ -250,8 +294,9 @@ const {
       paymentDueDateTo: due.to,
       createdAtFrom: created.from,
       createdAtTo: created.to,
-      outstanding: outstandingFilter.value === 'outstanding' || undefined,
+      outstanding: outstandingFilter.value || undefined,
       overdue: overdueFilter.value || undefined,
+      validity: validityFilter.value,
       page: p,
       pageSize: ps,
     }
@@ -259,9 +304,8 @@ const {
   fetchPage: fetchReceivables,
 })
 
-function setOutstandingFilter(key: 'outstanding' | null) {
-  if (outstandingFilter.value === key) return
-  outstandingFilter.value = key
+function toggleOutstandingFilter() {
+  outstandingFilter.value = !outstandingFilter.value
   resetPage()
   void loadList()
 }
@@ -272,13 +316,27 @@ function toggleOverdueFilter() {
   void loadList()
 }
 
+function setValidityFilter(key: 'all' | 'active' | 'invalid') {
+  if (validityFilter.value === key) return
+  validityFilter.value = key
+  resetPage()
+  void reloadListAndCounts()
+}
+
 const receivableConditionCount = computed(
-  () => activeConditionCount.value + (overdueFilter.value ? 1 : 0),
+  () =>
+    activeConditionCount.value +
+    (outstandingFilter.value ? 1 : 0) +
+    (overdueFilter.value ? 1 : 0) +
+    (validityFilter.value === 'invalid' || validityFilter.value === 'all' ? 1 : 0),
 )
 
 function onClearReceivableFilters() {
+  outstandingFilter.value = false
   overdueFilter.value = false
+  validityFilter.value = 'active'
   onClearFilters()
+  void loadQuickCounts()
 }
 
 async function reloadListAndCounts() {
@@ -295,6 +353,7 @@ async function refreshEditingFormReceipts() {
     ])
     editing.value = ar
     form.receivedAmount = ar.receivedAmount ?? 0
+    form.refundedAmount = ar.refundedAmount ?? 0
     form.receivableAmount = ar.receivableAmount
     form.invoiceAmount = ar.invoiceAmount
     linkedReceipts.value = mapReceiptsToLinkedRows(
@@ -327,6 +386,7 @@ async function openAddReceiptFromForm() {
     const { data } = await fetchReceivable(editing.value.id)
     editing.value = data
     form.receivedAmount = data.receivedAmount ?? 0
+    form.refundedAmount = data.refundedAmount ?? 0
     form.receivableAmount = data.receivableAmount
     openReceivePayment(data)
   } catch {
@@ -438,6 +498,12 @@ const receivedAmountFilterOptions = computed(() =>
     (v) => moneyOrDash(Number(v)),
   ),
 )
+const refundedAmountFilterOptions = computed(() =>
+  uniqueListOptions(
+    (r) => (r.refundedAmount == null ? '' : String(r.refundedAmount)),
+    (v) => moneyOrDash(Number(v)),
+  ),
+)
 const receivableAmountFilterOptions = computed(() =>
   uniqueListOptions(
     (r) => (r.receivableAmount == null ? '' : String(r.receivableAmount)),
@@ -524,6 +590,7 @@ const emptyForm = () => ({
   paymentDueDate: '',
   invoiceAmount: null as number | null,
   receivedAmount: 0 as number | null,
+  refundedAmount: 0 as number | null,
   receivableAmount: null as number | null,
   remark: '',
 })
@@ -536,16 +603,21 @@ function recalcReceivableAmount() {
   if (receivableAmountTouched.value) return
   const inv = Number(form.invoiceAmount) || 0
   const recv = Number(form.receivedAmount) || 0
-  form.receivableAmount = inv - recv
+  const refunded = Number(form.refundedAmount) || 0
+  form.receivableAmount = Math.round((inv - recv + refunded) * 100) / 100
 }
 
 function syncReceivedFromLinkedReceipts() {
   if (receivedAmountTouched.value) return
-  const sum = linkedReceipts.value.reduce((acc, row) => {
+  const cash = linkedReceipts.value.reduce((acc, row) => {
     if (!row.receiptId) return acc
     return acc + (Number(row.amount) || 0)
   }, 0)
-  form.receivedAmount = Math.round(sum * 100) / 100
+  const apply = linkedDepositApplies.value.reduce(
+    (acc, row) => acc + (Number(row.amount) || 0),
+    0,
+  )
+  form.receivedAmount = Math.round((cash + apply) * 100) / 100
   receivableAmountTouched.value = false
   recalcReceivableAmount()
 }
@@ -1038,6 +1110,7 @@ function openCreate() {
   receivableAmountTouched.value = false
   receivedAmountTouched.value = false
   linkedReceipts.value = []
+  linkedDepositApplies.value = []
   receiptLinkPage.value = 1
   receiptSelectOptions.value = []
   receiptSelectKeyword.value = ''
@@ -1057,12 +1130,17 @@ async function openEdit(row: ReceivableRecord) {
     paymentDueDate: row.paymentDueDate || '',
     invoiceAmount: row.invoiceAmount,
     receivedAmount: row.receivedAmount ?? 0,
+    refundedAmount: row.refundedAmount ?? 0,
     receivableAmount: row.receivableAmount,
     remark: row.remark || '',
   })
   receivableAmountTouched.value = true
   receivedAmountTouched.value = true
   linkedReceipts.value = []
+  linkedDepositApplies.value = (row.bookingDepositApplies || []).map((a) => ({
+    id: a.id,
+    amount: Number(a.amount) || 0,
+  }))
   receiptLinkPage.value = 1
   seedFormSelectsFromRow(row)
   invoiceSelectHasMore.value = true
@@ -1081,6 +1159,10 @@ async function openEdit(row: ReceivableRecord) {
     } else {
       const { data } = await fetchReceivable(row.id)
       linkedReceipts.value = mapReceiptsToLinkedRows(data.receipts || [])
+      linkedDepositApplies.value = (data.bookingDepositApplies || []).map((a) => ({
+        id: a.id,
+        amount: Number(a.amount) || 0,
+      }))
       await Promise.all(
         linkedReceipts.value.map(async (lr) => {
           if (!lr.receiptId) return
@@ -1094,12 +1176,28 @@ async function openEdit(row: ReceivableRecord) {
         }),
       )
     }
+    if (!linkedDepositApplies.value.length) {
+      try {
+        const { data } = await fetchReceivable(row.id)
+        linkedDepositApplies.value = (data.bookingDepositApplies || []).map((a) => ({
+          id: a.id,
+          amount: Number(a.amount) || 0,
+        }))
+      } catch {
+        /* keep */
+      }
+    }
   } catch {
     try {
       const { data } = await fetchReceivable(row.id)
       linkedReceipts.value = mapReceiptsToLinkedRows(data.receipts || [])
+      linkedDepositApplies.value = (data.bookingDepositApplies || []).map((a) => ({
+        id: a.id,
+        amount: Number(a.amount) || 0,
+      }))
     } catch {
       linkedReceipts.value = []
+      linkedDepositApplies.value = []
     }
   }
   if (!receiptSelectOptions.value.length) seedReceiptOptionsFromLinked()
@@ -1174,6 +1272,20 @@ function openReceiptsSide(row: ReceivableRecord) {
   if (!row.receiptCount) return
   relatedListReceivable.value = row
   relatedReceiptsDrawer.value = true
+}
+function openCashFlowsSide(row: ReceivableRecord) {
+  if (!(row.cashFlowCount ?? 0)) return
+  relatedListReceivable.value = row
+  relatedCashFlowsVisible.value = true
+}
+async function openCashFlowSide(row: CashFlowRecord) {
+  try {
+    const { data } = await fetchCashFlow(row.id)
+    cashFlowRecord.value = data
+  } catch {
+    cashFlowRecord.value = row
+  }
+  cashFlowDrawer.value = true
 }
 function onOpenReceiptFromRelated(row: ReceiptRecord) {
   void relationDrawers.value?.openReceiptSide(row.id)
@@ -1368,17 +1480,29 @@ async function onImportFile(ev: Event) {
       <div class="building-chips-rail">
         <div class="building-chips" role="tablist" :aria-label="t('receivable.quickFilterAria')">
           <button
-            v-for="chip in outstandingFilterChips"
-            :key="chip.key ?? 'all'"
+            v-for="chip in validityFilterChips"
+            :key="chip.key"
             type="button"
             class="building-chip"
             role="tab"
-            :class="{ 'is-active': outstandingFilter === chip.key }"
-            :aria-selected="outstandingFilter === chip.key"
-            @click="setOutstandingFilter(chip.key)"
+            :class="{ 'is-active': validityFilter === chip.key }"
+            :aria-selected="validityFilter === chip.key"
+            @click="setValidityFilter(chip.key)"
           >
             <span class="building-chip__name">{{ chip.label }}</span>
             <span class="building-chip__count">({{ chip.count }})</span>
+          </button>
+          <span class="building-chips__sep" aria-hidden="true">|</span>
+          <button
+            type="button"
+            class="building-chip"
+            role="tab"
+            :class="{ 'is-active': outstandingFilter }"
+            :aria-selected="outstandingFilter"
+            @click="toggleOutstandingFilter"
+          >
+            <span class="building-chip__name">{{ t('receivable.quickFilterOutstanding') }}</span>
+            <span class="building-chip__count">({{ quickCounts.outstanding }})</span>
           </button>
           <span class="building-chips__sep" aria-hidden="true">|</span>
           <button
@@ -1565,6 +1689,23 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            :min-width="
+              statusColW(t('receivable.fields.validity'), validityLabels, {
+                interactive: false,
+              })
+            "
+          >
+            <template #header>
+              <span>{{ t('receivable.fields.validity') }}</span>
+            </template>
+            <template #default="{ row }">
+              <StatusBadge
+                :tone="receivableValidityTone(row.invoiceStatus)"
+                :label="validityLabel(row.invoiceStatus)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="textColW(t('receivable.fields.customerName'), { interactive: true, kind: 'name' })"
             show-overflow-tooltip
           >
@@ -1689,6 +1830,25 @@ async function onImportFile(ev: Event) {
             <template #default="{ row }">{{ moneyOrDash(row.receivableAmount) }}</template>
           </el-table-column>
           <el-table-column
+            :min-width="colW(t('receivable.fields.refundedAmount'), { interactive: true, contentMin: 100 })"
+            align="right"
+            header-align="right"
+          >
+            <template #header>
+              <TableColumnHeader
+                :label="t('receivable.fields.refundedAmount')"
+                filterable
+                sortable
+                :options="refundedAmountFilterOptions"
+                :model-value="filters.refundedAmount || []"
+                :sort-order="sortOrderOf('refundedAmount')"
+                @update:model-value="(v) => setFilter('refundedAmount', v)"
+                @update:sort-order="(v) => setSort('refundedAmount', v)"
+              />
+            </template>
+            <template #default="{ row }">{{ moneyOrDash(row.refundedAmount) }}</template>
+          </el-table-column>
+          <el-table-column
             :label="t('receivable.fields.remark')"
             :min-width="textColW(t('receivable.fields.remark'), { kind: 'long' })"
             show-overflow-tooltip
@@ -1709,6 +1869,17 @@ async function onImportFile(ev: Event) {
             </template>
             <template #default="{ row }">
               <CountListPill :count="row.receiptCount ?? 0" @click="openReceiptsSide(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            :min-width="colW(t('receivable.fields.cashFlowCount'), { interactive: true, contentMin: 88 })"
+            align="center"
+          >
+            <template #header>
+              <TableColumnHeader :label="t('receivable.fields.cashFlowCount')" />
+            </template>
+            <template #default="{ row }">
+              <CountListPill :count="row.cashFlowCount ?? 0" @click="openCashFlowsSide(row)" />
             </template>
           </el-table-column>
           <el-table-column :min-width="auditUserColWidth" show-overflow-tooltip>
@@ -1756,6 +1927,7 @@ async function onImportFile(ev: Event) {
           >
             <template #default="{ row }">
               <div class="action-pills" @click.stop>
+                <ActionDetailButton @click="openDetail(row)" />
                 <button
                   v-if="receiptPerms.create"
                   v-admin-glow="receiptPerms.codes.create"
@@ -1824,6 +1996,8 @@ async function onImportFile(ev: Event) {
       @open-contract="(id) => openContractSide(id, 'ltr')"
       @open-customer="(id) => openCustomerSide(id, 'ltr')"
       @open-receipts="openReceiptsSide"
+      @open-receipt="openLinkedReceiptDetail"
+      @open-cash-flows="openCashFlowsSide"
     />
     <ReceivableReceivePaymentDialog
       v-model="receivePayVisible"
@@ -1839,12 +2013,30 @@ async function onImportFile(ev: Event) {
       :title-context="relatedListReceivable?.invoiceCode || relatedListReceivable?.receivableCode || ''"
       desktop-direction="ltr"
       @open-receipt="onOpenReceiptFromRelated"
+      @open-receipt-by-id="openLinkedReceiptDetail"
       @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
       @changed="reloadListAndCounts"
     />
     <RelatedEntityDrawers ref="relationDrawers" @changed="reloadListAndCounts" />
+    <RelatedCashFlowsDrawer
+      v-model="relatedCashFlowsVisible"
+      :receivable-id="relatedListReceivable?.id"
+      :title-context="
+        relatedListReceivable?.invoiceCode || relatedListReceivable?.receivableCode || ''
+      "
+      desktop-direction="ltr"
+      @open-cash-flow="openCashFlowSide"
+    />
+    <CashFlowDetailDrawer
+      v-model="cashFlowDrawer"
+      :record="cashFlowRecord"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
+      @open-customer="(id) => relationDrawers?.openCustomerSide(id)"
+      @open-receipt="(id) => relationDrawers?.openReceiptSide(id)"
+      @open-refund-order="(id) => relationDrawers?.openRefundOrderSide(id)"
+    />
 
     <el-dialog
       v-model="formVisible"
@@ -1936,6 +2128,16 @@ async function onImportFile(ev: Event) {
               :controls="false"
               style="width: 100%"
               @change="onReceivableAmountManual"
+            />
+          </el-form-item>
+          <el-form-item :label="t('receivable.fields.refundedAmount')">
+            <el-input-number
+              v-model="form.refundedAmount"
+              :min="0"
+              :precision="2"
+              :controls="false"
+              disabled
+              style="width: 100%"
             />
           </el-form-item>
         </div>

@@ -123,12 +123,10 @@ onBeforeUnmount(() => {
       </span>
       <span class="receipt-att__name">{{ att.fileName }}</span>
     </button>
-    <el-image-viewer
+    <AttachmentImageViewer
       v-if="imageViewerVisible && imageViewerList.length"
       :url-list="imageViewerList"
       :initial-index="imageViewerIndex"
-      teleported
-      hide-on-click-modal
       @close="imageViewerVisible = false"
     />
   </div>

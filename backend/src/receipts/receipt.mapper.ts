@@ -61,26 +61,93 @@ export function toReceiptAttachmentDto(row: ReceiptAttachmentRow) {
   }
 }
 
+export type ReceiptAllocationRow = {
+  id: string
+  receiptId: string
+  receivableId: string
+  invoiceId: string | null
+  amount: Prisma.Decimal | number
+  sortOrder: number
+  remark: string
+  receivable?:
+    | (Pick<Receivable, 'id' | 'receivableCode' | 'invoiceId'> & {
+        invoice?: Pick<Invoice, 'id' | 'invoiceCode'> | null
+      })
+    | null
+}
+
 export type ReceiptWithRelations = Receipt & {
   customer?: Pick<Customer, 'id' | 'customerCode' | 'name'> | null
   contract?: Pick<Contract, 'id' | 'contractCode'> | null
   invoice?: Pick<Invoice, 'id' | 'invoiceCode'> | null
   receivable?: Pick<Receivable, 'id' | 'receivableCode'> | null
+  allocations?: ReceiptAllocationRow[]
   attachments?: ReceiptAttachmentRow[]
   createdByUser?: AuditUserRef | null
   updatedByUser?: AuditUserRef | null
+  _count?: { cashFlows: number }
 }
 
-export const receiptInclude = {
+export const receiptAllocationInclude = {
+  receivable: {
+    select: {
+      id: true,
+      receivableCode: true,
+      invoiceId: true,
+      invoice: { select: { id: true, invoiceCode: true } },
+    },
+  },
+} as const
+
+/** 勿整体 as const：allocations.orderBy 需可变数组以兼容 Prisma Include */
+export const receiptInclude: Prisma.ReceiptInclude = {
   customer: { select: { id: true, customerCode: true, name: true } },
   contract: { select: { id: true, contractCode: true } },
   invoice: { select: { id: true, invoiceCode: true } },
   receivable: { select: { id: true, receivableCode: true } },
-  attachments: { orderBy: { sortOrder: 'asc' as const } },
+  allocations: {
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    include: receiptAllocationInclude,
+  },
+  attachments: { orderBy: { sortOrder: 'asc' } },
+  _count: { select: { cashFlows: true } },
   ...auditUserInclude,
-} as const
+}
+
+function joinUniqueCodes(codes: Array<string | null | undefined>) {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of codes) {
+    const c = (raw || '').trim()
+    if (!c || seen.has(c)) continue
+    seen.add(c)
+    out.push(c)
+  }
+  return out.join(', ')
+}
+
+export function toReceiptAllocationDto(row: ReceiptAllocationRow) {
+  const invoiceId = row.invoiceId || row.receivable?.invoiceId || null
+  const invoiceCode = row.receivable?.invoice?.invoiceCode ?? ''
+  return {
+    id: row.id,
+    receiptId: row.receiptId,
+    receivableId: row.receivableId,
+    receivableCode: row.receivable?.receivableCode ?? '',
+    invoiceId,
+    invoiceCode,
+    amount: decimalToNumber(row.amount),
+    sortOrder: row.sortOrder,
+    remark: row.remark || '',
+  }
+}
 
 export function toReceiptDto(row: ReceiptWithRelations) {
+  const allocations = (row.allocations ?? []).map(toReceiptAllocationDto)
+  const invoiceCodeFromAlloc = joinUniqueCodes(allocations.map((a) => a.invoiceCode))
+  const receivableCodeFromAlloc = joinUniqueCodes(allocations.map((a) => a.receivableCode))
+  const headerInvoiceCode = row.invoice?.invoiceCode ?? ''
+  const headerReceivableCode = row.receivable?.receivableCode ?? ''
   return {
     id: row.id,
     receiptCode: row.receiptCode,
@@ -91,14 +158,16 @@ export function toReceiptDto(row: ReceiptWithRelations) {
     contractId: row.contractId,
     contractCode: row.contract?.contractCode ?? '',
     invoiceId: row.invoiceId,
-    invoiceCode: row.invoice?.invoiceCode ?? '',
+    invoiceCode: invoiceCodeFromAlloc || headerInvoiceCode,
     receivableId: row.receivableId,
-    receivableCode: row.receivable?.receivableCode ?? '',
+    receivableCode: receivableCodeFromAlloc || headerReceivableCode,
     paymentDate: dateOnly(row.paymentDate),
     paymentMethod: row.paymentMethod,
     amount: decimalToNumber(row.amount),
     remark: row.remark,
+    allocations,
     attachments: (row.attachments ?? []).map(toReceiptAttachmentDto),
+    cashFlowCount: row._count?.cashFlows ?? 0,
     changeLog: row.changeLog,
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),

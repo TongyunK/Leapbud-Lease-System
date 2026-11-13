@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
+import { BookingDepositMovementType, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { BuildingAccessService } from '../building-access/building-access.service'
 import {
@@ -12,6 +12,7 @@ import {
   ImportReceivablesDto,
   UpdateReceivableDto,
 } from './dto/receivable.dto'
+import { cashFlowCountsForReceivables } from '../common/cash-flow-entity-counts'
 import {
   receivableDetailInclude,
   receivableInclude,
@@ -29,6 +30,7 @@ import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
 import { actorLabelsOrEmpty } from '../common/audit'
 import { numberFieldInOrEmpty, stringFieldInOrEmpty } from '../common/column-filter'
+import { syncReceivableReceivedAmount } from '../receipts/receivable-received.sync'
 
 function s(v?: string | null) {
   return (v ?? '').trim()
@@ -87,6 +89,25 @@ function overdueWhereClause(): Prisma.ReceivableWhereInput {
   }
 }
 
+/** 有效：所属发票非已取消 */
+function activeValidityWhereClause(): Prisma.ReceivableWhereInput {
+  return { invoice: { status: { not: '已取消' } } }
+}
+
+/** 失效：所属发票已取消（如取消合约） */
+function invalidValidityWhereClause(): Prisma.ReceivableWhereInput {
+  return { invoice: { status: '已取消' } }
+}
+
+function validityWhereClause(
+  validity?: 'active' | 'invalid' | 'all' | null,
+): Prisma.ReceivableWhereInput | null {
+  if (validity === 'invalid') return invalidValidityWhereClause()
+  if (validity === 'active') return activeValidityWhereClause()
+  // all / null：不加有效性条件
+  return null
+}
+
 function pushAndClause(where: Prisma.ReceivableWhereInput, clause: Prisma.ReceivableWhereInput) {
   const and = Array.isArray(where.AND) ? [...where.AND] : where.AND ? [where.AND] : []
   and.push(clause)
@@ -100,20 +121,46 @@ export class ReceivablesService {
     private readonly access: BuildingAccessService,
   ) {}
 
-  /** 页头快捷筛选计数（全部 / 待收款 / 已逾期） */
-  async countQuickFilters(): Promise<{ all: number; outstanding: number; overdue: number }> {
+  /**
+   * 页头快捷筛选计数。
+   * - all：有效＋失效总量（「全部」芯片）
+   * - outstanding / overdue：落在当前有效性范围内（默认有效）
+   * - active / invalid：有效／失效总量
+   */
+  async countQuickFilters(params?: {
+    validity?: 'active' | 'invalid' | 'all' | null
+  }): Promise<{
+    all: number
+    outstanding: number
+    overdue: number
+    active: number
+    invalid: number
+  }> {
     const base: Prisma.ReceivableWhereInput = {}
     await this.access.constrain(base, 'viaCustomer')
-    const [all, outstanding, overdue] = await this.prisma.$transaction([
-      this.prisma.receivable.count({ where: base }),
+    const validity =
+      params?.validity === 'invalid' || params?.validity === 'all' || params?.validity === 'active'
+        ? params.validity
+        : 'active'
+    const validityClause = validityWhereClause(validity)
+    const scoped: Prisma.ReceivableWhereInput = validityClause
+      ? { AND: [base, validityClause] }
+      : base
+    const [outstanding, overdue, active, invalid] = await this.prisma.$transaction([
       this.prisma.receivable.count({
-        where: { AND: [base, outstandingWhereClause()] },
+        where: { AND: [scoped, outstandingWhereClause()] },
       }),
       this.prisma.receivable.count({
-        where: { AND: [base, overdueWhereClause()] },
+        where: { AND: [scoped, overdueWhereClause()] },
+      }),
+      this.prisma.receivable.count({
+        where: { AND: [base, activeValidityWhereClause()] },
+      }),
+      this.prisma.receivable.count({
+        where: { AND: [base, invalidValidityWhereClause()] },
       }),
     ])
-    return { all, outstanding, overdue }
+    return { all: active + invalid, outstanding, overdue, active, invalid }
   }
 
   async findAll(params: {
@@ -127,6 +174,7 @@ export class ReceivablesService {
     customerNames?: string[]
     invoiceAmounts?: string[]
     receivedAmounts?: string[]
+    refundedAmounts?: string[]
     receivableAmounts?: string[]
     createdBys?: string[]
     sortBy?: string
@@ -141,6 +189,8 @@ export class ReceivablesService {
     outstanding?: boolean
     /** 快捷筛选：已逾期（超过收款期限且应收额>0）；可与待收款叠加 */
     overdue?: boolean
+    /** 有效性：active=发票未取消；invalid=发票已取消；all=全部；默认 active */
+    validity?: 'active' | 'invalid' | 'all' | null
     page?: number
     pageSize?: number
   }): Promise<PaginatedResult<ReturnType<typeof toReceivableDto>>> {
@@ -160,8 +210,15 @@ export class ReceivablesService {
       }),
     ])
 
+    const cashFlowCounts = await cashFlowCountsForReceivables(
+      this.prisma,
+      rows.map((r) => r.id),
+    )
     return {
-      items: rows.map(toReceivableDto),
+      items: rows.map((row) => ({
+        ...toReceivableDto(row),
+        cashFlowCount: cashFlowCounts.get(row.id) ?? 0,
+      })),
       total,
       page: pageSize == null ? 1 : page,
       pageSize: pageSize == null ? total : pageSize,
@@ -179,6 +236,7 @@ export class ReceivablesService {
     customerNames?: string[]
     invoiceAmounts?: string[]
     receivedAmounts?: string[]
+    refundedAmounts?: string[]
     receivableAmounts?: string[]
     createdBys?: string[]
     invoiceDateFrom?: string
@@ -189,6 +247,7 @@ export class ReceivablesService {
     createdAtTo?: string
     outstanding?: boolean
     overdue?: boolean
+    validity?: 'active' | 'invalid' | 'all' | null
   }): Prisma.ReceivableWhereInput {
     const where: Prisma.ReceivableWhereInput = {}
     if (params.invoiceId?.trim()) where.invoiceId = params.invoiceId.trim()
@@ -197,6 +256,13 @@ export class ReceivablesService {
     if (params.depositRefundId?.trim()) where.depositRefundId = params.depositRefundId.trim()
 
     const and: Prisma.ReceivableWhereInput[] = []
+    // 未显式传 validity 时默认只看有效；关联抽屉可传 all 看含已取消发票
+    const validityNorm =
+      params.validity === 'invalid' || params.validity === 'active' || params.validity === 'all'
+        ? params.validity
+        : 'active'
+    const validityClause = validityWhereClause(validityNorm)
+    if (validityClause) and.push(validityClause)
 
     const invoiceCodeClause = stringFieldInOrEmpty('invoiceCode', params.invoiceCodes)
     if (invoiceCodeClause) {
@@ -218,6 +284,9 @@ export class ReceivablesService {
 
     const receivedAmountClause = numberFieldInOrEmpty('receivedAmount', params.receivedAmounts)
     if (receivedAmountClause) and.push(receivedAmountClause as Prisma.ReceivableWhereInput)
+
+    const refundedAmountClause = numberFieldInOrEmpty('refundedAmount', params.refundedAmounts)
+    if (refundedAmountClause) and.push(refundedAmountClause as Prisma.ReceivableWhereInput)
 
     const receivableAmountClause = numberFieldInOrEmpty(
       'receivableAmount',
@@ -280,13 +349,45 @@ export class ReceivablesService {
     if (key === 'paymentDueDate') return [{ paymentDueDate: dir }, { receivableCode: 'desc' }]
     if (key === 'invoiceAmount') return [{ invoiceAmount: dir }]
     if (key === 'receivedAmount') return [{ receivedAmount: dir }]
+    if (key === 'refundedAmount') return [{ refundedAmount: dir }]
     if (key === 'receivableAmount') return [{ receivableAmount: dir }]
     if (key === 'depositRefundCode') return [{ depositRefund: { refundCode: dir } }]
-    if (key === 'receiptCount') return [{ receipts: { _count: dir } }]
+    if (key === 'receiptCount') return [{ receiptAllocations: { _count: dir } }]
     if (key === 'createdAt') return [{ createdAt: dir }]
     if (key === 'updatedAt') return [{ updatedAt: dir }]
     if (key === 'createdBy') return [{ createdByUser: { account: dir } }]
     return [{ createdAt: 'desc' }, { receivableCode: 'desc' }]
+  }
+
+  private async loadBookingDepositApplies(receivableId: string) {
+    const rows = await this.prisma.bookingDepositMovement.findMany({
+      where: {
+        receivableId,
+        type: BookingDepositMovementType.apply,
+      },
+      select: {
+        id: true,
+        amount: true,
+        movementDate: true,
+        remark: true,
+        bookingDepositReceipt: { select: { id: true, receiptCode: true } },
+      },
+      orderBy: [{ movementDate: 'asc' }, { createdAt: 'asc' }],
+    })
+    return rows.map((r) => {
+      const d = r.movementDate
+      const movementDate = d
+        ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+        : ''
+      return {
+        id: r.id,
+        amount: Number(r.amount.toString()),
+        movementDate,
+        bookingDepositReceiptId: r.bookingDepositReceipt.id,
+        bookingDepositReceiptCode: r.bookingDepositReceipt.receiptCode,
+        remark: r.remark || '',
+      }
+    })
   }
 
   async findOne(id: string) {
@@ -296,7 +397,12 @@ export class ReceivablesService {
     })
     if (!row) throw new NotFoundException('Receivable not found')
     await this.access.assertCustomerId(row.customerId)
-    return toReceivableDto(row)
+    const applies = await this.loadBookingDepositApplies(row.id)
+    const cashFlowCounts = await cashFlowCountsForReceivables(this.prisma, [row.id])
+    return {
+      ...toReceivableDto(row, applies),
+      cashFlowCount: cashFlowCounts.get(row.id) ?? 0,
+    }
   }
 
   /** 同步应收 ↔ 收据一对多：以 receiptIds 为准挂接 / 解绑，并回写 relatedReceiptRef */
@@ -459,11 +565,14 @@ export class ReceivablesService {
         ? decimalField(dto.invoiceAmount, 'invoiceAmount')
         : new Prisma.Decimal(invoice.amount ?? 0)
     const receivedAmount = decimalField(dto.receivedAmount, 'receivedAmount')
+    const refundedAmount = decimalField(dto.refundedAmount, 'refundedAmount')
     const receivableAmount =
       dto.receivableAmount !== undefined
         ? decimalField(dto.receivableAmount, 'receivableAmount')
         : new Prisma.Decimal(
-            Number(invoiceAmount.toString()) - Number(receivedAmount.toString()),
+            Number(invoiceAmount.toString()) -
+              Number(receivedAmount.toString()) +
+              Number(refundedAmount.toString()),
           )
 
     const depositRefundId = await this.resolveDepositRefundId(
@@ -483,6 +592,7 @@ export class ReceivablesService {
           paymentDueDate,
           invoiceAmount,
           receivedAmount,
+          refundedAmount,
           receivableAmount,
           remark: s(dto.remark),
           relatedReceiptRef: s(dto.relatedReceiptRef),
@@ -493,6 +603,8 @@ export class ReceivablesService {
         select: { id: true },
       })
       await this.syncReceiptIds(row.id, dto.receiptIds, actorId)
+      // 已收 = 发票现金收据 + 定金抵扣（以动账／分摊为准，避免前端只加总现金收据）
+      await syncReceivableReceivedAmount(this.prisma, row.id)
       return this.findOne(row.id)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -544,12 +656,20 @@ export class ReceivablesService {
       dto.receivedAmount !== undefined
         ? decimalField(dto.receivedAmount, 'receivedAmount')
         : existing.receivedAmount
+    const refundedAmount =
+      dto.refundedAmount !== undefined
+        ? decimalField(dto.refundedAmount, 'refundedAmount')
+        : existing.refundedAmount
     const receivableAmount =
       dto.receivableAmount !== undefined
         ? decimalField(dto.receivableAmount, 'receivableAmount')
-        : dto.invoiceAmount !== undefined || dto.receivedAmount !== undefined
+        : dto.invoiceAmount !== undefined ||
+            dto.receivedAmount !== undefined ||
+            dto.refundedAmount !== undefined
           ? new Prisma.Decimal(
-              Number(invoiceAmount.toString()) - Number(receivedAmount.toString()),
+              Number(invoiceAmount.toString()) -
+                Number(receivedAmount.toString()) +
+                Number(refundedAmount.toString()),
             )
           : existing.receivableAmount
 
@@ -586,6 +706,7 @@ export class ReceivablesService {
           paymentDueDate,
           invoiceAmount,
           receivedAmount,
+          refundedAmount,
           receivableAmount,
           remark: dto.remark !== undefined ? s(dto.remark) : undefined,
           relatedReceiptRef:
@@ -597,6 +718,8 @@ export class ReceivablesService {
         },
       })
       await this.syncReceiptIds(id, dto.receiptIds, actorId)
+      // 已收 = 发票现金收据 + 定金抵扣
+      await syncReceivableReceivedAmount(this.prisma, id)
       return this.findOne(id)
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {

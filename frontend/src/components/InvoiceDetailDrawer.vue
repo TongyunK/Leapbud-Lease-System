@@ -11,6 +11,7 @@ import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { invoiceBillingKindTone, invoiceStatusTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
+import { formatInvoiceChangeLog } from '@/utils/invoiceChangeLog'
 import { previewInvoicePdfApi, prefetchInvoicePdfApi } from '@/api/document-templates'
 
 const visible = defineModel<boolean>({ default: false })
@@ -20,10 +21,15 @@ const props = withDefaults(
     record: InvoiceRecord | null
     desktopDirection?: 'ltr' | 'rtl'
     size?: string
+  
+    /** 叠在其它弹窗／抽屉之上时传入更高 z-index */
+    zIndex?: number
   }>(),
   {
     desktopDirection: 'rtl',
     size: undefined,
+  
+    zIndex: undefined,
   },
 )
 
@@ -33,6 +39,7 @@ const emit = defineEmits<{
   openRoom: [roomId: string]
   openReceivables: [row: InvoiceRecord]
   openReceipts: [row: InvoiceRecord]
+  openCashFlows: [row: InvoiceRecord]
   openServiceDetails: [row: InvoiceRecord]
 }>()
 
@@ -45,6 +52,10 @@ watch(
   ([open, id]) => {
     if (open && id) prefetchInvoicePdfApi(id)
   },
+)
+
+const formattedChangeLog = computed(() =>
+  formatInvoiceChangeLog(props.record?.changeLog, t),
 )
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
@@ -100,6 +111,10 @@ async function onPrintInvoice() {
     :size="drawerSize"
     :direction="direction"
     class="responsive-drawer"
+  
+    append-to-body
+  
+    :z-index="zIndex"
   >
     <template #header="{ titleId, titleClass }">
       <DrawerDetailHeader
@@ -240,17 +255,17 @@ async function onPrintInvoice() {
             <dt>{{ t('invoice.fields.shortTermRentalCode') }}</dt>
             <dd>{{ dash(record.shortTermRentalCode) }}</dd>
           </div>
-          <div class="full">
+          <div class="detail-span-2">
             <dt>{{ t('invoice.fields.attachment') }}</dt>
             <dd class="path-text">{{ dash(record.attachment) }}</dd>
           </div>
-          <div class="full">
-            <dt>{{ t('invoice.fields.notes') }}</dt>
-            <dd>{{ dash(record.notes) }}</dd>
-          </div>
-          <div class="full">
+          <div class="detail-span-2">
             <dt>{{ t('invoice.fields.remark') }}</dt>
-            <dd>{{ dash(record.remark) }}</dd>
+            <dd>{{ dash(record.remark || record.notes) }}</dd>
+          </div>
+          <div v-if="formattedChangeLog" class="detail-span-2">
+            <dt>{{ t('invoice.fields.changeLog') }}</dt>
+            <dd class="change-log-text">{{ formattedChangeLog }}</dd>
           </div>
         </dl>
       </section>
@@ -304,6 +319,15 @@ async function onPrintInvoice() {
               />
             </dd>
           </div>
+          <div>
+            <dt>{{ t('invoice.fields.cashFlowCount') }}</dt>
+            <dd>
+              <CountListPill
+                :count="record.cashFlowCount ?? 0"
+                @click="() => { if (record?.cashFlowCount) emit('openCashFlows', record) }"
+              />
+            </dd>
+          </div>
         </dl>
       </section>
 
@@ -318,6 +342,14 @@ async function onPrintInvoice() {
 </template>
 
 <style scoped>
+.change-log-text {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #3a4a42;
+}
+
 .fee-list {
   display: flex;
   flex-direction: column;

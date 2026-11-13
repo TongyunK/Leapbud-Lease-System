@@ -22,6 +22,7 @@ import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
 import BuildingDetailDrawer from '@/components/BuildingDetailDrawer.vue'
+import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import RelatedRoomsDrawer from '@/components/RelatedRoomsDrawer.vue'
 
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
@@ -43,13 +44,13 @@ import { useImportProgress } from '@/composables/useImportProgress'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { EMPTY_FILTER_VALUE, packFilterValues } from '@/utils/columnFilter'
-import { useActionColWidth } from '@/composables/useActionColWidth'
+import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search, Upload, Download } from '@element-plus/icons-vue'
+import { Plus, QuestionFilled, Search, Upload, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
@@ -64,7 +65,7 @@ function refreshHeaderBuildingOptions() {
 }
 const { actionColW } = useActionColWidth()
 const listActionColWidth = computed(() =>
-  actionColW([t('common.detail'), perms.update && t('common.edit')]),
+  actionColW([ACTION_COL_ICON, perms.update && t('common.edit')]),
 )
 const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 const isMobile = useIsMobile()
@@ -824,9 +825,7 @@ async function saveForm() {
           >
             <template #default="{ row }">
               <div class="action-pills">
-                <button type="button" class="action-pill action-pill--view" @click.stop="openDetail(row as BuildingRecord)">
-                  {{ t('common.detail') }}
-                </button>
+                <ActionDetailButton @click="openDetail(row as BuildingRecord)" />
                 <button
                   v-if="perms.update" v-admin-glow="perms.codes.update"
                   type="button"
@@ -920,9 +919,7 @@ async function saveForm() {
           </div>
         </dl>
         <div class="data-card__actions">
-          <button type="button" class="action-pill action-pill--view" @click="openDetail(row)">
-            {{ t('common.detail') }}
-          </button>
+          <ActionDetailButton @click="openDetail(row)" />
           <button
             v-if="perms.update" v-admin-glow="perms.codes.update"
             type="button"
@@ -1020,9 +1017,13 @@ async function saveForm() {
             <el-input v-model="form.apiTemplateSuffix" />
           </el-form-item>
 
-          <div class="form-section form-section--with-hint">
-            <h3>{{ t('building.sections.templates') }}</h3>
-            <p class="form-section-side-hint">{{ t('building.templateBindHint') }}</p>
+          <div class="form-section">
+            <h3 class="form-section-title-with-tip">
+              {{ t('building.sections.templates') }}
+              <el-tooltip :content="t('building.templateBindHint')" placement="top">
+                <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </h3>
           </div>
           <el-form-item
             v-for="slot in TEMPLATE_SLOTS"
@@ -1105,24 +1106,17 @@ async function saveForm() {
   line-height: 1.2;
 }
 
-.form-section--with-hint {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.form-section-title-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.form-section--with-hint h3 {
-  margin-bottom: 8px;
-}
-
-.form-section-side-hint {
-  margin: 0 0 8px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--el-text-color-placeholder);
-  text-align: right;
+.form-label-tip {
+  color: var(--lb-muted, #6a7a70);
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .template-bind-row {

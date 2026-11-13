@@ -18,9 +18,9 @@ import { CustomerRequirementsModule } from './customer-requirements/customer-req
 import { ContractsModule } from './contracts/contracts.module';
 import { ContractConfigsModule } from './contract-configs/contract-configs.module';
 import { ContractPeriodsModule } from './contract-periods/contract-periods.module';
-import { LeaseTerminationsModule } from './lease-terminations/lease-terminations.module';
-import { ContractOtherFeesModule } from './contract-other-fees/contract-other-fees.module';
+import { ContractLoanItemsModule } from './contract-loan-items/contract-loan-items.module';
 import { DepositRefundsModule } from './deposit-refunds/deposit-refunds.module';
+import { ContractSettlementsModule } from './contract-settlements/contract-settlements.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { InvoiceServiceDetailsModule } from './invoice-service-details/invoice-service-details.module';
 import { ReceivablesModule } from './receivables/receivables.module';
@@ -53,9 +53,9 @@ import { UploadsModule } from './uploads/uploads.module';
     ContractsModule,
     ContractConfigsModule,
     ContractPeriodsModule,
-    LeaseTerminationsModule,
-    ContractOtherFeesModule,
+    ContractLoanItemsModule,
     DepositRefundsModule,
+    ContractSettlementsModule,
     InvoicesModule,
     InvoiceServiceDetailsModule,
     ReceivablesModule,
