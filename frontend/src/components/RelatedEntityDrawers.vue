@@ -1014,6 +1014,7 @@ defineExpose({
     @open-customer="(id) => openCustomerSide(id, 'ltr', { zIndex: zSettlement })"
     @open-room="(id) => openRoomSide(id, 'ltr', { zIndex: zSettlement })"
     @open-receivable="(id) => openReceivableSide(id, { zIndex: zSettlement })"
+    @open-invoice="(id) => openInvoiceSide(id, { zIndex: zSettlement })"
     @open-refund-orders="openRefundOrdersFromSettlement"
   />
   <RelatedRefundOrdersDrawer

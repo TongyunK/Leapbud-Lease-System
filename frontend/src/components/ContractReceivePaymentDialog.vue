@@ -15,6 +15,10 @@ import {
 } from '@/api/receipts'
 import { RECEIPT_PAYMENT_METHODS } from '@/types/receipt'
 import { useIsMobile, useMediaQuery } from '@/composables/useMediaQuery'
+import {
+  OVERLAY_ABOVE_FEATURE_MENU_Z,
+  useOverlayStackZ,
+} from '@/composables/useOverlayStackZ'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useTableColWidth } from '@/composables/useTableColWidth'
@@ -56,7 +60,14 @@ const isMobile = useIsMobile()
 /** 与样式 max-height:900px 对齐：14 寸等矮屏 */
 const isShortViewport = useMediaQuery('(max-height: 900px)')
 const receiptPerms = useResourcePermissions('receipts')
+const { allocZ, raiseFloor } = useOverlayStackZ()
 const { colW, codeColW, textColW, tableLayoutKey } = useTableColWidth()
+
+/** 本层列表弹窗 z；嵌套收款／浮层须盖过它（有显式 z 用显式，否则至少盖过「更多」抬高层） */
+const parentDialogZ = computed(() => {
+  const z = Number(props.zIndex) || 0
+  return z > 0 ? z : OVERLAY_ABOVE_FEATURE_MENU_Z
+})
 
 function invoiceTypeLabel(type?: string | null) {
   const raw = (type || '').trim()
@@ -248,6 +259,14 @@ const showAllocationPreview = computed(
 const { page, pageSize, pageSizes, paged, total, rowIndex, resetPage } = useClientPagination(rows)
 
 const payVisible = ref(false)
+/** 嵌套「收款」确认弹窗：必须 alloc 在列表弹窗之上，禁止吃 EP 默认 ~2000 */
+const payDialogZ = ref<number | undefined>(undefined)
+const payFieldPopperStyle = computed(() => ({
+  zIndex: Math.max(Number(payDialogZ.value) || 0, parentDialogZ.value) + 20,
+}))
+const payTipPopperStyle = computed(() => ({
+  zIndex: Math.max(Number(payDialogZ.value) || 0, parentDialogZ.value) + 40,
+}))
 const payForm = reactive({
   paymentDate: '' as string,
   paymentMethod: '' as string,
@@ -400,6 +419,8 @@ function openCollect() {
   payPendingFiles.value = []
   revokePayPreviewUrls()
   payImageViewerVisible.value = false
+  raiseFloor(parentDialogZ.value)
+  payDialogZ.value = allocZ(parentDialogZ.value)
   payVisible.value = true
 }
 
@@ -774,6 +795,7 @@ function onViewCustomer() {
     append-to-body
     destroy-on-close
     class="lb-dialog"
+    :z-index="payDialogZ"
   >
     <el-form label-position="top" class="receive-pay-form">
       <div class="receive-pay-form__grid">
@@ -792,6 +814,7 @@ function onViewCustomer() {
             type="date"
             value-format="YYYY-MM-DD"
             style="width: 100%"
+            :popper-style="payFieldPopperStyle"
           />
         </el-form-item>
         <el-form-item
@@ -843,7 +866,11 @@ function onViewCustomer() {
         <div class="receive-pay-alloc__head">
           <span class="receive-pay-alloc__title">
             {{ t('contract.receivePaymentAllocPreview') }}
-            <el-tooltip :content="t('contract.receivePaymentAllocFifoHint')" placement="top">
+            <el-tooltip
+              :content="t('contract.receivePaymentAllocFifoHint')"
+              placement="top"
+              :popper-style="payTipPopperStyle"
+            >
               <el-icon class="receive-pay__label-tip" :size="14"><QuestionFilled /></el-icon>
             </el-tooltip>
           </span>
@@ -907,6 +934,7 @@ function onViewCustomer() {
                 : t('contract.receivePaymentMethodNotNeeded')
             "
             style="width: 100%"
+            :popper-style="payFieldPopperStyle"
           >
             <el-option v-for="m in RECEIPT_PAYMENT_METHODS" :key="m" :label="m" :value="m" />
           </el-select>
@@ -1178,7 +1206,7 @@ function onViewCustomer() {
 .receive-pay__table {
   width: 100%;
   height: 100%;
-  --el-table-header-bg-color: #f3f7f5;
+  --el-table-header-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
   --el-table-header-text-color: #0d3a28;
   --el-table-text-color: #1a2a22;
   --el-table-row-hover-bg-color: #f0f6f3;

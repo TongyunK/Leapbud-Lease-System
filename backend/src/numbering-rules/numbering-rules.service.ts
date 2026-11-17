@@ -15,11 +15,18 @@ import {
   renderNumberingFormat,
 } from './numbering-format.util';
 
+export type NumberingDb = Prisma.TransactionClient | PrismaService;
+
 export type NextCodeOptions = {
   /** 业务表是否已占用该编号 */
   isTaken?: (code: string) => Promise<boolean>;
   /** 批量导入时内存中已占用的编号（小写） */
   reserved?: { has(key: string): boolean };
+  /**
+   * 外层事务／客户端：在同一连接内推进序号。
+   * 结算等流程常在已有 $transaction 内取号，勿再嵌套 $transaction。
+   */
+  db?: NumberingDb;
 };
 
 @Injectable()
@@ -113,7 +120,8 @@ export class NumberingRulesService {
    * 计算下一个可用编号（可选择是否写入序号）。
    * 通过 isTaken / reserved 跳过冲突编号。
    */
-  private async allocateCode(
+  private async allocateOn(
+    tx: NumberingDb,
     bizKey: NumberingBizKey,
     options: NextCodeOptions | undefined,
     commit: boolean,
@@ -121,52 +129,61 @@ export class NumberingRulesService {
     const now = new Date();
     const defaults = NUMBERING_DEFAULTS[bizKey];
 
-    return this.prisma.$transaction(async (tx) => {
-      const rule = await tx.numberingRule.findUnique({ where: { bizKey } });
-      const useRule = rule && rule.active;
+    const rule = await tx.numberingRule.findUnique({ where: { bizKey } });
+    const useRule = rule && rule.active;
 
-      const format = useRule ? rule.format : defaults.format;
-      const startValue = useRule ? rule.startValue : defaults.startValue;
-      const resetCycle = useRule ? rule.resetCycle : defaults.resetCycle;
-      let currentSeq = useRule ? rule.currentSeq : startValue - 1;
-      let periodKey = useRule ? rule.periodKey : '';
+    const format = useRule ? rule.format : defaults.format;
+    const startValue = useRule ? rule.startValue : defaults.startValue;
+    const resetCycle = useRule ? rule.resetCycle : defaults.resetCycle;
+    let currentSeq = useRule ? rule.currentSeq : startValue - 1;
+    let periodKey = useRule ? rule.periodKey : '';
 
-      if (resetCycle !== NumberingResetCycle.none) {
-        const nextPeriod = periodKeyOf(now, resetCycle);
-        if (!periodKey) {
-          // 首次写入周期键：沿用已有序号，避免把历史 currentSeq 误重置为起始值
-          periodKey = nextPeriod;
-        } else if (nextPeriod !== periodKey) {
-          currentSeq = startValue - 1;
-          periodKey = nextPeriod;
-        }
+    if (resetCycle !== NumberingResetCycle.none) {
+      const nextPeriod = periodKeyOf(now, resetCycle);
+      if (!periodKey) {
+        // 首次写入周期键：沿用已有序号，避免把历史 currentSeq 误重置为起始值
+        periodKey = nextPeriod;
+      } else if (nextPeriod !== periodKey) {
+        currentSeq = startValue - 1;
+        periodKey = nextPeriod;
       }
+    }
 
-      let seq = currentSeq + 1;
-      let code = renderNumberingFormat(format, now, seq);
-      let guard = 0;
-      while (
-        (options?.reserved?.has(code.toLowerCase()) ||
-          (options?.isTaken ? await options.isTaken(code) : false)) &&
-        guard < 10000
-      ) {
-        seq += 1;
-        code = renderNumberingFormat(format, now, seq);
-        guard += 1;
-      }
-      if (guard >= 10000) {
-        throw new ConflictException(`Unable to allocate numbering for ${bizKey}`);
-      }
+    let seq = currentSeq + 1;
+    let code = renderNumberingFormat(format, now, seq);
+    let guard = 0;
+    while (
+      (options?.reserved?.has(code.toLowerCase()) ||
+        (options?.isTaken ? await options.isTaken(code) : false)) &&
+      guard < 10000
+    ) {
+      seq += 1;
+      code = renderNumberingFormat(format, now, seq);
+      guard += 1;
+    }
+    if (guard >= 10000) {
+      throw new ConflictException(`Unable to allocate numbering for ${bizKey}`);
+    }
 
-      if (commit && useRule && rule) {
-        await tx.numberingRule.update({
-          where: { id: rule.id },
-          data: { currentSeq: seq, periodKey },
-        });
-      }
+    if (commit && useRule && rule) {
+      await tx.numberingRule.update({
+        where: { id: rule.id },
+        data: { currentSeq: seq, periodKey },
+      });
+    }
 
-      return code;
-    });
+    return code;
+  }
+
+  private async allocateCode(
+    bizKey: NumberingBizKey,
+    options: NextCodeOptions | undefined,
+    commit: boolean,
+  ): Promise<string> {
+    if (options?.db) {
+      return this.allocateOn(options.db, bizKey, options, commit);
+    }
+    return this.prisma.$transaction((tx) => this.allocateOn(tx, bizKey, options, commit));
   }
 
   /**

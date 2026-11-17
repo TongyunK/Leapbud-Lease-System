@@ -1,59 +1,184 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { Ticket, RefreshRight } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
+import {
+  Ticket,
+  Message,
+  Brush,
+  QuestionFilled,
+  RefreshRight,
+  Plus,
+} from '@element-plus/icons-vue'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { fetchSystemSettings, updateSystemSettingsApi } from '@/api/system-settings'
+import { uploadAttachmentApi } from '@/api/uploads'
+import AttachmentImageViewer from '@/components/AttachmentImageViewer.vue'
+import { useBrandingStore, DEFAULT_BRANDING } from '@/stores/branding'
+import { isHexColor } from '@/utils/brandTheme'
+import { probeImageHasTransparency } from '@/utils/logoFrame'
 import { formatDateTime } from '@/utils/format'
+import type { BrandingConfig, MailSmtpConfig } from '@/types/system-setting'
 
-type SettingsSectionId = 'billing'
+type SettingsSectionId = 'branding' | 'billing' | 'mail'
+
+const PASSWORD_MASK = '********'
+const DEFAULT_LOGO = '/leapbud_logo.png'
 
 const { t } = useI18n()
 const perms = useResourcePermissions('systemSettings')
+const brandingStore = useBrandingStore()
 
 const loading = ref(false)
 const saving = ref(false)
+const uploadingLogo = ref(false)
 const dirty = ref(false)
-const activeSection = ref<SettingsSectionId>('billing')
+const activeSection = ref<SettingsSectionId>('branding')
+const logoInputRef = ref<HTMLInputElement | null>(null)
+const logoPreviewVisible = ref(false)
 
 const meta = reactive({
   updatedAt: null as string | null,
   updatedBy: null as string | null,
 })
 
+const defaultMail = (): MailSmtpConfig => ({
+  host: 'mail.wisesystemtech.com',
+  port: 587,
+  secure: false,
+  email: 'rentalsystem@wisesystemtech.com',
+  password: '',
+  fromName: 'Leapbud 租賃系統',
+  hasPassword: false,
+})
+
+const defaultBranding = (): BrandingConfig => ({ ...DEFAULT_BRANDING })
+
 const form = reactive({
   rentInvoiceLeadDays: 7,
+  mailSmtp: defaultMail(),
+  branding: defaultBranding(),
 })
 
 const snapshot = reactive({
   rentInvoiceLeadDays: 7,
+  mailSmtp: defaultMail(),
+  branding: defaultBranding(),
 })
 
 const sections = computed(() => [
+  {
+    id: 'branding' as const,
+    icon: Brush,
+    title: t('systemSettings.sections.branding'),
+    desc: t('systemSettings.sections.brandingNavDesc'),
+  },
   {
     id: 'billing' as const,
     icon: Ticket,
     title: t('systemSettings.sections.billing'),
     desc: t('systemSettings.sections.billingNavDesc'),
   },
+  {
+    id: 'mail' as const,
+    icon: Message,
+    title: t('systemSettings.sections.mail'),
+    desc: t('systemSettings.sections.mailNavDesc'),
+  },
 ])
+
+const logoPreviewUrl = computed(
+  () => form.branding.logoUrl || DEFAULT_LOGO,
+)
+/** 设置页预览用：跟表单当前 Logo 走，未保存也可去掉透明 PNG 方框 */
+const logoPreviewFrameless = ref(false)
+let logoPreviewProbeSeq = 0
+
+watch(
+  logoPreviewUrl,
+  (url) => {
+    const seq = ++logoPreviewProbeSeq
+    void probeImageHasTransparency(url).then((hasAlpha) => {
+      if (seq !== logoPreviewProbeSeq) return
+      logoPreviewFrameless.value = hasAlpha
+    })
+  },
+  { immediate: true },
+)
+
+function openLogoPreview() {
+  if (!logoPreviewUrl.value) return
+  logoPreviewVisible.value = true
+}
+
+function mailEqual(a: MailSmtpConfig, b: MailSmtpConfig) {
+  return (
+    a.host === b.host &&
+    a.port === b.port &&
+    a.secure === b.secure &&
+    a.email === b.email &&
+    a.fromName === b.fromName &&
+    a.password === b.password
+  )
+}
+
+function brandingEqual(a: BrandingConfig, b: BrandingConfig) {
+  return (
+    (a.logoKey || '') === (b.logoKey || '') &&
+    (a.themeColor || '').toLowerCase() === (b.themeColor || '').toLowerCase() &&
+    (a.title || '') === (b.title || '') &&
+    (a.subtitle || '') === (b.subtitle || '')
+  )
+}
 
 function markDirty() {
   dirty.value =
-    Math.trunc(Number(form.rentInvoiceLeadDays)) !== snapshot.rentInvoiceLeadDays
+    Math.trunc(Number(form.rentInvoiceLeadDays)) !== snapshot.rentInvoiceLeadDays ||
+    !mailEqual(form.mailSmtp, snapshot.mailSmtp) ||
+    !brandingEqual(form.branding, snapshot.branding)
+}
+
+function applyMail(src: MailSmtpConfig): MailSmtpConfig {
+  return {
+    host: src.host || '',
+    port: Number(src.port) || 587,
+    secure: !!src.secure,
+    email: src.email || '',
+    password: src.hasPassword ? PASSWORD_MASK : '',
+    fromName: src.fromName || '',
+    hasPassword: !!src.hasPassword,
+  }
+}
+
+function applyBranding(src: BrandingConfig | null | undefined): BrandingConfig {
+  const base = src || defaultBranding()
+  return {
+    logoKey: String(base.logoKey || ''),
+    logoUrl: String(base.logoUrl || DEFAULT_LOGO) || DEFAULT_LOGO,
+    themeColor: String(base.themeColor || DEFAULT_BRANDING.themeColor),
+    title: String(base.title || DEFAULT_BRANDING.title),
+    subtitle: String(base.subtitle || DEFAULT_BRANDING.subtitle),
+  }
 }
 
 function applySnapshot() {
   snapshot.rentInvoiceLeadDays = Math.trunc(Number(form.rentInvoiceLeadDays)) || 7
+  snapshot.mailSmtp = { ...form.mailSmtp }
+  snapshot.branding = { ...form.branding }
   dirty.value = false
 }
 
-async function scrollToSection(id: SettingsSectionId) {
+function selectSection(id: SettingsSectionId) {
   activeSection.value = id
-  await nextTick()
-  const el = document.getElementById(`settings-section-${id}`)
-  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function apiErrorMessage(e: unknown, fallback: string) {
+  const err = e as { response?: { data?: { message?: string | string[] } }; message?: string }
+  const msg = err?.response?.data?.message
+  if (Array.isArray(msg) && msg[0]) return String(msg[0])
+  if (typeof msg === 'string' && msg.trim()) return msg
+  if (err?.message?.trim()) return err.message
+  return fallback
 }
 
 async function load() {
@@ -61,11 +186,16 @@ async function load() {
   try {
     const { data } = await fetchSystemSettings()
     form.rentInvoiceLeadDays = data.rentInvoiceLeadDays
+    form.mailSmtp = applyMail(data.mailSmtp || defaultMail())
+    form.branding = applyBranding(data.branding)
     meta.updatedAt = data.updatedAt
     meta.updatedBy = data.updatedBy
+    brandingStore.patchFromSettings(form.branding)
     applySnapshot()
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : t('systemSettings.loadFailed'))
+    await ElMessageBox.alert(apiErrorMessage(e, t('systemSettings.loadFailed')), t('common.tip'), {
+      type: 'error',
+    })
   } finally {
     loading.value = false
   }
@@ -73,26 +203,115 @@ async function load() {
 
 function resetForm() {
   form.rentInvoiceLeadDays = snapshot.rentInvoiceLeadDays
+  form.mailSmtp = { ...snapshot.mailSmtp }
+  form.branding = { ...snapshot.branding }
   dirty.value = false
+}
+
+function openLogoPicker() {
+  if (!perms.update || uploadingLogo.value) return
+  logoInputRef.value?.click()
+}
+
+async function onLogoFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !perms.update) return
+  if (!file.type.startsWith('image/')) {
+    await ElMessageBox.alert(t('systemSettings.logoInvalidType'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    await ElMessageBox.alert(t('systemSettings.logoTooLarge'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
+  uploadingLogo.value = true
+  try {
+    const { data } = await uploadAttachmentApi(file)
+    form.branding.logoKey = data.storageKey
+    form.branding.logoUrl = data.publicUrl || DEFAULT_LOGO
+    markDirty()
+  } catch (e: unknown) {
+    await ElMessageBox.alert(apiErrorMessage(e, t('systemSettings.logoUploadFailed')), t('common.tip'), {
+      type: 'error',
+    })
+  } finally {
+    uploadingLogo.value = false
+  }
+}
+
+function onThemeColorPick(value: string | null) {
+  form.branding.themeColor = value || DEFAULT_BRANDING.themeColor
+  markDirty()
 }
 
 async function save() {
   if (!perms.update) return
   const days = Math.trunc(Number(form.rentInvoiceLeadDays))
   if (!Number.isFinite(days) || days < 1 || days > 90) {
-    ElMessage.warning(t('systemSettings.leadDaysInvalid'))
+    await ElMessageBox.alert(t('systemSettings.leadDaysInvalid'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
+  const host = form.mailSmtp.host.trim()
+  const email = form.mailSmtp.email.trim()
+  if (!host || !email) {
+    await ElMessageBox.alert(t('systemSettings.mailRequired'), t('common.tip'), { type: 'warning' })
+    return
+  }
+  const themeColor = String(form.branding.themeColor || '').trim()
+  const title = String(form.branding.title || '').trim()
+  const subtitle = String(form.branding.subtitle || '').trim()
+  if (!isHexColor(themeColor)) {
+    await ElMessageBox.alert(t('systemSettings.themeColorInvalid'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
+  if (!title || !subtitle) {
+    await ElMessageBox.alert(t('systemSettings.brandNameRequired'), t('common.tip'), {
+      type: 'warning',
+    })
     return
   }
   saving.value = true
   try {
-    const { data } = await updateSystemSettingsApi({ rentInvoiceLeadDays: days })
+    const pwd = form.mailSmtp.password
+    const { data } = await updateSystemSettingsApi({
+      rentInvoiceLeadDays: days,
+      mailSmtp: {
+        host,
+        port: Math.trunc(Number(form.mailSmtp.port)) || 587,
+        secure: !!form.mailSmtp.secure,
+        email,
+        password: pwd === PASSWORD_MASK ? undefined : pwd,
+        fromName: form.mailSmtp.fromName.trim(),
+      },
+      branding: {
+        logoKey: form.branding.logoKey || '',
+        themeColor: themeColor.toLowerCase(),
+        title,
+        subtitle,
+      },
+    })
     form.rentInvoiceLeadDays = data.rentInvoiceLeadDays
+    form.mailSmtp = applyMail(data.mailSmtp || defaultMail())
+    form.branding = applyBranding(data.branding)
     meta.updatedAt = data.updatedAt
     meta.updatedBy = data.updatedBy
+    brandingStore.patchFromSettings(form.branding)
     applySnapshot()
-    ElMessage.success(t('systemSettings.saved'))
+    await ElMessageBox.alert(t('systemSettings.saved'), t('common.tip'), { type: 'success' })
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : t('systemSettings.saveFailed'))
+    await ElMessageBox.alert(apiErrorMessage(e, t('systemSettings.saveFailed')), t('common.tip'), {
+      type: 'error',
+    })
   } finally {
     saving.value = false
   }
@@ -113,9 +332,11 @@ onMounted(() => {
         type="button"
         class="system-settings__nav-item"
         :class="{ 'is-active': activeSection === sec.id }"
-        @click="scrollToSection(sec.id)"
+        @click="selectSection(sec.id)"
       >
-        <el-icon class="system-settings__nav-icon"><component :is="sec.icon" /></el-icon>
+        <span class="system-settings__nav-icon" aria-hidden="true">
+          <el-icon :size="18"><component :is="sec.icon" /></el-icon>
+        </span>
         <span class="system-settings__nav-text">
           <span class="system-settings__nav-label">{{ sec.title }}</span>
           <span class="system-settings__nav-desc">{{ sec.desc }}</span>
@@ -124,44 +345,352 @@ onMounted(() => {
     </aside>
 
     <div class="system-settings__main">
-      <el-form label-position="top" class="system-settings__form" @submit.prevent>
-        <section id="settings-section-billing" class="settings-card">
-          <header class="settings-card__head">
-            <div class="settings-card__icon" aria-hidden="true">
-              <el-icon :size="20"><Ticket /></el-icon>
-            </div>
-            <div class="settings-card__head-text">
-              <h3 class="settings-card__title">{{ t('systemSettings.sections.billing') }}</h3>
-              <p class="settings-card__desc">{{ t('systemSettings.sections.billingDesc') }}</p>
-            </div>
-          </header>
+      <div class="system-settings__canvas">
+        <el-form label-position="top" class="system-settings__form" @submit.prevent>
+          <section v-if="activeSection === 'branding'" class="settings-card">
+            <header class="settings-card__head">
+              <div class="settings-card__icon" aria-hidden="true">
+                <el-icon :size="20"><Brush /></el-icon>
+              </div>
+              <div class="settings-card__head-text">
+                <h3 class="settings-card__title">
+                  <span>{{ t('systemSettings.sections.branding') }}</span>
+                  <el-tooltip
+                    :content="t('systemSettings.sections.brandingDesc')"
+                    placement="top"
+                    :fallback-placements="['top', 'left', 'right']"
+                  >
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </h3>
+              </div>
+            </header>
 
-          <div class="settings-card__body">
-            <div class="setting-row">
-              <div class="setting-row__label">
-                <div class="setting-row__name">
-                  {{ t('systemSettings.fields.rentInvoiceLeadDays') }}
+            <div class="settings-card__body">
+              <div class="field-grid">
+                <div class="field-block field-block--logo">
+                  <label class="field-block__label">
+                    <span>{{ t('systemSettings.fields.brandLogo') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.brandLogo')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <div class="logo-row">
+                    <button
+                      type="button"
+                      class="logo-preview"
+                      :class="{ 'is-frameless': logoPreviewFrameless }"
+                      :title="t('common.preview')"
+                      :aria-label="t('common.preview')"
+                      @click="openLogoPreview"
+                    >
+                      <img :src="logoPreviewUrl" alt="" />
+                    </button>
+                    <div class="logo-actions">
+                      <input
+                        ref="logoInputRef"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                        class="logo-file-input"
+                        @change="onLogoFileChange"
+                      />
+                      <el-button
+                        v-if="perms.update"
+                        v-admin-glow="perms.codes.update"
+                        type="primary"
+                        plain
+                        :loading="uploadingLogo"
+                        @click="openLogoPicker"
+                      >
+                        <el-icon class="el-icon--left"><Plus /></el-icon>
+                        {{ t('systemSettings.uploadLogo') }}
+                      </el-button>
+                      <p class="logo-hint">{{ t('systemSettings.logoHint') }}</p>
+                    </div>
+                  </div>
                 </div>
-                <div class="setting-row__hint">
-                  {{ t('systemSettings.hints.rentInvoiceLeadDays') }}
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-brand-theme">
+                    <span>{{ t('systemSettings.fields.brandThemeColor') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.brandThemeColor')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <div class="theme-color-row">
+                    <el-color-picker
+                      id="ss-brand-theme"
+                      v-model="form.branding.themeColor"
+                      :disabled="!perms.update"
+                      color-format="hex"
+                      @change="onThemeColorPick"
+                    />
+                    <el-input
+                      v-model="form.branding.themeColor"
+                      class="theme-color-input"
+                      :disabled="!perms.update"
+                      maxlength="7"
+                      placeholder="#0f4a32"
+                      @input="markDirty"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div class="setting-row__control">
-                <el-input-number
-                  v-model="form.rentInvoiceLeadDays"
-                  :min="1"
-                  :max="90"
-                  :step="1"
-                  :disabled="!perms.update"
-                  controls-position="right"
-                  @change="markDirty"
-                />
-                <span class="setting-row__unit">{{ t('systemSettings.unit.days') }}</span>
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-brand-title">
+                    <span>{{ t('systemSettings.fields.brandTitle') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.brandTitle')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <el-input
+                    id="ss-brand-title"
+                    v-model="form.branding.title"
+                    :disabled="!perms.update"
+                    maxlength="80"
+                    @input="markDirty"
+                  />
+                </div>
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-brand-subtitle">
+                    <span>{{ t('systemSettings.fields.brandSubtitle') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.brandSubtitle')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <el-input
+                    id="ss-brand-subtitle"
+                    v-model="form.branding.subtitle"
+                    :disabled="!perms.update"
+                    maxlength="120"
+                    @input="markDirty"
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        </section>
-      </el-form>
+          </section>
+
+          <section v-else-if="activeSection === 'billing'" class="settings-card">
+            <header class="settings-card__head">
+              <div class="settings-card__icon" aria-hidden="true">
+                <el-icon :size="20"><Ticket /></el-icon>
+              </div>
+              <div class="settings-card__head-text">
+                <h3 class="settings-card__title">
+                  <span>{{ t('systemSettings.sections.billing') }}</span>
+                  <el-tooltip
+                    :content="t('systemSettings.sections.billingDesc')"
+                    placement="top"
+                    :fallback-placements="['top', 'left', 'right']"
+                  >
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </h3>
+              </div>
+            </header>
+
+            <div class="settings-card__body">
+              <div class="field-block field-block--inline">
+                <div class="field-block__copy">
+                  <label class="field-block__label" for="ss-lead-days">
+                    <span>{{ t('systemSettings.fields.rentInvoiceLeadDays') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.rentInvoiceLeadDays')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                </div>
+                <div class="field-block__control field-block__control--compact">
+                  <el-input-number
+                    id="ss-lead-days"
+                    v-model="form.rentInvoiceLeadDays"
+                    class="settings-num"
+                    size="large"
+                    :min="1"
+                    :max="90"
+                    :step="1"
+                    :disabled="!perms.update"
+                    controls-position="right"
+                    @change="markDirty"
+                  />
+                  <span class="field-block__unit">{{ t('systemSettings.unit.days') }}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section v-else-if="activeSection === 'mail'" class="settings-card">
+            <header class="settings-card__head">
+              <div class="settings-card__icon" aria-hidden="true">
+                <el-icon :size="20"><Message /></el-icon>
+              </div>
+              <div class="settings-card__head-text">
+                <h3 class="settings-card__title">
+                  <span>{{ t('systemSettings.sections.mail') }}</span>
+                  <el-tooltip
+                    :content="t('systemSettings.sections.mailDesc')"
+                    placement="top"
+                    :fallback-placements="['top', 'left', 'right']"
+                  >
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </h3>
+              </div>
+            </header>
+
+            <div class="settings-card__body">
+              <div class="field-grid">
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-mail-host">
+                    <span>{{ t('systemSettings.fields.mailHost') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.mailHost')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <el-input
+                    id="ss-mail-host"
+                    v-model="form.mailSmtp.host"
+                    :disabled="!perms.update"
+                    maxlength="200"
+                    @input="markDirty"
+                  />
+                </div>
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-mail-port">
+                    <span>{{ t('systemSettings.fields.mailPort') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.mailPort')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <div class="field-block__control field-block__control--port">
+                    <el-input-number
+                      id="ss-mail-port"
+                      v-model="form.mailSmtp.port"
+                      class="settings-num settings-num--port"
+                      size="large"
+                      :min="1"
+                      :max="65535"
+                      :step="1"
+                      :disabled="!perms.update"
+                      controls-position="right"
+                      @change="markDirty"
+                    />
+                    <div class="ssl-toggle">
+                      <el-switch
+                        v-model="form.mailSmtp.secure"
+                        :disabled="!perms.update"
+                        @change="markDirty"
+                      />
+                      <span class="ssl-toggle__text">{{ t('systemSettings.fields.mailSecure') }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-mail-from-name">
+                    <span>{{ t('systemSettings.fields.mailFromName') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.mailFromName')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <el-input
+                    id="ss-mail-from-name"
+                    v-model="form.mailSmtp.fromName"
+                    :disabled="!perms.update"
+                    maxlength="120"
+                    @input="markDirty"
+                  />
+                </div>
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-mail-email">
+                    <span>{{ t('systemSettings.fields.mailEmail') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.mailEmail')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <el-input
+                    id="ss-mail-email"
+                    v-model="form.mailSmtp.email"
+                    :disabled="!perms.update"
+                    maxlength="200"
+                    @input="markDirty"
+                  />
+                </div>
+
+                <div class="field-block">
+                  <label class="field-block__label" for="ss-mail-password">
+                    <span>{{ t('systemSettings.fields.mailPassword') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.mailPassword')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                  <el-input
+                    id="ss-mail-password"
+                    v-model="form.mailSmtp.password"
+                    type="password"
+                    show-password
+                    :disabled="!perms.update"
+                    maxlength="200"
+                    :placeholder="
+                      form.mailSmtp.hasPassword
+                        ? t('systemSettings.mailPasswordKeep')
+                        : t('systemSettings.mailPasswordPlaceholder')
+                    "
+                    @focus="
+                      () => {
+                        if (form.mailSmtp.password === PASSWORD_MASK) form.mailSmtp.password = ''
+                      }
+                    "
+                    @input="markDirty"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+        </el-form>
+      </div>
 
       <footer class="system-settings__footer">
         <div class="system-settings__meta">
@@ -180,41 +709,62 @@ onMounted(() => {
             <el-icon class="el-icon--left"><RefreshRight /></el-icon>
             {{ t('systemSettings.reset') }}
           </el-button>
-          <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">
+          <el-button
+            v-admin-glow="perms.codes.update"
+            type="primary"
+            class="lb-btn-primary"
+            :loading="saving"
+            :disabled="!dirty"
+            @click="save"
+          >
             {{ t('common.save') }}
           </el-button>
         </div>
       </footer>
     </div>
+
+    <Teleport to="body">
+      <AttachmentImageViewer
+        v-if="logoPreviewVisible && logoPreviewUrl"
+        :url-list="[logoPreviewUrl]"
+        @close="logoPreviewVisible = false"
+      />
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .system-settings {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-  min-height: min(70vh, 720px);
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .system-settings__nav {
+  align-self: start;
   position: sticky;
-  top: 12px;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
-  background: var(--el-bg-color);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+  top: 0;
+  max-height: 100%;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f7f7f7) 0%, #ffffff 55%),
+    #fff;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
 }
 
 .system-settings__nav-title {
-  margin: 0 8px 10px;
-  font-size: 12px;
-  font-weight: 600;
+  margin: 2px 8px 12px;
+  font-size: 0.86rem;
+  font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--el-text-color-secondary);
+  color: var(--lb-muted, #666);
 }
 
 .system-settings__nav-item {
@@ -222,30 +772,44 @@ onMounted(() => {
   align-items: flex-start;
   gap: 10px;
   width: 100%;
-  margin: 0;
-  padding: 10px;
+  margin: 0 0 4px;
+  padding: 10px 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 11px;
   background: transparent;
-  color: inherit;
+  color: var(--lb-ink, #1a1a1a);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease;
 }
 
 .system-settings__nav-item:hover {
-  background: var(--el-fill-color-light);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
 }
 
 .system-settings__nav-item.is-active {
-  background: color-mix(in srgb, var(--lb-brand, var(--el-color-primary)) 12%, transparent);
-  color: var(--lb-brand, var(--el-color-primary));
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  box-shadow: inset 3px 0 0 var(--lb-brand, #0f4a32);
+  color: var(--lb-brand, #0f4a32);
 }
 
 .system-settings__nav-icon {
-  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  font-size: 18px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  color: var(--lb-brand, #0f4a32);
+}
+
+.system-settings__nav-item.is-active .system-settings__nav-icon {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
+  color: var(--lb-brand, #0f4a32);
 }
 
 .system-settings__nav-text {
@@ -253,144 +817,419 @@ onMounted(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  padding-top: 2px;
 }
 
 .system-settings__nav-label {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .system-settings__nav-desc {
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.35;
-  color: var(--el-text-color-secondary);
+  color: #888;
 }
 
 .system-settings__nav-item.is-active .system-settings__nav-desc {
-  color: color-mix(in srgb, var(--lb-brand, var(--el-color-primary)) 72%, var(--el-text-color-secondary));
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #888);
 }
 
 .system-settings__main {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.system-settings__canvas {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.system-settings__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
 
 .settings-card {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
-  background: var(--el-bg-color);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
+  background: #fff;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 80%) inset,
+    0 10px 28px color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
   overflow: hidden;
-  scroll-margin-top: 16px;
+  scroll-margin-top: 14px;
 }
 
 .settings-card__head {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--el-border-color-extra-light);
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #ebebeb);
+  /* 勿再叠旧橙色 radial（accent #d9822b）；仅中性浅灰 + 主题淡染 */
   background: linear-gradient(
     180deg,
-    var(--el-fill-color-blank) 0%,
-    color-mix(in srgb, var(--el-fill-color-light) 55%, transparent) 100%
+    #fafafa 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5) 100%
   );
 }
 
 .settings-card__icon {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   flex-shrink: 0;
-  color: var(--lb-brand, var(--el-color-primary));
-  background: color-mix(in srgb, var(--lb-brand, var(--el-color-primary)) 14%, transparent);
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
+}
+
+.settings-card__icon--accent {
+  color: var(--lb-accent, #d9822b);
+  background: color-mix(in srgb, var(--lb-accent, #d9822b) 14%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-accent, #d9822b) 18%, transparent);
 }
 
 .settings-card__head-text {
   min-width: 0;
+  padding-top: 1px;
 }
 
 .settings-card__title {
-  margin: 0 0 4px;
-  font-size: 16px;
-  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 750;
   line-height: 1.3;
-  color: var(--el-text-color-primary);
+  color: var(--lb-ink, #1a1a1a);
+  letter-spacing: 0.01em;
 }
 
-.settings-card__desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--el-text-color-secondary);
+.settings-tip {
+  color: #8a8a8a;
+  cursor: help;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.settings-tip:hover {
+  color: var(--lb-brand, #0f4a32);
 }
 
 .settings-card__body {
-  padding: 4px 6px;
+  padding: 16px 18px 18px;
 }
 
-.setting-row {
+/* 小屏（笔记本宽度）：一行两列；大屏（≥1440）：单列通栏 */
+.field-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px 24px;
-  align-items: center;
-  padding: 16px 12px;
-  border-top: 1px solid var(--el-border-color-extra-light);
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 14px;
 }
 
-.setting-row:first-child {
-  border-top: 0;
+@media (min-width: 1440px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-.setting-row__name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  line-height: 1.35;
+.field-block {
+  min-width: 0;
 }
 
-.setting-row__hint {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--el-text-color-secondary);
-  max-width: 52ch;
+.field-block--logo {
+  grid-column: 1 / -1;
 }
 
-.setting-row__control {
+.logo-row {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.setting-row__unit {
-  font-size: 13px;
-  color: var(--el-text-color-regular);
+.logo-preview {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #f5f5f5);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, transparent);
+  cursor: zoom-in;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.logo-preview:hover {
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #e0e0e0);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
+}
+
+.logo-preview:focus-visible {
+  outline: 2px solid var(--lb-brand, #0f4a32);
+  outline-offset: 2px;
+}
+
+.logo-preview.is-frameless {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.logo-preview.is-frameless:hover {
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e0e0e0);
+  box-shadow: none;
+}
+
+.logo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.logo-preview.is-frameless img {
+  object-fit: contain;
+  filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, transparent));
+}
+
+.logo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.logo-file-input {
+  display: none;
+}
+
+.logo-hint {
+  margin: 4px 0 0;
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--lb-muted, #666);
+  line-height: 1.4;
+}
+
+.theme-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-color-input {
+  width: 140px;
+}
+
+.field-block--inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f5f5f5);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
+}
+
+.field-block__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.field-block__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--lb-ink, #1a1a1a);
+  line-height: 1.3;
+}
+
+.field-block--inline .field-block__label {
+  margin-bottom: 0;
+}
+
+.field-block__control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field-block__control--compact {
+  flex-shrink: 0;
+}
+
+.field-block__control--port {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.field-block__unit {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--lb-muted, #666);
   white-space: nowrap;
+  line-height: 40px;
+}
+
+.ssl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
+  box-sizing: border-box;
+}
+
+.ssl-toggle__text {
+  font-size: 0.86rem;
+  font-weight: 650;
+  color: var(--lb-muted, #666);
+}
+
+.field-block > :deep(.el-input) {
+  width: 100%;
+}
+
+.field-block :deep(.el-input__wrapper) {
+  border-radius: 10px;
+  min-height: 40px;
+  height: 40px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #d8d8d8) inset;
+  background: #fff;
+}
+
+.field-block :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #b8b8b8) inset;
+}
+
+.field-block :deep(.el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px var(--lb-brand, #0f4a32) inset,
+    0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
+}
+
+/* 数字框与普通输入框同高 40px */
+.field-block :deep(.settings-num.el-input-number) {
+  --el-input-height: 40px;
+  --el-component-size: 40px;
+  --el-input-number-controls-height: 19px;
+  width: 148px;
+  height: 40px;
+  line-height: 40px;
+}
+
+.field-block :deep(.settings-num .el-input) {
+  height: 40px;
+  line-height: 40px;
+}
+
+.field-block :deep(.settings-num .el-input__wrapper) {
+  height: 40px !important;
+  min-height: 40px !important;
+  padding-left: 12px;
+  padding-right: 34px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #d8d8d8) inset !important;
+}
+
+.field-block :deep(.settings-num .el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #b8b8b8) inset !important;
+}
+
+.field-block :deep(.settings-num .el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px var(--lb-brand, #0f4a32) inset,
+    0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent) !important;
+}
+
+.field-block :deep(.settings-num .el-input__inner) {
+  height: 38px;
+  line-height: 38px;
+  text-align: left;
+  font-size: 0.92rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--lb-ink, #1a1a1a);
+}
+
+.field-block :deep(.settings-num .el-input-number__increase),
+.field-block :deep(.settings-num .el-input-number__decrease) {
+  width: 28px;
+  height: var(--el-input-number-controls-height);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
+  border-left: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
+  color: var(--lb-muted, #666);
+}
+
+.field-block :deep(.settings-num .el-input-number__increase) {
+  border-top-right-radius: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
+  top: 1px;
+}
+
+.field-block :deep(.settings-num .el-input-number__decrease) {
+  border-bottom-right-radius: 10px;
+  bottom: 1px;
+  top: auto;
+}
+
+.field-block :deep(.settings-num .el-input-number__increase:hover),
+.field-block :deep(.settings-num .el-input-number__decrease:hover) {
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+}
+
+.field-block :deep(.settings-num.is-controls-right .el-input__wrapper) {
+  padding-right: 34px;
 }
 
 .system-settings__footer {
-  position: sticky;
-  bottom: 0;
+  flex: 0 0 auto;
   z-index: 2;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
   padding: 12px 14px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--el-bg-color) 92%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 -4px 16px rgb(15 23 42 / 4%);
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f7f7f7);
+  box-shadow: 0 -6px 20px color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
 }
 
 .system-settings__meta {
@@ -398,19 +1237,20 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--lb-muted, #666);
 }
 
 .system-settings__dirty {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--el-color-warning-dark-2);
-  background: var(--el-color-warning-light-9);
+  font-weight: 700;
+  color: #8a5a12;
+  background: #f8ecd6;
 }
 
 .system-settings__actions {
@@ -420,40 +1260,66 @@ onMounted(() => {
   margin-left: auto;
 }
 
+.system-settings__actions :deep(.lb-btn-primary) {
+  --el-button-bg-color: var(--lb-accent);
+  --el-button-border-color: var(--lb-accent);
+  --el-button-hover-bg-color: var(--lb-accent-hover);
+  --el-button-hover-border-color: var(--lb-accent-hover);
+  --el-button-active-bg-color: var(--lb-accent-hover);
+  --el-button-active-border-color: var(--lb-accent-hover);
+  font-weight: 650;
+  min-width: 96px;
+}
+
 @media (max-width: 900px) {
   .system-settings {
     grid-template-columns: 1fr;
+    height: 100%;
     min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .system-settings__nav {
     position: static;
+    max-height: none;
+    overflow: visible;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     padding: 10px;
   }
 
   .system-settings__nav-title {
     width: 100%;
-    margin: 0 4px 2px;
+    margin: 0 4px 4px;
   }
 
   .system-settings__nav-item {
-    flex: 1 1 160px;
+    flex: 1 1 150px;
+    margin: 0;
   }
 
   .system-settings__nav-desc {
     display: none;
   }
 
-  .setting-row {
-    grid-template-columns: 1fr;
-    gap: 10px;
+  .field-block--inline {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .setting-row__control {
+  .field-block__control--compact {
     justify-content: flex-start;
+  }
+}
+
+@media (max-height: 900px) {
+  .settings-card__body {
+    padding: 14px 16px 16px;
+  }
+
+  .field-grid {
+    gap: 14px 12px;
   }
 }
 </style>

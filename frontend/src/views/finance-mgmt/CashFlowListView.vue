@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search } from '@element-plus/icons-vue'
+import { Download, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
 import {
   deleteCashFlowApi,
+  batchDeleteCashFlowsApi,
   fetchCashFlow,
   fetchCashFlowDirectionCounts,
   fetchCashFlows,
+  importCashFlowsApi,
   type CashFlowDirectionCounts,
   type CashFlowListQuery,
 } from '@/api/cash-flows'
@@ -33,6 +36,20 @@ import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import { cashFlowDirectionTone, cashFlowSourceTypeTone } from '@/constants/statusBadges'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { packFilterValues } from '@/utils/columnFilter'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
+import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import ExportIcon from '@/components/icons/ExportIcon.vue'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
+import { useImportProgress } from '@/composables/useImportProgress'
+import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
+import {
+  cashFlowIoTemplateExampleRow,
+  cashFlowToIoRow,
+  rowToCashFlowIoPayload,
+  type CashFlowImportPayload,
+} from '@/utils/cashFlowExport'
 import { fetchRefundOrder } from '@/api/refund-orders'
 import type { RefundOrderRecord } from '@/types/refund-order'
 import { fetchContractSettlement } from '@/api/contract-settlements'
@@ -142,6 +159,7 @@ async function loadDirectionChipCounts() {
 
 const {
   loading,
+  exporting,
   list,
   total,
   page,
@@ -150,6 +168,7 @@ const {
   rowIndex,
   resetPage,
   loadList,
+  fetchExportRows,
   onClearFilters,
 } = useServerPagedList<CashFlowRecord, CashFlowListQuery>({
   keyword,
@@ -182,6 +201,70 @@ const {
   },
   fetchPage: fetchCashFlows,
 })
+
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<CashFlowRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([keyword, filters, sortKey, sortOrder, dateRanges, directionChipFilter], () => {
+  clearSelection()
+})
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    const rows = await fetchExportRows('filtered')
+    await selectRows(rows)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!perms.batchDelete || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(
+      ids,
+      (chunk) => batchDeleteCashFlowsApi(chunk),
+      setBatchProgress,
+    )
+    finishBatch(ok, fail)
+    clearSelection()
+    await reloadListAndCounts()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
 
 async function reloadListAndCounts() {
   await Promise.all([loadList(), loadDirectionChipCounts()])
@@ -358,6 +441,155 @@ async function openSettlementSide(id: string) {
   }
 }
 
+const importInputRef = ref<HTMLInputElement | null>(null)
+const {
+  state: importState,
+  percentage: importPercentage,
+  importing,
+  begin: beginImport,
+  setTotal: setImportTotal,
+  setPreparing: setImportPreparing,
+  setProcessing: setImportProcessing,
+  bump: bumpImport,
+  appendIssues: appendImportIssues,
+  finish: finishImport,
+  fail: failImport,
+  close: closeImport,
+} = useImportProgress()
+
+function onDataIoCommand(cmd: string | number) {
+  if (cmd === 'import') {
+    importInputRef.value?.click()
+    return
+  }
+  if (cmd === 'template') {
+    downloadImportTemplate()
+    return
+  }
+  const scope = exportScopeFromCommand(cmd)
+  if (scope) void exportCashFlowsXlsx(scope)
+}
+
+function downloadImportTemplate() {
+  const example = cashFlowIoTemplateExampleRow(t)
+  const ws = XLSX.utils.json_to_sheet([example])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'CashFlows')
+  XLSX.writeFile(wb, 'cash-flows-import-template.xlsx')
+  void ElMessageBox.alert(t('cashFlow.templateDone'), t('common.tip'), { type: 'success' })
+}
+
+async function exportCashFlowsXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: CashFlowRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      await ElMessageBox.alert(t('cashFlow.exportEmpty'), t('common.tip'), { type: 'warning' })
+      return
+    }
+    const sheetRows = rows.map((r) => cashFlowToIoRow(r, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'CashFlows')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `cash-flows-${exportFileSuffix(scope)}-${day}.xlsx`)
+    await ElMessageBox.alert(t('cashFlow.exportDone', { n: rows.length }), t('common.tip'), {
+      type: 'success',
+    })
+  } catch {
+    await ElMessageBox.alert(t('cashFlow.importFailed'), t('common.tip'), { type: 'error' })
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function onImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!perms.import) {
+    await ElMessageBox.alert(t('cashFlow.importAdminOnly'), t('common.tip'), { type: 'warning' })
+    return
+  }
+
+  beginImport({
+    fileName: file.name,
+    statKeys: ['created', 'skipped', 'failed'],
+  })
+  try {
+    setImportPreparing()
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const sheet = wb.Sheets[wb.SheetNames[0]]
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    if (!rawRows.length) {
+      finishImport({
+        tone: 'warning',
+        message: t('cashFlow.importEmpty'),
+      })
+      return
+    }
+
+    const payloads: CashFlowImportPayload[] = []
+    for (const row of rawRows) {
+      const parsed = rowToCashFlowIoPayload(row, t)
+      if (!parsed) {
+        bumpImport('skipped')
+        appendImportIssues([
+          {
+            status: 'skipped',
+            reason: t('common.importUi.parseSkipped'),
+            keys: {
+              來源單據: String(row['來源單據'] ?? row['来源单据'] ?? ''),
+              流水編號: String(row['流水編號'] ?? row['流水编号'] ?? ''),
+            },
+          },
+        ])
+        continue
+      }
+      payloads.push(parsed)
+    }
+
+    setImportTotal(rawRows.length)
+    const batches = chunkArray(payloads, IMPORT_BATCH_SIZE)
+    let processed = importState.stats.skipped
+    for (const batch of batches) {
+      processed += batch.length
+      setImportProcessing(Math.min(processed, rawRows.length))
+      try {
+        const { data } = await importCashFlowsApi(batch)
+        if (data.created) bumpImport('created', data.created)
+        if (data.skipped) bumpImport('skipped', data.skipped)
+        if (data.failed) bumpImport('failed', data.failed)
+        appendImportIssues(data.issues)
+      } catch {
+        bumpImport('failed', batch.length)
+        appendImportIssues(
+          batch.map((it) => ({
+            status: 'failed' as const,
+            reason: t('common.importUi.batchRequestFailed'),
+            keys: {
+              來源單據: it.sourceRef || '',
+              流水編號: it.flowCode || '',
+            },
+          })),
+        )
+      }
+    }
+
+    await reloadListAndCounts()
+    finishImport()
+  } catch {
+    failImport(t('cashFlow.importFailed'))
+  }
+}
+
 onMounted(() => {
   void reloadListAndCounts()
 })
@@ -394,6 +626,47 @@ onMounted(() => {
           :placeholder="t('cashFlow.searchPlaceholder')"
         />
         <ClearTableFiltersButton :count="cashFlowConditionCount" @clear="onClearCashFlowFilters" />
+        <el-dropdown
+          trigger="hover"
+          placement="bottom-end"
+          popper-class="room-io-popper"
+          @command="onDataIoCommand"
+        >
+          <el-button class="room-io-btn" :aria-label="t('cashFlow.dataIo')" :loading="importing || exporting">
+            <el-icon :size="16"><ExportIcon /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
+                <el-icon><Upload /></el-icon>
+                <span>{{ t('cashFlow.import') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="template">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('cashFlow.downloadTemplate') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-page" divided>
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportPage') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-filtered">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportFiltered') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-all">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportAll') }}</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <input
+          ref="importInputRef"
+          type="file"
+          class="room-io-file"
+          accept=".xlsx,.xls,.csv"
+          @change="onImportFile"
+        />
       </div>
     </div>
 
@@ -404,6 +677,7 @@ onMounted(() => {
         element-loading-background="rgba(247, 250, 248, 0.78)"
       >
         <el-table
+          ref="tableRef"
           :key="`${tableLayoutKey}-${codeLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
@@ -412,8 +686,17 @@ onMounted(() => {
           border
           scrollbar-always-on
           style="width: 100%"
+          @selection-change="onSelectionChange"
           @row-click="onRowClick"
         >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -756,7 +1039,24 @@ onMounted(() => {
       v-model:page-size="pageSize"
       :total="total"
       :page-sizes="pageSizes"
-    />
+      :selected-count="selectedCount"
+      enable-select-all
+      :select-all-loading="selectAllLoading"
+      @select-all="onSelectAll"
+      @clear-selection="clearSelection"
+    >
+      <template v-if="perms.batchDelete" #batch>
+        <button
+          v-admin-glow="perms.codes.batchDelete"
+          type="button"
+          class="lb-pager__batch-btn"
+          :disabled="batchDeleting || selectAllLoading"
+          @click="onBatchDelete"
+        >
+          {{ t('common.batchDelete') }}
+        </button>
+      </template>
+    </TablePagination>
 
     <CashFlowDetailDrawer
       v-model="drawerVisible"
@@ -789,7 +1089,43 @@ onMounted(() => {
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-customer="(id) => relationDrawers?.openCustomerSide(id)"
       @open-room="(id) => relationDrawers?.openRoomSide(id)"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
     />
     <RelatedEntityDrawers ref="relationDrawers" />
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
+    />
+
+    <ImportProgressDialog
+      v-model="importState.visible"
+      :phase="importState.phase"
+      :file-name="importState.fileName"
+      :total="importState.total"
+      :current="importState.current"
+      :percentage="importPercentage"
+      :status-key="importState.statusKey"
+      :stats="importState.stats"
+      :result-tone="importState.resultTone"
+      :result-message="importState.resultMessage"
+      :result-stat-keys="importState.resultStatKeys"
+      :issues="importState.issues"
+      @close="closeImport"
+    />
   </div>
 </template>
+
+<style scoped>
+.room-io-file {
+  display: none;
+}
+</style>

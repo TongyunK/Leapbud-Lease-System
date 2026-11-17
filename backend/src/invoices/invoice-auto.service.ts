@@ -690,24 +690,16 @@ export class InvoiceAutoService {
     return suffix ? `${auto}-${suffix}` : auto
   }
 
-  /** 与 ReceivablesService 一致：AR{YYMMDD}{####}（应收暂未接入编号规则表） */
+  /** 与 ReceivablesService 一致：走自动编号规则 receivable */
   private async nextReceivableCode(db: DbClient): Promise<string> {
-    const now = new Date()
-    const y = String(now.getUTCFullYear()).slice(-2)
-    const m = String(now.getUTCMonth() + 1).padStart(2, '0')
-    const d = String(now.getUTCDate()).padStart(2, '0')
-    const prefix = `AR${y}${m}${d}`
-    const latest = await db.receivable.findFirst({
-      where: { receivableCode: { startsWith: prefix } },
-      orderBy: { receivableCode: 'desc' },
-      select: { receivableCode: true },
+    return this.numberingRules.nextCode(NumberingBizKey.receivable, {
+      db,
+      isTaken: async (code) =>
+        !!(await db.receivable.findFirst({
+          where: { receivableCode: code },
+          select: { id: true },
+        })),
     })
-    let seq = 1
-    if (latest?.receivableCode) {
-      const n = Number(latest.receivableCode.slice(prefix.length))
-      if (!Number.isNaN(n)) seq = n + 1
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`
   }
 
   private async createInvoiceWithDetails(
@@ -809,10 +801,13 @@ export class InvoiceAutoService {
       throw new BadRequestException(`Contract ${params.contractId} not found`)
     }
     const description = s(params.description) || '退租超出按金金额赔偿'
-    const lines =
-      params.lines?.length && params.lines.some((l) => round2(l.quantity * l.unitAmount) > 0.009)
-        ? params.lines.filter((l) => round2(l.quantity * l.unitAmount) > 0.009)
-        : [{ description, quantity: 1, unitAmount: amount }]
+    /** 允许负数行（按金／定金抵扣）；仅丢弃约 0 的空行 */
+    const usableLines = (params.lines || []).filter(
+      (l) => Math.abs(round2(l.quantity * l.unitAmount)) > 0.009,
+    )
+    const lines = usableLines.length
+      ? usableLines
+      : [{ description, quantity: 1, unitAmount: amount }]
     const invoiceId = await this.createInvoiceWithDetails(
       {
         contract,

@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { BookingDepositMovementType, Prisma } from '@prisma/client'
+import { BookingDepositMovementType, NumberingBizKey, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { BuildingAccessService } from '../building-access/building-access.service'
 import {
   CreateReceivableDto,
@@ -119,6 +120,7 @@ export class ReceivablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: BuildingAccessService,
+    private readonly numbering: NumberingRulesService,
   ) {}
 
   /**
@@ -900,21 +902,12 @@ export class ReceivablesService {
   }
 
   private async nextReceivableCode(): Promise<string> {
-    const now = new Date()
-    const y = String(now.getUTCFullYear()).slice(-2)
-    const m = String(now.getUTCMonth() + 1).padStart(2, '0')
-    const d = String(now.getUTCDate()).padStart(2, '0')
-    const prefix = `AR${y}${m}${d}`
-    const latest = await this.prisma.receivable.findFirst({
-      where: { receivableCode: { startsWith: prefix } },
-      orderBy: { receivableCode: 'desc' },
-      select: { receivableCode: true },
+    return this.numbering.nextCode(NumberingBizKey.receivable, {
+      isTaken: async (code) =>
+        !!(await this.prisma.receivable.findFirst({
+          where: { receivableCode: code },
+          select: { id: true },
+        })),
     })
-    let seq = 1
-    if (latest?.receivableCode) {
-      const n = Number(latest.receivableCode.slice(prefix.length))
-      if (!Number.isNaN(n)) seq = n + 1
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`
   }
 }

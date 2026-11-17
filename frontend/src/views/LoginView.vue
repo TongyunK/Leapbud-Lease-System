@@ -2,26 +2,25 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { storeToRefs } from 'pinia'
 import { User, Lock, View, Hide } from '@element-plus/icons-vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import { useUserStore } from '@/stores/user'
-import { sendCaptchaApi } from '@/api/auth'
+import { useBrandingStore } from '@/stores/branding'
 import { isValidLoginAccount, sanitizeAccountInput } from '@/utils/validators'
 
 const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const brandingStore = useBrandingStore()
+const { logoUrl, title: brandTitle, loginHeroTitle, logoFrameless } = storeToRefs(brandingStore)
 
 const account = ref('')
 const password = ref('')
-const captcha = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
-const captchaLoading = ref(false)
 const formError = ref('')
-const showCaptcha = ref(false)
 
 onMounted(() => {
   document.documentElement.style.overflow = 'hidden'
@@ -44,22 +43,6 @@ function onAccountInput(value: string) {
   formError.value = ''
 }
 
-async function onSendCaptcha() {
-  if (!account.value.trim()) {
-    formError.value = t('login.emptyRequired')
-    return
-  }
-  captchaLoading.value = true
-  try {
-    await sendCaptchaApi(account.value.trim())
-    ElMessage.success(t('login.captchaSent'))
-  } catch {
-    ElMessage.success(t('login.captchaSent'))
-  } finally {
-    captchaLoading.value = false
-  }
-}
-
 async function onSubmit() {
   formError.value = ''
   const accountVal = account.value.trim()
@@ -80,9 +63,7 @@ async function onSubmit() {
     await userStore.login({
       account: accountVal,
       password: passwordVal,
-      captcha: captcha.value.trim() || undefined,
     })
-    ElMessage.success(t('login.loginSuccess'))
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
     await router.replace(redirect || '/home')
   } catch {
@@ -101,12 +82,18 @@ async function onSubmit() {
 
     <div class="login__stage">
       <aside class="login__brand">
-        <button type="button" class="brand-mark" :aria-label="t('common.brand')" @click="onLogoClick">
-          <img src="/leapbud_logo.png" alt="leapbud" />
+        <button
+          type="button"
+          class="brand-mark"
+          :class="{ 'is-frameless': logoFrameless }"
+          :aria-label="loginHeroTitle"
+          @click="onLogoClick"
+        >
+          <img :src="logoUrl" :alt="brandTitle" />
         </button>
         <div class="brand-copy">
-          <p class="brand-kicker">leapbud</p>
-          <h1>{{ t('common.brand') }}</h1>
+          <p class="brand-kicker">{{ brandTitle }}</p>
+          <h1>{{ loginHeroTitle }}</h1>
         </div>
       </aside>
 
@@ -159,23 +146,6 @@ async function onSubmit() {
             </el-input>
           </label>
 
-          <div class="captcha-toggle">
-            <button type="button" class="linkish" @click="showCaptcha = !showCaptcha">
-              {{ showCaptcha ? t('login.hideCaptcha') : t('login.showCaptcha') }}
-            </button>
-          </div>
-
-          <div v-if="showCaptcha" class="captcha-row">
-            <el-input
-              v-model="captcha"
-              maxlength="8"
-              :placeholder="t('login.captchaPlaceholder')"
-            />
-            <el-button :loading="captchaLoading" @click="onSendCaptcha">
-              {{ t('login.sendCaptcha') }}
-            </el-button>
-          </div>
-
           <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
 
           <el-button
@@ -190,7 +160,6 @@ async function onSubmit() {
 
         <footer class="form-foot">
           <router-link :to="{ name: 'forgot-password' }">{{ t('login.forgotPassword') }}</router-link>
-          <router-link class="accent" :to="{ name: 'register' }">{{ t('login.register') }}</router-link>
         </footer>
       </section>
     </div>
@@ -208,7 +177,12 @@ async function onSubmit() {
   padding: clamp(20px, 4.5vh, 48px) clamp(20px, 5vw, 64px);
   background:
     radial-gradient(ellipse 70% 50% at 15% 20%, rgba(217, 130, 43, 0.16), transparent 55%),
-    linear-gradient(145deg, #243029 0%, #3e5b45 48%, #2a3f31 100%);
+    linear-gradient(
+      145deg,
+      var(--lb-login-page-from, #243029) 0%,
+      var(--lb-login-page-mid, #3e5b45) 48%,
+      var(--lb-login-page-to, #2a3f31) 100%
+    );
 }
 
 .login__lang {
@@ -260,7 +234,12 @@ async function onSubmit() {
   color: #f4efe6;
   background:
     radial-gradient(ellipse 80% 60% at 20% 15%, rgba(217, 130, 43, 0.22), transparent 55%),
-    linear-gradient(165deg, #4a6b52 0%, #3e5b45 42%, #243029 100%);
+    linear-gradient(
+      165deg,
+      var(--lb-login-brand-from, #4a6b52) 0%,
+      var(--lb-login-brand-mid, #3e5b45) 42%,
+      var(--lb-login-brand-to, #243029) 100%
+    );
   isolation: isolate;
   overflow: hidden;
 }
@@ -306,6 +285,14 @@ async function onSubmit() {
   border-radius: 16px;
   object-fit: cover;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+/* 透明无边 PNG：去掉方框裁切与矩形阴影，改用贴合轮廓的 drop-shadow */
+.brand-mark.is-frameless img {
+  border-radius: 0;
+  object-fit: contain;
+  box-shadow: none;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.28));
 }
 
 .brand-copy {
@@ -395,30 +382,6 @@ async function onSubmit() {
   color: var(--lb-accent);
 }
 
-.captcha-toggle {
-  margin-top: -4px;
-}
-
-.linkish {
-  border: 0;
-  background: transparent;
-  color: var(--lb-brand-mid);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0;
-}
-
-.linkish:hover {
-  color: var(--lb-accent);
-}
-
-.captcha-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
 .form-error {
   margin: 0;
   color: var(--lb-danger);
@@ -442,8 +405,7 @@ async function onSubmit() {
 .form-foot {
   margin-top: 18px;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
   font-size: 0.88rem;
   font-weight: 500;
 }
@@ -453,10 +415,6 @@ async function onSubmit() {
 }
 
 .form-foot a:hover {
-  color: var(--lb-accent);
-}
-
-.form-foot .accent {
   color: var(--lb-accent);
 }
 

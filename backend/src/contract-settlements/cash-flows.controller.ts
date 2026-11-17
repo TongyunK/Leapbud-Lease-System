@@ -1,6 +1,23 @@
-import { Controller, Delete, Get, Param, Query, UseGuards } from '@nestjs/common'
-import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common'
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiProperty,
+  ApiPropertyOptional,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger'
 import { UserRole } from '@prisma/client'
+import { Type } from 'class-transformer'
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
@@ -8,8 +25,58 @@ import { PermissionsGuard } from '../permissions/permissions.guard'
 import { RequirePermissions } from '../permissions/require-permissions.decorator'
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
+import { BatchDeleteDto } from '../common/batch-delete'
 import { splitCsv } from '../common/pagination'
 import { CashFlowsQueryService } from './cash-flows-query.service'
+
+class ImportCashFlowItemDto {
+  @ApiPropertyOptional({ description: '流水编号；已存在则跳过' })
+  @IsOptional()
+  @IsString()
+  flowCode?: string
+
+  @ApiPropertyOptional({ description: '方向 in/out；省略时按来源推断' })
+  @IsOptional()
+  @IsString()
+  direction?: string
+
+  @ApiProperty({ description: '金额' })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount!: number
+
+  @ApiProperty({ description: '发生日期 YYYY-MM-DD' })
+  @IsString()
+  flowDate!: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string
+
+  @ApiProperty({ description: '来源类型：receipt / refund_order' })
+  @IsString()
+  sourceType!: string
+
+  @ApiProperty({ description: '来源单据编号（收据编号或退款编号）' })
+  @IsString()
+  sourceRef!: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  remark?: string
+}
+
+class ImportCashFlowsDto {
+  @ApiProperty({ type: [ImportCashFlowItemDto] })
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ImportCashFlowItemDto)
+  items!: ImportCashFlowItemDto[]
+}
 
 @ApiTags('cash-flows')
 @Controller('cash-flows')
@@ -114,6 +181,20 @@ export class CashFlowsController {
   })
   countByDirection() {
     return this.cashFlows.countByDirection()
+  }
+
+  @RequirePermissions('cashFlows:batchDelete')
+  @Post('batch-delete')
+  @ApiOkResponse({ description: 'Batch delete cash flows' })
+  removeMany(@Body() dto: BatchDeleteDto, @CurrentUser() user?: JwtPayload) {
+    return this.cashFlows.removeMany(dto.ids || [], actorUserId(user))
+  }
+
+  @RequirePermissions('cashFlows:import')
+  @Post('import')
+  @ApiOkResponse({ description: 'Batch import cash flows by receipt / refund order code' })
+  importBatch(@Body() dto: ImportCashFlowsDto, @CurrentUser() user?: JwtPayload) {
+    return this.cashFlows.importBatch(dto, actorUserId(user))
   }
 
   @Get(':id')

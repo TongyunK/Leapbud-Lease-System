@@ -350,4 +350,9 @@ router.beforeEach((to) => {
   return true
 })
 
+router.afterEach(() => {
+  // 关弹窗后偶发空壳 .el-overlay 挡点击；只关 pointer-events，勿 remove DOM
+  void import('@/utils/sweepStuckOverlays').then((m) => m.sweepStuckOverlaysOnRouteChange())
+})
+
 export default router

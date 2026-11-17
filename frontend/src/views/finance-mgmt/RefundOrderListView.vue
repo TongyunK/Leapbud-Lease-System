@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { QuestionFilled, Search } from '@element-plus/icons-vue'
+import { Download, QuestionFilled, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
 import {
   deleteRefundOrderApi,
+  batchDeleteRefundOrdersApi,
   disburseRefundOrderApi,
   fetchRefundOrder,
   fetchRefundOrders,
+  importRefundOrdersApi,
   uploadRefundOrderAttachmentsApi,
   type RefundOrderListQuery,
 } from '@/api/refund-orders'
@@ -45,6 +48,24 @@ import { fetchCashFlow } from '@/api/cash-flows'
 import { refundOrderStatusTone } from '@/constants/statusBadges'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import { packFilterValues } from '@/utils/columnFilter'
+import {
+  buildRefundDisburseAllocPreview,
+  roundMoney2,
+} from '@/utils/refundOrderAlloc'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
+import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import ExportIcon from '@/components/icons/ExportIcon.vue'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
+import { useImportProgress } from '@/composables/useImportProgress'
+import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
+import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
+import {
+  refundOrderIoTemplateExampleRow,
+  refundOrderToIoRow,
+  rowToRefundOrderIoPayload,
+  type RefundOrderImportPayload,
+} from '@/utils/refundOrderExport'
 
 const { t } = useI18n()
 const perms = useResourcePermissions('refundOrders')
@@ -73,6 +94,7 @@ const cashFlowRecord = ref<CashFlowRecord | null>(null)
 
 const payVisible = ref(false)
 const paying = ref<RefundOrderRecord | null>(null)
+const payLoading = ref(false)
 const paySaving = ref(false)
 const payPendingAttachments = ref<MultiAttachmentPending[]>([])
 const payForm = reactive({
@@ -92,6 +114,25 @@ const paymentMethodOptions = computed(() => {
 
 const payRemaining = computed(() =>
   paying.value ? refundOrderRemaining(paying.value) : 0,
+)
+
+const payNowClamped = computed(() => {
+  const n = roundMoney2(Math.max(0, Number(payForm.amount) || 0))
+  return Math.min(n, payRemaining.value)
+})
+
+/** 本次打款按明细 FIFO 自动分摊预览（与结算侧办理退款一致） */
+const payAllocPreview = computed(() => {
+  const row = paying.value
+  if (!row) return []
+  return buildRefundDisburseAllocPreview(row.items || [], {
+    alreadyPaid: Number(row.paidAmount) || 0,
+    payNow: payNowClamped.value,
+  })
+})
+
+const showPayAllocPreview = computed(() =>
+  payAllocPreview.value.some((r) => r.refundPart > 0.009),
 )
 
 const statusOptions = computed(() =>
@@ -118,6 +159,7 @@ const {
 
 const {
   loading,
+  exporting,
   list,
   total,
   page,
@@ -125,6 +167,7 @@ const {
   pageSizes,
   rowIndex,
   loadList,
+  fetchExportRows,
   onClearFilters,
 } = useServerPagedList<RefundOrderRecord, RefundOrderListQuery>({
   keyword,
@@ -155,6 +198,70 @@ const {
   },
   fetchPage: fetchRefundOrders,
 })
+
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<RefundOrderRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([keyword, filters, sortKey, sortOrder, dateRanges], () => {
+  clearSelection()
+})
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    const rows = await fetchExportRows('filtered')
+    await selectRows(rows)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!perms.batchDelete || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(
+      ids,
+      (chunk) => batchDeleteRefundOrdersApi(chunk),
+      setBatchProgress,
+    )
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
 
 const listActionColWidth = computed(() =>
   actionColW([
@@ -252,7 +359,7 @@ function onRowClick(
   void openDetail(row, 'rtl')
 }
 
-function openPay(row: RefundOrderRecord) {
+async function openPay(row: RefundOrderRecord) {
   if (!canDisburseRefundOrder(row.status)) return
   paying.value = row
   payForm.amount = refundOrderRemaining(row)
@@ -261,6 +368,19 @@ function openPay(row: RefundOrderRecord) {
   payForm.remark = ''
   payPendingAttachments.value = []
   payVisible.value = true
+  payLoading.value = true
+  try {
+    const { data } = await fetchRefundOrder(row.id)
+    paying.value = data
+    payForm.amount = refundOrderRemaining(data)
+    if (!payForm.paymentMethod && data.paymentMethod) {
+      payForm.paymentMethod = data.paymentMethod
+    }
+  } catch {
+    /* 列表行无明细时仍可打款，仅无分摊预览 */
+  } finally {
+    payLoading.value = false
+  }
 }
 
 async function onDelete(row: RefundOrderRecord) {
@@ -404,6 +524,155 @@ async function openSettlement(id: string) {
   }
 }
 
+const importInputRef = ref<HTMLInputElement | null>(null)
+const {
+  state: importState,
+  percentage: importPercentage,
+  importing,
+  begin: beginImport,
+  setTotal: setImportTotal,
+  setPreparing: setImportPreparing,
+  setProcessing: setImportProcessing,
+  bump: bumpImport,
+  appendIssues: appendImportIssues,
+  finish: finishImport,
+  fail: failImport,
+  close: closeImport,
+} = useImportProgress()
+
+function onDataIoCommand(cmd: string | number) {
+  if (cmd === 'import') {
+    importInputRef.value?.click()
+    return
+  }
+  if (cmd === 'template') {
+    downloadImportTemplate()
+    return
+  }
+  const scope = exportScopeFromCommand(cmd)
+  if (scope) void exportRefundOrdersXlsx(scope)
+}
+
+function downloadImportTemplate() {
+  const example = refundOrderIoTemplateExampleRow(t)
+  const ws = XLSX.utils.json_to_sheet([example])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'RefundOrders')
+  XLSX.writeFile(wb, 'refund-orders-import-template.xlsx')
+  void ElMessageBox.alert(t('refundOrder.templateDone'), t('common.tip'), { type: 'success' })
+}
+
+async function exportRefundOrdersXlsx(scope: 'page' | 'filtered' | 'all') {
+  try {
+    exporting.value = true
+    let rows: RefundOrderRecord[]
+    if (scope === 'page') {
+      rows = [...list.value]
+    } else {
+      rows = await fetchExportRows(scope)
+    }
+    if (!rows.length) {
+      await ElMessageBox.alert(t('refundOrder.exportEmpty'), t('common.tip'), { type: 'warning' })
+      return
+    }
+    const sheetRows = rows.map((r) => refundOrderToIoRow(r, t))
+    const ws = XLSX.utils.json_to_sheet(sheetRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'RefundOrders')
+    const day = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `refund-orders-${exportFileSuffix(scope)}-${day}.xlsx`)
+    await ElMessageBox.alert(t('refundOrder.exportDone', { n: rows.length }), t('common.tip'), {
+      type: 'success',
+    })
+  } catch {
+    await ElMessageBox.alert(t('refundOrder.importFailed'), t('common.tip'), { type: 'error' })
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function onImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!perms.import) {
+    await ElMessageBox.alert(t('refundOrder.importAdminOnly'), t('common.tip'), { type: 'warning' })
+    return
+  }
+
+  beginImport({
+    fileName: file.name,
+    statKeys: ['created', 'skipped', 'failed'],
+  })
+  try {
+    setImportPreparing()
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const sheet = wb.Sheets[wb.SheetNames[0]]
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    if (!rawRows.length) {
+      finishImport({
+        tone: 'warning',
+        message: t('refundOrder.importEmpty'),
+      })
+      return
+    }
+
+    const payloads: RefundOrderImportPayload[] = []
+    for (const row of rawRows) {
+      const parsed = rowToRefundOrderIoPayload(row, t)
+      if (!parsed) {
+        bumpImport('skipped')
+        appendImportIssues([
+          {
+            status: 'skipped',
+            reason: t('common.importUi.parseSkipped'),
+            keys: {
+              結算編號: String(row['合約終止結算單'] ?? row['终止结算编号'] ?? ''),
+              退款編號: String(row['退款編號'] ?? row['退款编号'] ?? ''),
+            },
+          },
+        ])
+        continue
+      }
+      payloads.push(parsed)
+    }
+
+    setImportTotal(rawRows.length)
+    const batches = chunkArray(payloads, IMPORT_BATCH_SIZE)
+    let processed = importState.stats.skipped
+    for (const batch of batches) {
+      processed += batch.length
+      setImportProcessing(Math.min(processed, rawRows.length))
+      try {
+        const { data } = await importRefundOrdersApi(batch)
+        if (data.created) bumpImport('created', data.created)
+        if (data.skipped) bumpImport('skipped', data.skipped)
+        if (data.failed) bumpImport('failed', data.failed)
+        appendImportIssues(data.issues)
+      } catch {
+        bumpImport('failed', batch.length)
+        appendImportIssues(
+          batch.map((it) => ({
+            status: 'failed' as const,
+            reason: t('common.importUi.batchRequestFailed'),
+            keys: {
+              結算編號: it.settlementCode || '',
+              退款編號: it.refundCode || '',
+            },
+          })),
+        )
+      }
+    }
+
+    await loadList()
+    finishImport()
+  } catch {
+    failImport(t('refundOrder.importFailed'))
+  }
+}
+
 onMounted(() => {
   void loadList()
 })
@@ -423,6 +692,47 @@ onMounted(() => {
           :placeholder="t('refundOrder.searchPlaceholder')"
         />
         <ClearTableFiltersButton :count="activeConditionCount" @clear="onClearFilters" />
+        <el-dropdown
+          trigger="hover"
+          placement="bottom-end"
+          popper-class="room-io-popper"
+          @command="onDataIoCommand"
+        >
+          <el-button class="room-io-btn" :aria-label="t('refundOrder.dataIo')" :loading="importing || exporting">
+            <el-icon :size="16"><ExportIcon /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="perms.import" v-admin-glow="perms.codes.import" command="import">
+                <el-icon><Upload /></el-icon>
+                <span>{{ t('refundOrder.import') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="template">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('refundOrder.downloadTemplate') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-page" divided>
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportPage') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-filtered">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportFiltered') }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="export-all">
+                <el-icon><Download /></el-icon>
+                <span>{{ t('common.exportAll') }}</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <input
+          ref="importInputRef"
+          type="file"
+          class="room-io-file"
+          accept=".xlsx,.xls,.csv"
+          @change="onImportFile"
+        />
       </div>
     </div>
 
@@ -433,6 +743,7 @@ onMounted(() => {
         element-loading-background="rgba(247, 250, 248, 0.78)"
       >
         <el-table
+          ref="tableRef"
           :key="`${tableLayoutKey}-${codeLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
@@ -441,8 +752,17 @@ onMounted(() => {
           border
           scrollbar-always-on
           style="width: 100%"
+          @selection-change="onSelectionChange"
           @row-click="onRowClick"
         >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -799,7 +1119,24 @@ onMounted(() => {
       v-model:page-size="pageSize"
       :total="total"
       :page-sizes="pageSizes"
-    />
+      :selected-count="selectedCount"
+      enable-select-all
+      :select-all-loading="selectAllLoading"
+      @select-all="onSelectAll"
+      @clear-selection="clearSelection"
+    >
+      <template v-if="perms.batchDelete" #batch>
+        <button
+          v-admin-glow="perms.codes.batchDelete"
+          type="button"
+          class="lb-pager__batch-btn"
+          :disabled="batchDeleting || selectAllLoading"
+          @click="onBatchDelete"
+        >
+          {{ t('common.batchDelete') }}
+        </button>
+      </template>
+    </TablePagination>
 
     <RefundOrderDetailDrawer
       v-model="drawerVisible"
@@ -816,6 +1153,8 @@ onMounted(() => {
       @open-contract="(id) => relationDrawers?.openContractSide(id)"
       @open-customer="(id) => relationDrawers?.openCustomerSide(id)"
       @open-room="(id) => relationDrawers?.openRoomSide(id)"
+      @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
     />
     <RelatedCashFlowsDrawer
       v-model="relatedCashFlowsVisible"
@@ -837,88 +1176,165 @@ onMounted(() => {
       v-model="payVisible"
       class="lb-dialog"
       :title="t('refundOrder.markPaidTitle')"
-      width="560px"
+      width="640px"
       destroy-on-close
     >
-      <el-form label-position="top" class="form-grid">
-        <el-form-item :label="t('refundOrder.fields.remainingAmount')">
-          <el-input :model-value="moneyOrDash(payRemaining)" disabled />
-        </el-form-item>
-        <el-form-item required>
-          <template #label>
-            <span class="form-label-with-tip">
-              {{ t('refundOrder.fields.installmentAmount') }}
-              <el-tooltip
-                :content="t('refundOrder.disburseAmountHint')"
-                placement="top"
-              >
-                <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
-              </el-tooltip>
-            </span>
-          </template>
-          <el-input-number
-            v-model="payForm.amount"
-            :min="0.01"
-            :max="Math.max(0.01, payRemaining || 0.01)"
-            :precision="2"
-            :step="100"
-            controls-position="right"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item :label="t('refundOrder.fields.refundDate')" required>
-          <el-date-picker
-            v-model="payForm.refundDate"
-            type="date"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item :label="t('refundOrder.fields.paymentMethod')">
-          <el-select
-            v-model="payForm.paymentMethod"
-            filterable
-            clearable
-            value-on-clear=""
-            :placeholder="t('common.pleaseSelect')"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="m in paymentMethodOptions"
-              :key="m"
-              :label="m"
-              :value="m"
+      <div v-loading="payLoading">
+        <el-form label-position="top" class="form-grid">
+          <el-form-item :label="t('refundOrder.fields.remainingAmount')">
+            <el-input :model-value="moneyOrDash(payRemaining)" disabled />
+          </el-form-item>
+          <el-form-item required>
+            <template #label>
+              <span class="form-label-with-tip">
+                {{ t('refundOrder.fields.installmentAmount') }}
+                <el-tooltip
+                  :content="t('refundOrder.disburseAmountHint')"
+                  placement="top"
+                >
+                  <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
+            </template>
+            <el-input-number
+              v-model="payForm.amount"
+              :min="0.01"
+              :max="Math.max(0.01, payRemaining || 0.01)"
+              :precision="2"
+              :step="100"
+              controls-position="right"
+              style="width: 100%"
             />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('refundOrder.fields.attachments')" class="span-2">
-          <MultiAttachmentField
-            :pending="payPendingAttachments"
-            @add="onPayAttachmentsAdd"
-            @remove-pending="onPayAttachmentRemovePending"
-          />
-        </el-form-item>
-        <el-form-item :label="t('common.remark')" class="span-2">
-          <el-input v-model="payForm.remark" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
+          </el-form-item>
+          <el-form-item :label="t('refundOrder.fields.refundDate')" required>
+            <el-date-picker
+              v-model="payForm.refundDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item :label="t('refundOrder.fields.paymentMethod')">
+            <el-select
+              v-model="payForm.paymentMethod"
+              filterable
+              clearable
+              value-on-clear=""
+              :placeholder="t('common.pleaseSelect')"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="m in paymentMethodOptions"
+                :key="m"
+                :label="m"
+                :value="m"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('refundOrder.fields.attachments')" class="span-2">
+            <MultiAttachmentField
+              :pending="payPendingAttachments"
+              @add="onPayAttachmentsAdd"
+              @remove-pending="onPayAttachmentRemovePending"
+            />
+          </el-form-item>
+          <el-form-item :label="t('common.remark')" class="span-2">
+            <el-input v-model="payForm.remark" type="textarea" :rows="2" />
+          </el-form-item>
+        </el-form>
+
+        <div v-if="showPayAllocPreview" class="refund-alloc">
+          <div class="refund-alloc__head">
+            <span>{{ t('contract.cancelRefundAllocPreview') }}</span>
+            <el-tooltip
+              :content="t('contract.cancelRefundAllocFifoHint')"
+              placement="top"
+              :fallback-placements="['top', 'left', 'right']"
+            >
+              <el-icon class="refund-alloc__tip" :size="14"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </div>
+          <ul class="refund-alloc__list">
+            <li v-for="row in payAllocPreview" :key="row.key" class="refund-alloc__row">
+              <span class="refund-alloc__code">{{ row.label }}</span>
+              <span class="refund-alloc__parts">
+                <span class="refund-alloc__tag is-due">
+                  {{ t('contract.cancelRefundAllocDue', { amount: formatMoney(row.due) }) }}
+                </span>
+                <span v-if="row.refundPart > 0.009" class="refund-alloc__tag is-now">
+                  {{
+                    t('contract.cancelRefundAllocNow', {
+                      amount: formatMoney(row.refundPart),
+                    })
+                  }}
+                </span>
+                <span
+                  v-if="row.remainAfter <= 0.009 && row.refundPart > 0.009"
+                  class="refund-alloc__tag is-settled"
+                >
+                  {{ t('contract.cancelRefundAllocSettled') }}
+                </span>
+                <span v-else-if="row.remainAfter > 0.009" class="refund-alloc__tag is-later">
+                  {{
+                    t('contract.cancelRefundAllocLater', {
+                      amount: formatMoney(row.remainAfter),
+                    })
+                  }}
+                </span>
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="payVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button
           v-admin-glow="perms.codes.update"
           type="primary"
           class="lb-btn-primary"
-          :loading="paySaving"
+          :loading="paySaving || payLoading"
           @click="submitPay"
         >
           {{ t('refundOrder.markPaid') }}
         </el-button>
       </template>
     </el-dialog>
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
+    />
+
+    <ImportProgressDialog
+      v-model="importState.visible"
+      :phase="importState.phase"
+      :file-name="importState.fileName"
+      :total="importState.total"
+      :current="importState.current"
+      :percentage="importPercentage"
+      :status-key="importState.statusKey"
+      :stats="importState.stats"
+      :result-tone="importState.resultTone"
+      :result-message="importState.resultMessage"
+      :result-stat-keys="importState.resultStatKeys"
+      :issues="importState.issues"
+      @close="closeImport"
+    />
   </div>
 </template>
 
 <style scoped>
+.room-io-file {
+  display: none;
+}
+
 .form-label-with-tip {
   display: inline-flex;
   align-items: center;
@@ -930,5 +1346,83 @@ onMounted(() => {
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;
+}
+
+.refund-alloc {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f4f7f5;
+  border: 1px solid #e4ebe6;
+}
+.refund-alloc__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #2f3f36;
+}
+.refund-alloc__tip {
+  color: #8a9a90;
+  cursor: help;
+}
+.refund-alloc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.refund-alloc__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e0e8e3;
+}
+.refund-alloc__code {
+  min-width: 0;
+  font-size: 0.84rem;
+  font-weight: 650;
+  color: #3a4a42;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.refund-alloc__parts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.refund-alloc__tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.refund-alloc__tag.is-due {
+  color: #5a3d12;
+  background: #f3e6d0;
+}
+.refund-alloc__tag.is-now {
+  color: #0f4a32;
+  background: #ddeee4;
+}
+.refund-alloc__tag.is-settled {
+  color: #0f4a32;
+  background: #d8f0e4;
+}
+.refund-alloc__tag.is-later {
+  color: #8a2f2f;
+  background: #f6e0e0;
 }
 </style>

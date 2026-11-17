@@ -91,13 +91,13 @@ enum ContractSettlementRefundStatus {
 
 /// 合约终止结算应收（应补）状态
 enum ContractSettlementCollectStatus {
-  /// 无应补金额
+  /// @deprecated 历史值；无应补已统一为 settled，新数据不再写入
   none
   /// 有应补且尚未收款
   pending_collect
   /// 部分已收
   partial
-  /// 已结清（应补已收清；无应补时创建后由回写置 none）
+  /// 已结清（应补已收清，或无应补）
   settled
 }
 
@@ -196,6 +196,8 @@ model User {
   createdUsers User[] @relation("UserCreatedBy")
   /// 作为更新人：下属用户
   updatedUsers User[] @relation("UserUpdatedBy")
+  /// 密码重置验证码
+  passwordResetTokens PasswordResetToken[]
 
   /// 作为创建人：房间配置
   createdRoomConfigOptions RoomConfigOption[] @relation("RoomConfigOptionCreatedBy")
@@ -359,6 +361,28 @@ model User {
   @@index([createdById])
   @@index([updatedById])
   @@map("users")
+}
+
+/// 忘记密码：邮箱验证码（一次有效；过期或用后作废）
+model PasswordResetToken {
+  /// 主键
+  id         String    @id @default(cuid())
+  /// 所属用户 ID
+  userId     String    @map("user_id")
+  /// 所属用户
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 验证码哈希（不可明文）
+  codeHash   String    @map("code_hash")
+  /// 过期时间
+  expiresAt  DateTime  @map("expires_at")
+  /// 使用时间（空=未使用）
+  consumedAt DateTime? @map("consumed_at")
+  /// 创建时间
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 /// 房间配置字典：尺寸区间 / 窗户 / 空调
@@ -1857,7 +1881,7 @@ model Permission {
   code      String   @unique
   /// 业务模块编码（如 customers）
   module    String
-  /// 操作编码：create / update / delete / import / batchDelete
+  /// 操作编码：create / update / delete / import / batchDelete；个别模块另有 purge / batchPurge
   action    String
   /// 显示名称（繁中）
   name      String
@@ -1957,6 +1981,18 @@ enum NumberingBizKey {
   invoice
   /// 收据编号
   receipt
+  /// 应收编号
+  receivable
+  /// 按金退还编号
+  depositRefund
+  /// 合约终止结算单编号
+  contractSettlement
+  /// 退款单编号
+  refundOrder
+  /// 资金流水编号
+  cashFlow
+  /// 应收核销编号
+  receivableWriteoff
 }
 
 /// 自动编号序号重置周期
@@ -1971,7 +2007,7 @@ enum NumberingResetCycle {
   yearly
 }
 
-/// 自动编号规则（系统设置：客户/需求/合约/发票/收据等）
+/// 自动编号规则（系统设置：客户/需求/发票/收据/应收/按金退还/结算单/退款单/资金流水/核销等；合约编号不走本表）
 model NumberingRule {
   /// 主键
   id          String               @id @default(cuid())
@@ -2138,8 +2174,8 @@ model ContractSettlement {
   type                ContractSettlementType
   /// 应退状态：pending_refund=待退款，partial=部分退款，settled=已结清
   refundStatus        ContractSettlementRefundStatus @default(settled) @map("refund_status")
-  /// 应收（应补）状态：none=无应补，pending_collect=待收，partial=部分收款，settled=已结清
-  collectStatus       ContractSettlementCollectStatus @default(none) @map("collect_status")
+  /// 应收（应补）状态：pending_collect=待收，partial=部分收款，settled=已结清（含无应补）
+  collectStatus       ContractSettlementCollectStatus @default(settled) @map("collect_status")
   /// 所属合约 ID
   contractId          String                   @map("contract_id")
   /// 所属合约

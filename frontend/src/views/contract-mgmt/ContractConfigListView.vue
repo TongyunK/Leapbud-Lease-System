@@ -652,10 +652,10 @@ async function toggleActive(row: ContractConfigOption) {
   height: 30px;
   margin: 0;
   padding: 0 12px;
-  border: 1px solid #d7ded9;
+  border: 1px solid var(--lb-muted-border, #d0d0d0);
   border-radius: 999px;
   background: #fff;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
@@ -671,23 +671,25 @@ async function toggleActive(row: ContractConfigOption) {
 }
 
 .config-type-tab__count {
-  color: #7a8a82;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #888);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
 .config-type-tab:hover {
-  border-color: #b7cbbf;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #fff);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
+  color: var(--lb-brand, #0f4a32);
 }
 
 .config-type-tab.is-active {
-  border-color: #0f4a32;
-  background: #eef6f1;
-  color: #0f4a32;
+  border-color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
+  color: var(--lb-brand, #0f4a32);
 }
 
 .config-type-tab.is-active .config-type-tab__count {
-  color: #3d6b55;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .config-label-cell {
@@ -699,7 +701,7 @@ async function toggleActive(row: ContractConfigOption) {
 
 .config-label-cell__text {
   font-weight: 650;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .config-label-cell__off {
@@ -707,7 +709,7 @@ async function toggleActive(row: ContractConfigOption) {
   padding: 1px 7px;
   border-radius: 999px;
   background: #f1f2f1;
-  color: #8a9590;
+  color: #8a8a8a;
   font-size: 0.72rem;
   font-weight: 650;
 }
@@ -716,8 +718,8 @@ async function toggleActive(row: ContractConfigOption) {
   margin-left: 6px;
   padding: 1px 7px;
   border-radius: 999px;
-  background: #eef6f1;
-  color: #3d6b55;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  color: var(--lb-brand-mid, #2a6b4d);
   font-size: 0.72rem;
   font-weight: 650;
 }
@@ -725,7 +727,7 @@ async function toggleActive(row: ContractConfigOption) {
 .config-unit-price {
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
 }
 
 .config-sort-num {
@@ -734,12 +736,12 @@ async function toggleActive(row: ContractConfigOption) {
   justify-content: center;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
 }
 
 .config-empty {
   padding: 28px 12px;
-  color: #7a8a82;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #888);
   font-size: 0.88rem;
 }
 

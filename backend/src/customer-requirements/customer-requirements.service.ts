@@ -390,7 +390,8 @@ export class CustomerRequirementsService {
 
   /**
    * 按关联合约重算需求状态：
-   * 无合约→未跟進；签约中→跟進中；租赁中及后续→已簽約；仅取消→已取消。
+   * 无合约／仅取消→未跟進；签约中→跟進中；租赁中／退租→已簽約。
+   * 需求自行取消（已取消）不因合约重算覆盖。
    */
   async recomputeStatusFromContracts(
     requirementId: string | null | undefined,
@@ -400,11 +401,19 @@ export class CustomerRequirementsService {
     const id = s(requirementId);
     if (!id) return;
     const db = tx ?? this.prisma;
+    const existing = await db.customerRequirement.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!existing) return;
+    // 用户自行取消的需求保持「已取消」，不被合约状态冲掉
+    if (existing.status === '已取消') return;
     const contracts = await db.contract.findMany({
       where: { requirementId: id },
       select: { status: true },
     });
     const next = requirementStatusFromContractStatuses(contracts.map((c) => c.status));
+    if (next === existing.status) return;
     await db.customerRequirement.update({
       where: { id },
       data: {
@@ -586,6 +595,18 @@ export class CustomerRequirementsService {
 
   async removeMany(ids: string[], actor = '') {
     return runBatchRemove(ids, (id) => this.remove(id, actor));
+  }
+
+  /** 物理删除；关联合约的 requirementId 会 SetNull */
+  async purge(id: string, _actor = '') {
+    const existing = await this.prisma.customerRequirement.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`Customer requirement ${id} not found`);
+    await this.prisma.customerRequirement.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async purgeMany(ids: string[], actor = '') {
+    return runBatchRemove(ids, (id) => this.purge(id, actor));
   }
 
   /** 批量导入：有需求编号则 upsert；按客户编号或客户名称关联；经理/配置按名称匹配 */

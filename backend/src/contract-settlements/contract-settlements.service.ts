@@ -8,11 +8,13 @@ import {
   ContractSettlementItemType,
   ContractSettlementRefundStatus,
   ContractSettlementType,
+  NumberingBizKey,
   Prisma,
   ReceivableWriteoffDirection,
   RefundOrderStatus,
 } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import {
   dateRangeFilter,
   paginateArgs,
@@ -25,6 +27,7 @@ import {
   stringFieldInOrEmpty,
 } from '../common/column-filter'
 import { actorLabelsOrEmpty } from '../common/audit'
+import { runBatchRemove } from '../common/batch-delete'
 import { pushImportIssue, type ImportIssue } from '../common/import-result'
 import {
   contractByRoomSelect,
@@ -43,11 +46,7 @@ import {
   UpdateVacateSettlementDto,
   VacateDeductionItemDto,
 } from './dto/vacate-conduct.dto'
-import {
-  dec,
-  nextSettlementCode,
-  round2,
-} from './settlement-code.util'
+import { dec, round2 } from './settlement-code.util'
 import { BOOKING_OFFSET_EXCESS_REMARK } from './settlement-item.constants'
 import {
   recalcSettlementCollectForReceivable,
@@ -125,6 +124,7 @@ export type CreateSettlementInput = {
 export class ContractSettlementsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly numbering: NumberingRulesService,
     private readonly writeoffs: ReceivableWriteoffsService,
     private readonly refundOrders: RefundOrdersService,
     private readonly changeLogs: ContractChangeLogService,
@@ -261,11 +261,22 @@ export class ContractSettlementsService {
       .map((t) => String(t || '').trim())
       .filter(Boolean)
     if (collectStatuses.length) {
-      const valid = collectStatuses.filter((t) =>
-        Object.values(ContractSettlementCollectStatus).includes(
-          t as ContractSettlementCollectStatus,
-        ),
-      ) as ContractSettlementCollectStatus[]
+      // 历史 none 已并入 settled：筛「已结清」时兼容尚未回填的 none
+      const expanded = new Set<ContractSettlementCollectStatus>()
+      for (const t of collectStatuses) {
+        if (
+          !Object.values(ContractSettlementCollectStatus).includes(
+            t as ContractSettlementCollectStatus,
+          )
+        ) {
+          continue
+        }
+        expanded.add(t as ContractSettlementCollectStatus)
+        if (t === ContractSettlementCollectStatus.settled) {
+          expanded.add(ContractSettlementCollectStatus.none)
+        }
+      }
+      const valid = [...expanded]
       if (valid.length === 1) and.push({ collectStatus: valid[0] })
       else if (valid.length > 1) and.push({ collectStatus: { in: valid } })
     }
@@ -557,6 +568,10 @@ export class ContractSettlementsService {
     return { success: true }
   }
 
+  async removeMany(ids: string[], actor = '') {
+    return runBatchRemove(ids, (id) => this.remove(id, actor))
+  }
+
   async findByContract(contractId: string) {
     const id = (contractId || '').trim()
     if (!id) throw new BadRequestException('contractId is required')
@@ -571,7 +586,14 @@ export class ContractSettlementsService {
   async create(input: CreateSettlementInput, db?: Db) {
     const client = db ?? this.prisma
     const actorId = input.actorId || null
-    const settlementCode = await nextSettlementCode(client)
+    const settlementCode = await this.numbering.nextCode(NumberingBizKey.contractSettlement, {
+      db: client,
+      isTaken: async (code) =>
+        !!(await client.contractSettlement.findFirst({
+          where: { settlementCode: code },
+          select: { id: true },
+        })),
+    })
 
     let deductionTotal = 0
     let waiverTotal = 0
@@ -630,7 +652,7 @@ export class ContractSettlementsService {
     const collectStatus: ContractSettlementCollectStatus =
       collectDueTotal > 0.009
         ? ContractSettlementCollectStatus.pending_collect
-        : ContractSettlementCollectStatus.none
+        : ContractSettlementCollectStatus.settled
 
     const vf = input.vacateFields || null
     const settlement = await client.contractSettlement.create({

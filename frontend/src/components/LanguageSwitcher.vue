@@ -136,7 +136,7 @@ function onCommand(value: string) {
 
 .lang-switcher.on-light:hover,
 .lang-switcher.on-light.open {
-  background: rgba(15, 74, 50, 0.06);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
   color: var(--lb-brand);
 }
 
@@ -180,12 +180,12 @@ function onCommand(value: string) {
 }
 
 .lang-dropdown-popper .el-dropdown-menu__item:not(.is-disabled):hover {
-  background: #f3f5f4 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) !important;
   color: var(--lb-brand) !important;
 }
 
 .lang-dropdown-popper .el-dropdown-menu__item.is-active-lang {
-  background: rgba(15, 74, 50, 0.08) !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, transparent) !important;
   color: var(--lb-brand) !important;
   font-weight: 700;
 }

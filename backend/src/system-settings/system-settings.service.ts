@@ -1,26 +1,57 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { auditActorLabel, auditUserSelect } from '../common/audit'
+import { roomImagePublicUrl } from '../common/dto-mappers'
+import { decryptSecret, encryptSecret } from '../common/secret-box'
 import {
+  BRAND_SETTING_KEYS,
+  BRAND_SETTING_META,
+  DEFAULT_BRANDING,
   DEFAULT_CONTRACT_EXPIRING_SOON,
+  DEFAULT_MAIL_SMTP,
   DEFAULT_RENT_INVOICE_LEAD_DAYS,
+  MAIL_SETTING_KEYS,
+  MAIL_SETTING_META,
+  SETTING_BRAND_LOGO,
+  SETTING_BRAND_SUBTITLE,
+  SETTING_BRAND_THEME_COLOR,
+  SETTING_BRAND_TITLE,
   SETTING_CONTRACT_EXPIRING_SOON,
+  SETTING_MAIL_SENDING_EMAIL,
+  SETTING_MAIL_SENDING_EMAIL_HOST,
+  SETTING_MAIL_SENDING_EMAIL_PASSWORD,
+  SETTING_MAIL_SENDING_EMAIL_PORT,
+  SETTING_MAIL_SENDING_EMAIL_SECURE,
+  SETTING_MAIL_SENDING_FROM_NAME,
+  SETTING_MAIL_SMTP_LEGACY,
   SETTING_RENT_INVOICE_LEAD_DAYS,
+  brandingFromValueMap,
+  mailSmtpFromValueMap,
+  normalizeThemeColor,
+  type BrandingConfig,
   type ContractExpiringSoonConfig,
   type ExpiringSoonStatusMode,
   type ExpiringSoonUnit,
+  type MailSmtpConfig,
+  type MailSmtpConfigView,
 } from './system-settings.constants'
 import {
+  UpdateBrandingDto,
   UpdateContractExpiringSoonDto,
+  UpdateMailSmtpDto,
   UpdateSystemSettingsDto,
 } from './dto/system-setting.dto'
 
 export type SystemSettingsView = {
   rentInvoiceLeadDays: number
   contractExpiringSoon: ContractExpiringSoonConfig
+  mailSmtp: MailSmtpConfigView
+  branding: BrandingConfig
   updatedAt: string | null
   updatedBy: string | null
 }
+
+const PASSWORD_MASK = '********'
 
 @Injectable()
 export class SystemSettingsService {
@@ -55,6 +86,29 @@ export class SystemSettingsService {
     }
   }
 
+  private toMailSmtpView(cfg: MailSmtpConfig): MailSmtpConfigView {
+    /** cfg.password 可能是 enc:v1 密文；有值即视为已配置 */
+    const hasPassword = Boolean(String(cfg.password || '').trim())
+    return {
+      host: cfg.host,
+      port: cfg.port,
+      secure: cfg.secure,
+      email: cfg.email,
+      fromName: cfg.fromName,
+      hasPassword,
+      password: hasPassword ? PASSWORD_MASK : '',
+    }
+  }
+
+  /** 业务侧明文密码（发信用） */
+  private withDecryptedMailPassword(cfg: MailSmtpConfig): MailSmtpConfig {
+    try {
+      return { ...cfg, password: decryptSecret(cfg.password) }
+    } catch {
+      return { ...cfg, password: '' }
+    }
+  }
+
   /** 业务侧读取：租金开票提前天数 */
   async getRentInvoiceLeadDays(): Promise<number> {
     const row = await this.prisma.systemSetting.findUnique({
@@ -73,8 +127,35 @@ export class SystemSettingsService {
     return this.parseExpiringSoon(row?.value)
   }
 
+  /** 业务侧读取：完整 SMTP（密码已解密；一键一值拼装） */
+  async getMailSmtp(): Promise<MailSmtpConfig> {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...MAIL_SETTING_KEYS] } },
+      select: { key: true, value: true },
+    })
+    const map: Record<string, string> = {}
+    for (const r of rows) map[r.key] = r.value
+    return this.withDecryptedMailPassword(mailSmtpFromValueMap(map))
+  }
+
+  private async loadBrandingMap(): Promise<Record<string, string>> {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...BRAND_SETTING_KEYS] } },
+      select: { key: true, value: true },
+    })
+    const map: Record<string, string> = {}
+    for (const r of rows) map[r.key] = r.value
+    return map
+  }
+
+  /** 公开：登录页／侧栏品牌（无敏感字段） */
+  async getBranding(): Promise<BrandingConfig> {
+    const map = await this.loadBrandingMap()
+    return brandingFromValueMap(map, roomImagePublicUrl)
+  }
+
   async getView(): Promise<SystemSettingsView> {
-    const [leadRow, expiringRow] = await Promise.all([
+    const [leadRow, expiringRow, mailRows, brandRows] = await Promise.all([
       this.prisma.systemSetting.findUnique({
         where: { key: SETTING_RENT_INVOICE_LEAD_DAYS },
         include: { updatedByUser: { select: auditUserSelect } },
@@ -83,18 +164,35 @@ export class SystemSettingsService {
         where: { key: SETTING_CONTRACT_EXPIRING_SOON },
         include: { updatedByUser: { select: auditUserSelect } },
       }),
+      this.prisma.systemSetting.findMany({
+        where: { key: { in: [...MAIL_SETTING_KEYS] } },
+        include: { updatedByUser: { select: auditUserSelect } },
+      }),
+      this.prisma.systemSetting.findMany({
+        where: { key: { in: [...BRAND_SETTING_KEYS] } },
+        include: { updatedByUser: { select: auditUserSelect } },
+      }),
     ])
-    const newer =
-      !leadRow?.updatedAt
-        ? expiringRow
-        : !expiringRow?.updatedAt
-          ? leadRow
-          : leadRow.updatedAt >= expiringRow.updatedAt
-            ? leadRow
-            : expiringRow
+
+    const mailMap: Record<string, string> = {}
+    for (const r of mailRows) mailMap[r.key] = r.value
+    const brandMap: Record<string, string> = {}
+    for (const r of brandRows) brandMap[r.key] = r.value
+
+    const candidates = [leadRow, expiringRow, ...mailRows, ...brandRows].filter(Boolean) as Array<
+      NonNullable<typeof leadRow>
+    >
+    const newer = candidates.reduce<(typeof leadRow) | null>((acc, row) => {
+      if (!row?.updatedAt) return acc
+      if (!acc?.updatedAt) return row
+      return row.updatedAt >= acc.updatedAt ? row : acc
+    }, null)
+
     return {
       rentInvoiceLeadDays: this.parseLeadDays(leadRow?.value),
       contractExpiringSoon: this.parseExpiringSoon(expiringRow?.value),
+      mailSmtp: this.toMailSmtpView(mailSmtpFromValueMap(mailMap)),
+      branding: brandingFromValueMap(brandMap, roomImagePublicUrl),
       updatedAt: newer?.updatedAt ? newer.updatedAt.toISOString() : null,
       updatedBy: auditActorLabel(newer?.updatedByUser) || null,
     }
@@ -123,7 +221,132 @@ export class SystemSettingsService {
       },
     })
 
+    if (dto.mailSmtp) {
+      await this.upsertMailSmtp(dto.mailSmtp, actorId)
+    }
+    if (dto.branding) {
+      await this.upsertBranding(dto.branding, actorId)
+    }
+
     return this.getView()
+  }
+
+  async updateBranding(dto: UpdateBrandingDto, actorId?: string | null): Promise<SystemSettingsView> {
+    await this.upsertBranding(dto, actorId)
+    return this.getView()
+  }
+
+  async updateMailSmtp(dto: UpdateMailSmtpDto, actorId?: string | null): Promise<SystemSettingsView> {
+    await this.upsertMailSmtp(dto, actorId)
+    return this.getView()
+  }
+
+  private async upsertOneSetting(
+    key: (typeof MAIL_SETTING_KEYS)[number] | (typeof BRAND_SETTING_KEYS)[number],
+    value: string,
+    actorId?: string | null,
+  ) {
+    const meta =
+      key in MAIL_SETTING_META
+        ? MAIL_SETTING_META[key as (typeof MAIL_SETTING_KEYS)[number]]
+        : BRAND_SETTING_META[key as (typeof BRAND_SETTING_KEYS)[number]]
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      create: {
+        id: `sysset_${key}`,
+        key,
+        value,
+        label: meta.label,
+        remark: meta.remark,
+        sortOrder: meta.sortOrder,
+        createdById: actorId || null,
+        updatedById: actorId || null,
+      },
+      update: {
+        value,
+        label: meta.label,
+        remark: meta.remark,
+        sortOrder: meta.sortOrder,
+        updatedById: actorId || null,
+      },
+    })
+  }
+
+  private async upsertBranding(dto: UpdateBrandingDto, actorId?: string | null) {
+    const themeColor = normalizeThemeColor(dto.themeColor)
+    if (themeColor !== String(dto.themeColor || '').trim().toLowerCase()) {
+      throw new BadRequestException('主題色須為 #RRGGBB 格式')
+    }
+    const title = String(dto.title || '').trim()
+    const subtitle = String(dto.subtitle || '').trim()
+    if (!title) throw new BadRequestException('請填寫公司名稱')
+    if (!subtitle) throw new BadRequestException('請填寫系統名稱')
+
+    let logoKey = String(dto.logoKey ?? '').trim()
+    if (logoKey.includes('..')) {
+      throw new BadRequestException('Logo 路徑無效')
+    }
+    if (logoKey && /^https?:\/\//i.test(logoKey)) {
+      throw new BadRequestException('Logo 請上傳後使用系統路徑，勿填外部 URL')
+    }
+    logoKey = logoKey.replace(/^\/+/, '').replace(/^files\//, '')
+
+    await Promise.all([
+      this.upsertOneSetting(SETTING_BRAND_LOGO, logoKey, actorId),
+      this.upsertOneSetting(SETTING_BRAND_THEME_COLOR, themeColor, actorId),
+      this.upsertOneSetting(SETTING_BRAND_TITLE, title || DEFAULT_BRANDING.title, actorId),
+      this.upsertOneSetting(SETTING_BRAND_SUBTITLE, subtitle || DEFAULT_BRANDING.subtitle, actorId),
+    ])
+  }
+
+  private async upsertMailSmtp(dto: UpdateMailSmtpDto, actorId?: string | null) {
+    const host = String(dto.host || '').trim()
+    const email = String(dto.email || '').trim()
+    const fromName = String(dto.fromName || '').trim()
+    const port = Math.trunc(Number(dto.port))
+    if (!host) throw new BadRequestException('請填寫 SMTP 主機')
+    if (!email || !email.includes('@')) {
+      throw new BadRequestException('請填寫有效的發件郵箱')
+    }
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      throw new BadRequestException('SMTP 端口須為 1–65535')
+    }
+
+    const existingRows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...MAIL_SETTING_KEYS] } },
+      select: { key: true, value: true },
+    })
+    const existingMap: Record<string, string> = {}
+    for (const r of existingRows) existingMap[r.key] = r.value
+    const existingStoredPassword = String(existingMap[SETTING_MAIL_SENDING_EMAIL_PASSWORD] ?? '')
+
+    const incomingPassword = String(dto.password ?? '')
+    const keepPassword =
+      !incomingPassword || incomingPassword === PASSWORD_MASK || incomingPassword === '••••••••'
+    /** 新密码加密入库；保留时若仍是历史明文则顺带加密 */
+    const password = keepPassword
+      ? encryptSecret(existingStoredPassword)
+      : encryptSecret(incomingPassword)
+
+    await Promise.all([
+      this.upsertOneSetting(SETTING_MAIL_SENDING_EMAIL_HOST, host, actorId),
+      this.upsertOneSetting(SETTING_MAIL_SENDING_EMAIL, email, actorId),
+      this.upsertOneSetting(SETTING_MAIL_SENDING_EMAIL_PASSWORD, password, actorId),
+      this.upsertOneSetting(SETTING_MAIL_SENDING_EMAIL_PORT, String(port), actorId),
+      this.upsertOneSetting(
+        SETTING_MAIL_SENDING_EMAIL_SECURE,
+        dto.secure === true ? 'true' : 'false',
+        actorId,
+      ),
+      this.upsertOneSetting(
+        SETTING_MAIL_SENDING_FROM_NAME,
+        fromName || DEFAULT_MAIL_SMTP.fromName,
+        actorId,
+      ),
+    ])
+
+    // 清理旧 JSON 整包键（若仍存在）
+    await this.prisma.systemSetting.deleteMany({ where: { key: SETTING_MAIL_SMTP_LEGACY } })
   }
 
   async updateContractExpiringSoon(

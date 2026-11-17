@@ -141,6 +141,14 @@ export function deleteContractSettlementApi(id: string, opts?: { silentError?: b
   return request.delete<{ success: boolean }>(`/contract-settlements/${id}`, opts)
 }
 
+export function batchDeleteContractSettlementsApi(ids: string[]) {
+  return request.post<{
+    deleted: number
+    failed: number
+    failures: Array<{ id: string; message: string }>
+  }>('/contract-settlements/batch-delete', { ids })
+}
+
 export function fetchSettlementsByContract(contractId: string) {
   return request.get<ContractSettlementRecord[]>(
     `/contract-settlements/by-contract/${contractId}`,

@@ -886,7 +886,17 @@ async function seedRolesAndMenus(actorId: string) {
 
   const numberingSeeds: Array<{
     id: string;
-    bizKey: 'customer' | 'customerRequirement' | 'invoice' | 'receipt';
+    bizKey:
+      | 'customer'
+      | 'customerRequirement'
+      | 'invoice'
+      | 'receipt'
+      | 'receivable'
+      | 'depositRefund'
+      | 'contractSettlement'
+      | 'refundOrder'
+      | 'cashFlow'
+      | 'receivableWriteoff';
     name: string;
     format: string;
     resetCycle: 'none' | 'daily' | 'monthly' | 'yearly';
@@ -923,6 +933,54 @@ async function seedRolesAndMenus(actorId: string) {
       format: 'RCP%YY%MM%DD%04d',
       resetCycle: 'daily',
       sortOrder: 4,
+    },
+    {
+      id: 'nr_receivable',
+      bizKey: 'receivable',
+      name: '應收編號',
+      format: 'AR%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 5,
+    },
+    {
+      id: 'nr_deposit_refund',
+      bizKey: 'depositRefund',
+      name: '按金退還編號',
+      format: 'DRF%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 6,
+    },
+    {
+      id: 'nr_contract_settlement',
+      bizKey: 'contractSettlement',
+      name: '合約終止結算單編號',
+      format: 'CST%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 7,
+    },
+    {
+      id: 'nr_refund_order',
+      bizKey: 'refundOrder',
+      name: '退款單編號',
+      format: 'RFO%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 8,
+    },
+    {
+      id: 'nr_cash_flow',
+      bizKey: 'cashFlow',
+      name: '資金流水編號',
+      format: 'CFL%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 9,
+    },
+    {
+      id: 'nr_receivable_writeoff',
+      bizKey: 'receivableWriteoff',
+      name: '應收核銷編號',
+      format: 'WOF%YY%MM%DD%04d',
+      resetCycle: 'daily',
+      sortOrder: 10,
     },
   ];
 
@@ -1001,6 +1059,141 @@ async function seedRolesAndMenus(actorId: string) {
       updatedById: actorId,
     },
   });
+
+  await prisma.systemSetting.deleteMany({ where: { key: 'mail_smtp' } });
+
+  const mailFlatSettings: Array<{
+    key: string
+    value: string
+    label: string
+    remark: string
+    sortOrder: number
+  }> = [
+    {
+      key: 'mail_sending_email_host',
+      value: 'mail.wisesystemtech.com',
+      label: '系统发信 SMTP 主机',
+      remark: '忘记密码等系统邮件 SMTP 主机，如 mail.wisesystemtech.com',
+      sortOrder: 30,
+    },
+    {
+      key: 'mail_sending_email',
+      value: 'rentalsystem@wisesystemtech.com',
+      label: '系统发信邮箱',
+      remark: 'SMTP 登录账号与发件地址，如 rentalsystem@wisesystemtech.com',
+      sortOrder: 31,
+    },
+    {
+      key: 'mail_sending_email_password',
+      value: '',
+      label: '系统发送邮箱密码',
+      remark: 'SMTP 密码；入库加密（enc:v1）；仅在系统设置中维护，接口回传脱敏',
+      sortOrder: 32,
+    },
+    {
+      key: 'mail_sending_email_port',
+      value: '587',
+      label: '系统发信 SMTP 端口',
+      remark: '常见 587（STARTTLS）或 465（SSL）',
+      sortOrder: 33,
+    },
+    {
+      key: 'mail_sending_email_secure',
+      value: 'false',
+      label: '系统发信 SMTP 使用 SSL',
+      remark: 'true=SSL（多为 465）；false=STARTTLS（多为 587）',
+      sortOrder: 34,
+    },
+    {
+      key: 'mail_sending_from_name',
+      value: 'Leapbud 租賃系統',
+      label: '系统发信显示名',
+      remark: '收件箱中显示的发件人名称',
+      sortOrder: 35,
+    },
+  ];
+
+  for (const s of mailFlatSettings) {
+    await prisma.systemSetting.upsert({
+      where: { key: s.key },
+      create: {
+        id: `sysset_${s.key}`,
+        key: s.key,
+        value: s.value,
+        label: s.label,
+        remark: s.remark,
+        sortOrder: s.sortOrder,
+        createdById: actorId,
+        updatedById: actorId,
+      },
+      update: {
+        label: s.label,
+        remark: s.remark,
+        sortOrder: s.sortOrder,
+        updatedById: actorId,
+        ...(s.key === 'mail_sending_email_password' ? {} : { value: s.value }),
+      },
+    });
+  }
+
+  const brandFlatSettings: Array<{
+    key: string
+    value: string
+    label: string
+    remark: string
+    sortOrder: number
+  }> = [
+    {
+      key: 'brand_logo',
+      value: '',
+      label: '系统 Logo',
+      remark: '登录页与侧栏 Logo；存 uploads 相对键，空则用默认 /leapbud_logo.png',
+      sortOrder: 40,
+    },
+    {
+      key: 'brand_theme_color',
+      value: '#0f4a32',
+      label: '系统主题色',
+      remark: '侧栏与登录品牌区主色；影响 --lb-brand / Element Plus 主色',
+      sortOrder: 41,
+    },
+    {
+      key: 'brand_title',
+      value: 'leapbud',
+      label: '公司名称',
+      remark: '登录页小字（kicker）与侧栏主名',
+      sortOrder: 42,
+    },
+    {
+      key: 'brand_subtitle',
+      value: '租賃管理系統',
+      label: '系统名称',
+      remark: '侧栏副标；登录大标题自动拼接为「公司名称 + 空格 + 系统名称」',
+      sortOrder: 43,
+    },
+  ];
+
+  for (const s of brandFlatSettings) {
+    await prisma.systemSetting.upsert({
+      where: { key: s.key },
+      create: {
+        id: `sysset_${s.key}`,
+        key: s.key,
+        value: s.value,
+        label: s.label,
+        remark: s.remark,
+        sortOrder: s.sortOrder,
+        createdById: actorId,
+        updatedById: actorId,
+      },
+      update: {
+        label: s.label,
+        remark: s.remark,
+        sortOrder: s.sortOrder,
+        updatedById: actorId,
+      },
+    });
+  }
 
   await prisma.scheduledJob.upsert({
     where: { code: 'rent_invoice_due' },

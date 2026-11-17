@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
+import { NumberingRulesModule } from '../numbering-rules/numbering-rules.module'
 import { ReceiptsModule } from '../receipts/receipts.module'
 import { InvoicesModule } from '../invoices/invoices.module'
 import { CustomerRequirementsModule } from '../customer-requirements/customer-requirements.module'
@@ -24,6 +25,7 @@ import { ContractChangeLogsQueryService } from './contract-change-logs-query.ser
 @Module({
   imports: [
     AuthModule,
+    NumberingRulesModule,
     forwardRef(() => ReceiptsModule),
     InvoicesModule,
     CustomerRequirementsModule,

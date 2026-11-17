@@ -23,6 +23,7 @@ import { VacateConductService } from './vacate-conduct.service'
 import { ReceivableWriteoffsQueryService } from './receivable-writeoffs-query.service'
 import { ContractChangeLogsQueryService } from './contract-change-logs-query.service'
 import { DepositDeductionsService } from './deposit-deductions.service'
+import { BatchDeleteDto } from '../common/batch-delete'
 import { splitCsv } from '../common/pagination'
 import {
   ConductVacateSettlementDto,
@@ -292,6 +293,13 @@ export class ContractSettlementsController {
   @ApiOkResponse({ description: 'Writeoffs for one settlement' })
   writeoffsBySettlement(@Param('id') id: string) {
     return this.writeoffs.listBySettlement(id)
+  }
+
+  @RequirePermissions('contractSettlements:batchDelete')
+  @Post('batch-delete')
+  @ApiOkResponse({ description: 'Batch delete settlements' })
+  removeMany(@Body() dto: BatchDeleteDto, @CurrentUser() user?: JwtPayload) {
+    return this.settlements.removeMany(dto.ids || [], actorUserId(user))
   }
 
   @Get(':id')

@@ -15,15 +15,25 @@ export const CONTRACT_SETTLEMENT_STATUSES = CONTRACT_SETTLEMENT_REFUND_STATUSES
 /** @deprecated 使用 ContractSettlementRefundStatus */
 export type ContractSettlementStatus = ContractSettlementRefundStatus
 
-/** 应收（应补）状态 */
+/** 应收（应补）状态（无应补已并入 settled；历史 none 展示/筛选按 settled） */
 export const CONTRACT_SETTLEMENT_COLLECT_STATUSES = [
-  'none',
   'pending_collect',
   'partial',
   'settled',
 ] as const
 export type ContractSettlementCollectStatus =
-  (typeof CONTRACT_SETTLEMENT_COLLECT_STATUSES)[number]
+  | (typeof CONTRACT_SETTLEMENT_COLLECT_STATUSES)[number]
+  /** @deprecated 历史值，等同 settled */
+  | 'none'
+
+/** 展示／色票用：历史 none 视为已结清 */
+export function normalizeCollectStatus(
+  status?: string | null,
+): Exclude<ContractSettlementCollectStatus, 'none'> {
+  const key = (status || '').trim()
+  if (key === 'pending_collect' || key === 'partial' || key === 'settled') return key
+  return 'settled'
+}
 
 export type ContractSettlementItemRecord = {
   id: string

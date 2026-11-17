@@ -28,6 +28,8 @@ export function useOverlayStackZ() {
 
   /**
    * 分配一层 z-index：始终高于当前栈顶。
+   * 须循环消耗 EP nextZIndex，把内部计数抬到同档；否则弹窗可被手动抬到 4600+，
+   * 而 el-select／日期 popper 仍 nextZIndex≈2000，浮层会落到弹窗遮罩下。
    * @param minAbove 要求不低于该值（例如盖住已打开的退租详情弹窗）
    */
   function allocZ(minAbove?: number) {
@@ -35,9 +37,13 @@ export function useOverlayStackZ() {
       stackTop.value = minAbove
     }
     let z = nextZIndex()
-    if (z <= stackTop.value) {
-      z = stackTop.value + 1
+    // 上限保护：避免异常 stackTop 导致死循环
+    let guard = 0
+    while (z <= stackTop.value && guard < 20000) {
+      z = nextZIndex()
+      guard += 1
     }
+    if (z <= stackTop.value) z = stackTop.value + 1
     stackTop.value = z
     return z
   }

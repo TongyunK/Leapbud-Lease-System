@@ -13,6 +13,7 @@ export interface UserInfo {
   id: string
   account: string
   displayName?: string
+  email?: string
   role?: string
   roleName?: string
   roles?: string[]
@@ -109,6 +110,14 @@ export const useUserStore = defineStore('user', () => {
     localStorage.setItem(USER_KEY, JSON.stringify(normalized))
   }
 
+  /** 合并更新当前用户资料（不改 token） */
+  function patchUser(partial: Partial<UserInfo>) {
+    if (!user.value) return
+    const next = { ...user.value, ...partial }
+    user.value = next
+    localStorage.setItem(USER_KEY, JSON.stringify(next))
+  }
+
   async function loadPermissions() {
     if (!token.value) {
       setPermissions([])
@@ -158,6 +167,7 @@ export const useUserStore = defineStore('user', () => {
     login,
     logout,
     setSession,
+    patchUser,
     loadPermissions,
     setPermissions,
     setAdminExclusiveCodes,

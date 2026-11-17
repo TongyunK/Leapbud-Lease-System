@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -8,10 +8,11 @@ import {
   createCustomerRequirementApi,
   deleteCustomerRequirementApi,
   batchDeleteCustomerRequirementsApi,
+  purgeCustomerRequirementApi,
+  batchPurgeCustomerRequirementsApi,
   fetchCustomerRequirement,
   fetchCustomerRequirements,
   importCustomerRequirementsApi,
-  previewRequirementCodeApi,
   updateCustomerRequirementApi,
 } from '@/api/customer-requirements'
 import type { CustomerRequirementImportItem, CustomerRequirementListQuery } from '@/api/customer-requirements'
@@ -78,17 +79,31 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
+import type { ContractCreatePrefill } from '@/utils/contractCreatePrefill'
+import { OVERLAY_ABOVE_FEATURE_MENU_Z, useOverlayStackZ } from '@/composables/useOverlayStackZ'
+
+/** 异步加载合约页（嵌入仅开新增弹窗，避免首屏拖入整表） */
+const ContractListView = defineAsyncComponent(
+  () => import('@/views/contract-mgmt/ContractListView.vue'),
+)
 
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
 const perms = useResourcePermissions('customerRequirements')
-/** 跟進 / 取消：按权限与当前语言文案测宽（英文 Follow up 比「编辑」宽） */
+const contractPerms = useResourcePermissions('contracts')
+const { allocZ } = useOverlayStackZ()
+
+const contractCreateEmbedOpen = ref(false)
+const contractCreatePrefill = ref<ContractCreatePrefill | null>(null)
+const contractCreateZ = ref<number | undefined>(undefined)
+/** 跟進 / 取消 / 刪除：按权限与当前语言文案测宽 */
 const requirementActionColWidth = computed(() => {
   void locale.value
   const labels: string[] = [ACTION_COL_ICON]
   if (perms.update) labels.push(t('customerRequirement.followUp'))
   if (perms.delete) labels.push(t('common.cancel'))
+  if (perms.purge) labels.push(t('common.delete'))
   return measureActionColWidth(labels)
 })
 const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
@@ -183,6 +198,8 @@ const {
 } = useTableSelection<CustomerRequirementRecord>()
 const batchDeleting = ref(false)
 const selectAllLoading = ref(false)
+/** 批量取消 / 批量删除共用进度弹窗，按操作切换文案前缀 */
+const batchUiKey = ref('customerRequirement.batchCancelUi')
 const {
   state: batchState,
   percentage: batchPercentage,
@@ -220,11 +237,43 @@ async function onBatchCancel() {
   }
   const ids = [...selectedIds.value]
   batchDeleting.value = true
+  batchUiKey.value = 'customerRequirement.batchCancelUi'
   beginBatch(ids.length)
   try {
     const { ok, fail } = await runServerBatchDelete(
       ids,
       (chunk) => batchDeleteCustomerRequirementsApi(chunk),
+      setBatchProgress,
+    )
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
+async function onBatchPurge() {
+  if (!perms.batchPurge || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('customerRequirement.batchPurgeConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  batchUiKey.value = 'common.batchDeleteUi'
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(
+      ids,
+      (chunk) => batchPurgeCustomerRequirementsApi(chunk),
       setBatchProgress,
     )
     finishBatch(ok, fail)
@@ -325,10 +374,64 @@ const matchedRoomTableKey = computed(
   () => `matched-${tableLayoutKey.value}-${form.leaseDurationUnit}`,
 )
 
-/** 匹配房间快捷新增合约：后续实现 */
-function onMatchedRoomsCreateContract() {
-  /* placeholder — 使用 matchedSelectedRoom */
-  void matchedSelectedRoom.value
+/** 匹配房间 → 本页叠开新增合约弹窗并预填（不关闭跟进／新增需求弹窗） */
+async function onMatchedRoomsCreateContract() {
+  if (!contractPerms.create) {
+    await ElMessageBox.alert(
+      t('customerRequirement.createContractNoPerm'),
+      t('contract.create'),
+      { type: 'warning' },
+    )
+    return
+  }
+  const room = matchedSelectedRoom.value
+  const customer = selectedCustomer.value
+  if (!room?.id) {
+    await ElMessageBox.alert(
+      t('customerRequirement.createContractNeedRoom'),
+      t('contract.create'),
+      { type: 'warning' },
+    )
+    return
+  }
+  if (!customer?.id && !form.customerId.trim()) {
+    await ElMessageBox.alert(
+      t('customerRequirement.customerRequired'),
+      t('contract.create'),
+      { type: 'warning' },
+    )
+    return
+  }
+  const customerId = (customer?.id || form.customerId).trim()
+  contractCreatePrefill.value = {
+    customerId,
+    customerCode: customer?.customerCode || '',
+    customerName: customer?.name || '',
+    buildingId: customer?.buildingId || room.buildingId || '',
+    roomId: room.id,
+    roomCode: room.roomCode || '',
+    roomName: room.name || '',
+    buildingName: room.buildingName || '',
+    monthlyRent: room.monthlyRent ?? null,
+    requirementId: editing.value?.id || '',
+    requirementCode: editing.value?.requirementCode || form.requirementCode || '',
+    salesManagerId: form.salesManagerId || currentUserId(),
+    leaseDurationAmount: form.leaseDurationAmount,
+    leaseDurationUnit: form.leaseDurationUnit,
+    remark: form.remark.trim() || '',
+  }
+  contractCreateZ.value = allocZ(OVERLAY_ABOVE_FEATURE_MENU_Z)
+  contractCreateEmbedOpen.value = true
+}
+
+function onContractCreateEmbedClose() {
+  contractCreateEmbedOpen.value = false
+  contractCreatePrefill.value = null
+}
+
+function onContractCreateEmbedCreated() {
+  // 跟进中需求：刷新列表合约数；弹窗保持打开
+  if (editing.value?.id) void loadList()
 }
 let matchedRoomsTimer: ReturnType<typeof setTimeout> | null = null
 let matchedRoomsReqSeq = 0
@@ -372,6 +475,93 @@ const budgetUnitLabel = computed(() => {
   if (u === 'hour') return t('customerRequirement.budgetUnit.hour')
   return t('customerRequirement.budgetUnit.month')
 })
+
+/** 用户手动改过需求内容后，不再用选项覆盖 */
+const contentManual = ref(false)
+const lastAutoContent = ref('')
+let applyingAutoContent = false
+
+function configLabelOf(options: { id: string; label: string }[], id?: string | null) {
+  const key = String(id ?? '').trim()
+  if (!key) return ''
+  return options.find((o) => o.id === key)?.label?.trim() || ''
+}
+
+function buildAutoContent() {
+  const parts: string[] = []
+  parts.push(t(`customerRequirement.rentalType.${form.rentalType}`))
+  const durationText = displayLeaseDuration(
+    formatLeaseDuration(form.leaseDurationAmount, form.leaseDurationUnit),
+    t,
+  )
+  if (durationText) {
+    parts.push(t('customerRequirement.contentAuto.duration', { duration: durationText }))
+  }
+  if (form.budget != null && Number.isFinite(form.budget) && form.budget >= 0) {
+    parts.push(
+      t('customerRequirement.contentAuto.budget', {
+        amount: formatMoney(form.budget),
+        unit: budgetUnitLabel.value,
+      }),
+    )
+  }
+  const sizeLabel = configLabelOf(sizeOptions.value, form.sizeConfigId)
+  if (sizeLabel) {
+    parts.push(t('customerRequirement.contentAuto.size', { label: sizeLabel }))
+  }
+  const acLabel = configLabelOf(acOptions.value, form.acConfigId)
+  if (acLabel) {
+    parts.push(t('customerRequirement.contentAuto.ac', { label: acLabel }))
+  }
+  const windowLabel = configLabelOf(windowOptions.value, form.windowConfigId)
+  if (windowLabel) {
+    parts.push(t('customerRequirement.contentAuto.window', { label: windowLabel }))
+  }
+  return parts.join(t('customerRequirement.contentAuto.join'))
+}
+
+function syncAutoContent() {
+  if (contentManual.value) return
+  const next = buildAutoContent()
+  if (form.content.trim() && form.content !== lastAutoContent.value) {
+    contentManual.value = true
+    return
+  }
+  applyingAutoContent = true
+  form.content = next
+  lastAutoContent.value = next
+  queueMicrotask(() => {
+    applyingAutoContent = false
+  })
+}
+
+function onContentInput() {
+  if (applyingAutoContent) return
+  const cur = form.content
+  if (!cur.trim() || cur === lastAutoContent.value) {
+    contentManual.value = false
+    if (!cur.trim()) syncAutoContent()
+    return
+  }
+  contentManual.value = true
+}
+
+watch(
+  () =>
+    [
+      form.rentalType,
+      form.leaseDurationAmount,
+      form.leaseDurationUnit,
+      form.budget,
+      form.sizeConfigId,
+      form.acConfigId,
+      form.windowConfigId,
+      locale.value,
+    ] as const,
+  () => {
+    syncAutoContent()
+  },
+)
 
 function roomRentAmount(row: {
   monthlyRent?: number
@@ -459,13 +649,14 @@ async function loadMatchedRooms() {
   const seq = ++matchedRoomsReqSeq
   matchedRoomsLoading.value = true
   try {
+    const sizeId = String(form.sizeConfigId ?? '').trim()
     const acLabel = acOptions.value.find((o) => o.id === form.acConfigId)?.label?.trim()
     const windowLabel = windowOptions.value.find((o) => o.id === form.windowConfigId)?.label?.trim()
     const buildingId = selectedCustomer.value?.buildingId?.trim() || undefined
     const { data } = await fetchRooms({
       status: 'idle',
       buildingId,
-      sizeRangeIds: form.sizeConfigId.trim() ? [form.sizeConfigId.trim()] : undefined,
+      sizeRangeIds: sizeId ? [sizeId] : undefined,
       acConfigs: acLabel ? [acLabel] : undefined,
       windowConfigs: windowLabel ? [windowLabel] : undefined,
       sortBy: matchedRoomsSortBy(),
@@ -532,6 +723,8 @@ async function openCreate() {
     }
   }
   const myId = currentUserId()
+  contentManual.value = false
+  lastAutoContent.value = ''
   Object.assign(form, {
     requirementCode: '',
     customerId: '',
@@ -552,15 +745,7 @@ async function openCreate() {
   formVisible.value = true
   // destroy-on-close 重挂载后，若选项尚未就绪可能冲掉默认值，再写一次
   if (myId) form.salesManagerId = myId
-  try {
-    const { data } = await previewRequirementCodeApi()
-    if (formVisible.value && !editing.value) {
-      form.requirementCode = data?.code?.trim() || ''
-      if (myId && !form.salesManagerId) form.salesManagerId = myId
-    }
-  } catch {
-    /* 预览失败时保留占位提示 */
-  }
+  syncAutoContent()
 }
 
 function openEdit(row: CustomerRequirementRecord) {
@@ -586,14 +771,18 @@ function openEdit(row: CustomerRequirementRecord) {
     acConfigId: row.acConfigId || '',
     windowConfigId: row.windowConfigId || '',
   })
+  // 已有手写内容则保留；为空则按选项自动生成
+  contentManual.value = Boolean((row.content || '').trim())
+  lastAutoContent.value = ''
   formVisible.value = true
+  if (!contentManual.value) syncAutoContent()
 }
 
 function payloadFromForm() {
   return {
     // 需求编号不可改：新建由后端自动编号，编辑不提交编号字段
     customerId: form.customerId.trim(),
-    salesManagerId: form.salesManagerId.trim() || null,
+    salesManagerId: String(form.salesManagerId ?? '').trim() || null,
     requirementDate: form.requirementDate || null,
     status: form.status,
     rentalType: form.rentalType,
@@ -602,9 +791,9 @@ function payloadFromForm() {
     content: form.content.trim(),
     remark: form.remark.trim(),
     attachment: form.attachment.trim(),
-    sizeConfigId: form.sizeConfigId.trim() || null,
-    acConfigId: form.acConfigId.trim() || null,
-    windowConfigId: form.windowConfigId.trim() || null,
+    sizeConfigId: String(form.sizeConfigId ?? '').trim() || null,
+    acConfigId: String(form.acConfigId ?? '').trim() || null,
+    windowConfigId: String(form.windowConfigId ?? '').trim() || null,
   }
 }
 
@@ -633,7 +822,11 @@ async function saveForm() {
 async function onCancel(row: CustomerRequirementRecord) {
   if (!perms.delete) return
   if (row.status === '已取消') {
-    ElMessage.info(t('customerRequirement.alreadyCancelled'))
+    await ElMessageBox.alert(
+      t('customerRequirement.alreadyCancelled'),
+      t('common.cancel'),
+      { type: 'info' },
+    )
     return
   }
   try {
@@ -643,7 +836,27 @@ async function onCancel(row: CustomerRequirementRecord) {
       { type: 'warning' },
     )
     await deleteCustomerRequirementApi(row.id)
-    ElMessage.success(t('customerRequirement.cancelled'))
+    await ElMessageBox.alert(t('customerRequirement.cancelled'), t('common.cancel'), {
+      type: 'success',
+    })
+    await loadList()
+  } catch {
+    /* dismiss */
+  }
+}
+
+async function onPurge(row: CustomerRequirementRecord) {
+  if (!perms.purge) return
+  try {
+    await ElMessageBox.confirm(
+      t('customerRequirement.deleteConfirm', { code: row.requirementCode }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+    await purgeCustomerRequirementApi(row.id)
+    await ElMessageBox.alert(t('customerRequirement.deleted'), t('common.deleteTitle'), {
+      type: 'success',
+    })
     await loadList()
   } catch {
     /* dismiss */
@@ -1283,6 +1496,15 @@ async function onImportFile(ev: Event) {
                 >
                   {{ t('common.cancel') }}
                 </button>
+                <button
+                  v-if="perms.purge"
+                  v-admin-glow="perms.codes.purge"
+                  type="button"
+                  class="action-pill action-pill--danger"
+                  @click="onPurge(row as CustomerRequirementRecord)"
+                >
+                  {{ t('common.delete') }}
+                </button>
               </div>
             </template>
           </el-table-column>
@@ -1300,8 +1522,9 @@ async function onImportFile(ev: Event) {
           @select-all="onSelectAll"
           @clear-selection="clearSelection"
         >
-          <template v-if="perms.batchDelete" #batch>
+          <template v-if="perms.batchDelete || perms.batchPurge" #batch>
             <button
+              v-if="perms.batchDelete"
               v-admin-glow="perms.codes.batchDelete"
               type="button"
               class="lb-pager__batch-btn"
@@ -1309,6 +1532,16 @@ async function onImportFile(ev: Event) {
               @click="onBatchCancel"
             >
               {{ t('customerRequirement.batchCancel') }}
+            </button>
+            <button
+              v-if="perms.batchPurge"
+              v-admin-glow="perms.codes.batchPurge"
+              type="button"
+              class="lb-pager__batch-btn"
+              :disabled="batchDeleting || selectAllLoading"
+              @click="onBatchPurge"
+            >
+              {{ t('common.batchDelete') }}
             </button>
           </template>
         </TablePagination>
@@ -1357,18 +1590,21 @@ async function onImportFile(ev: Event) {
     >
       <el-form label-position="top">
         <div class="form-grid">
-          <el-form-item :label="t('customerRequirement.fields.requirementCode')">
-            <el-input
-              v-model="form.requirementCode"
-              disabled
-              :placeholder="editing ? undefined : t('customerRequirement.codeAutoHint')"
-            />
+          <el-form-item
+            v-if="editing"
+            :label="t('customerRequirement.fields.requirementCode')"
+          >
+            <el-input v-model="form.requirementCode" disabled />
           </el-form-item>
-          <el-form-item :label="t('customerRequirement.fields.salesManager')">
+          <el-form-item
+            v-if="editing"
+            :label="t('customerRequirement.fields.salesManager')"
+          >
             <el-select
               v-model="form.salesManagerId"
               filterable
               clearable
+              value-on-clear=""
               style="width: 100%"
               :placeholder="t('customerRequirement.fields.salesManager')"
             >
@@ -1390,6 +1626,7 @@ async function onImportFile(ev: Event) {
                 filterable
                 fit-input-width
                 style="width: 100%"
+                popper-class="req-customer-select-popper"
                 :placeholder="t('customerRequirement.fields.customerName')"
               >
                 <el-option
@@ -1416,7 +1653,10 @@ async function onImportFile(ev: Event) {
               <span v-else class="customer-status-empty">—</span>
             </div>
           </el-form-item>
-          <el-form-item :label="t('customerRequirement.fields.requirementDate')">
+          <el-form-item
+            v-if="editing"
+            :label="t('customerRequirement.fields.requirementDate')"
+          >
             <el-date-picker
               v-model="form.requirementDate"
               type="date"
@@ -1424,28 +1664,31 @@ async function onImportFile(ev: Event) {
               style="width: 100%"
             />
           </el-form-item>
-          <div class="status-rental-pair">
-            <el-form-item :label="t('customerRequirement.fields.status')">
-              <el-select v-model="form.status" style="width: 100%">
-                <el-option
-                  v-for="s in CUSTOMER_REQUIREMENT_STATUSES"
-                  :key="s"
-                  :label="t(`customerRequirement.status.${s}`)"
-                  :value="s"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('customerRequirement.fields.rentalType')" required>
-              <el-select v-model="form.rentalType" style="width: 100%">
-                <el-option
-                  v-for="rt in CUSTOMER_REQUIREMENT_RENTAL_TYPES"
-                  :key="rt"
-                  :label="t(`customerRequirement.rentalType.${rt}`)"
-                  :value="rt"
-                />
-              </el-select>
-            </el-form-item>
-          </div>
+          <el-form-item
+            v-if="editing"
+            :label="t('customerRequirement.fields.status')"
+          >
+            <el-select v-model="form.status" style="width: 100%">
+              <el-option
+                v-for="s in CUSTOMER_REQUIREMENT_STATUSES"
+                :key="s"
+                :label="t(`customerRequirement.status.${s}`)"
+                :value="s"
+              />
+            </el-select>
+          </el-form-item>
+        </div>
+        <div class="form-grid form-grid--3">
+          <el-form-item :label="t('customerRequirement.fields.rentalType')" required>
+            <el-select v-model="form.rentalType" style="width: 100%">
+              <el-option
+                v-for="rt in CUSTOMER_REQUIREMENT_RENTAL_TYPES"
+                :key="rt"
+                :label="t(`customerRequirement.rentalType.${rt}`)"
+                :value="rt"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.leaseDuration')">
             <div class="lease-duration-row">
               <el-input-number
@@ -1490,7 +1733,13 @@ async function onImportFile(ev: Event) {
         </div>
         <div class="form-grid form-grid--3">
           <el-form-item :label="t('customerRequirement.fields.sizeConfig')">
-            <el-select v-model="form.sizeConfigId" clearable filterable style="width: 100%">
+            <el-select
+              v-model="form.sizeConfigId"
+              clearable
+              filterable
+              value-on-clear=""
+              style="width: 100%"
+            >
               <el-option
                 v-for="o in sizeOptions"
                 :key="o.id"
@@ -1500,12 +1749,24 @@ async function onImportFile(ev: Event) {
             </el-select>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.acConfig')">
-            <el-select v-model="form.acConfigId" clearable filterable style="width: 100%">
+            <el-select
+              v-model="form.acConfigId"
+              clearable
+              filterable
+              value-on-clear=""
+              style="width: 100%"
+            >
               <el-option v-for="o in acOptions" :key="o.id" :label="o.label" :value="o.id" />
             </el-select>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.windowConfig')">
-            <el-select v-model="form.windowConfigId" clearable filterable style="width: 100%">
+            <el-select
+              v-model="form.windowConfigId"
+              clearable
+              filterable
+              value-on-clear=""
+              style="width: 100%"
+            >
               <el-option
                 v-for="o in windowOptions"
                 :key="o.id"
@@ -1516,7 +1777,12 @@ async function onImportFile(ev: Event) {
           </el-form-item>
         </div>
         <el-form-item :label="t('customerRequirement.fields.content')">
-          <el-input v-model="form.content" type="textarea" :rows="2" />
+          <el-input
+            v-model="form.content"
+            type="textarea"
+            :rows="2"
+            @input="onContentInput"
+          />
         </el-form-item>
         <el-form-item :label="t('customerRequirement.fields.remark')">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
@@ -1530,6 +1796,8 @@ async function onImportFile(ev: Event) {
             <h3>{{ t('customerRequirement.sections.matchedRooms') }}</h3>
             <div class="matched-rooms__head-actions">
               <el-button
+                v-if="contractPerms.create"
+                v-admin-glow="contractPerms.codes.create"
                 type="primary"
                 :icon="Plus"
                 class="lb-btn-primary"
@@ -1658,9 +1926,19 @@ async function onImportFile(ev: Event) {
       </template>
     </el-dialog>
 
+    <!-- 本页叠开新增合约（不跳转、不关闭上方需求弹窗） -->
+    <ContractListView
+      v-if="contractCreateEmbedOpen"
+      embed-create-only
+      :embed-prefill="contractCreatePrefill"
+      :embed-z-index="contractCreateZ"
+      @embed-close="onContractCreateEmbedClose"
+      @embed-created="onContractCreateEmbedCreated"
+    />
+
     <BatchProgressDialog
       v-model="batchState.visible"
-      ui-key="customerRequirement.batchCancelUi"
+      :ui-key="batchUiKey"
       :phase="batchState.phase"
       :total="batchState.total"
       :current="batchState.current"
@@ -1747,20 +2025,6 @@ async function onImportFile(ev: Event) {
   color: var(--lb-muted, #6a7a70);
   font-size: 0.9rem;
   white-space: nowrap;
-}
-
-/* 狀態 + 需求類型：同一行（右侧半栏内再分两列，样式同房间类型下拉） */
-.status-rental-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 12px;
-  min-width: 0;
-}
-
-@media (max-width: 640px) {
-  .status-rental-pair {
-    grid-template-columns: 1fr;
-  }
 }
 
 .matched-rooms {

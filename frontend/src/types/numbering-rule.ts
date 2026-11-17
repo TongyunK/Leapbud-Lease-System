@@ -3,6 +3,12 @@ export type NumberingBizKey =
   | 'customerRequirement'
   | 'invoice'
   | 'receipt'
+  | 'receivable'
+  | 'depositRefund'
+  | 'contractSettlement'
+  | 'refundOrder'
+  | 'cashFlow'
+  | 'receivableWriteoff'
 
 export type NumberingResetCycle = 'none' | 'daily' | 'monthly' | 'yearly'
 

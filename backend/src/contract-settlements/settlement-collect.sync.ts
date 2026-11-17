@@ -40,7 +40,12 @@ export async function recalcSettlementCollectTotals(
           amount: true,
           receivableId: true,
           receivable: {
-            select: { receivedAmount: true, invoiceAmount: true },
+            select: {
+              receivedAmount: true,
+              refundedAmount: true,
+              receivableAmount: true,
+              invoiceAmount: true,
+            },
           },
         },
       },
@@ -52,13 +57,22 @@ export async function recalcSettlementCollectTotals(
   let linkedDue = 0
   for (const it of row.items || []) {
     if (!it.receivable) continue
-    collectedTotal = round2(
-      collectedTotal + Number(it.receivable.receivedAmount.toString()),
+    const inv = round2(
+      Number(it.receivable.invoiceAmount?.toString?.() ?? it.amount.toString()) || 0,
     )
-    linkedDue = round2(
-      linkedDue +
-        Number(it.receivable.invoiceAmount?.toString?.() ?? it.amount.toString()),
+    const openStored = round2(
+      Number(it.receivable.receivableAmount?.toString?.() ?? 0) || 0,
     )
+    const received = round2(Number(it.receivable.receivedAmount.toString()) || 0)
+    const refunded = round2(
+      Number(it.receivable.refundedAmount?.toString?.() ?? 0) || 0,
+    )
+    const openDerived = round2(Math.max(0, inv - received + refunded))
+    // 未收以推算与库值较大者为准，避免误把部分收款当成已结清
+    const open = round2(Math.max(openStored, openDerived))
+    const collected = round2(Math.max(0, Math.min(inv, inv - open)))
+    collectedTotal = round2(collectedTotal + collected)
+    linkedDue = round2(linkedDue + inv)
   }
 
   let collectDue = round2(Number(row.collectDueTotal.toString()))
@@ -66,12 +80,14 @@ export async function recalcSettlementCollectTotals(
     collectDue <= 0.009 && linkedDue > 0.009
   if (patchDue) collectDue = linkedDue
 
+  // 无应补金额时亦视为已结清（不再使用 none）
   let collectStatus: ContractSettlementCollectStatus =
-    ContractSettlementCollectStatus.none
+    ContractSettlementCollectStatus.settled
   if (collectDue > 0.009) {
+    const remaining = round2(Math.max(0, collectDue - collectedTotal))
     if (collectedTotal <= 0.009) {
       collectStatus = ContractSettlementCollectStatus.pending_collect
-    } else if (collectedTotal + 0.009 < collectDue) {
+    } else if (remaining > 0.009) {
       collectStatus = ContractSettlementCollectStatus.partial
     } else {
       collectStatus = ContractSettlementCollectStatus.settled

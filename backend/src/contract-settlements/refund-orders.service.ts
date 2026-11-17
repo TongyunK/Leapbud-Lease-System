@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  NumberingBizKey,
   Prisma,
   RefundOrderStatus,
 } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { CashFlowsService } from './cash-flows.service'
-import { dec, nextRefundOrderCode, round2 } from './settlement-code.util'
+import { dec, round2 } from './settlement-code.util'
 
 type Db = Prisma.TransactionClient | PrismaService
 
@@ -51,6 +53,7 @@ function statusFromPaid(amount: number, paidAmount: number): string {
 export class RefundOrdersService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly numbering: NumberingRulesService,
     private readonly cashFlows: CashFlowsService,
   ) {}
 
@@ -122,7 +125,14 @@ export class RefundOrdersService {
     // Prisma client 未 regenerate 时可能不认识 partial：先写 pending/paid，再 SQL 回写
     const bootstrapStatus =
       status === 'paid' ? RefundOrderStatus.paid : RefundOrderStatus.pending
-    const refundCode = await nextRefundOrderCode(client)
+    const refundCode = await this.numbering.nextCode(NumberingBizKey.refundOrder, {
+      db: client,
+      isTaken: async (code) =>
+        !!(await client.refundOrder.findFirst({
+          where: { refundCode: code },
+          select: { id: true },
+        })),
+    })
     const refundDate =
       initialPaid > 0.009 ? input.refundDate ?? new Date() : input.refundDate ?? null
 

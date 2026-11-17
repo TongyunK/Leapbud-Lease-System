@@ -15,13 +15,22 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOkResponse,
+  ApiProperty,
   ApiPropertyOptional,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger'
 import { UserRole } from '@prisma/client'
 import { Type } from 'class-transformer'
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator'
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import { FilesInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
@@ -31,6 +40,7 @@ import { PermissionsGuard } from '../permissions/permissions.guard'
 import { RequirePermissions } from '../permissions/require-permissions.decorator'
 import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
+import { BatchDeleteDto } from '../common/batch-delete'
 import { splitCsv } from '../common/pagination'
 import { RefundOrdersQueryService } from './refund-orders-query.service'
 
@@ -61,6 +71,55 @@ class DisburseRefundDto {
   @IsOptional()
   @IsString()
   remark?: string
+}
+
+class ImportRefundOrderItemDto {
+  @ApiPropertyOptional({ description: '退款编号；已存在则跳过' })
+  @IsOptional()
+  @IsString()
+  refundCode?: string
+
+  @ApiProperty({ description: '终止结算编号（必填）' })
+  @IsString()
+  settlementCode!: string
+
+  @ApiPropertyOptional({ description: '应退金额；省略则取结算待退' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount?: number
+
+  @ApiPropertyOptional({ description: '首笔已打金额（>0 时写流水）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  paidAmount?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  refundDate?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  remark?: string
+}
+
+class ImportRefundOrdersDto {
+  @ApiProperty({ type: [ImportRefundOrderItemDto] })
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ImportRefundOrderItemDto)
+  items!: ImportRefundOrderItemDto[]
 }
 
 @ApiTags('refund-orders')
@@ -146,6 +205,20 @@ export class RefundOrdersController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     })
+  }
+
+  @RequirePermissions('refundOrders:batchDelete')
+  @Post('batch-delete')
+  @ApiOkResponse({ description: 'Batch delete refund orders' })
+  removeMany(@Body() dto: BatchDeleteDto, @CurrentUser() user?: JwtPayload) {
+    return this.refundOrders.removeMany(dto.ids || [], actorUserId(user))
+  }
+
+  @RequirePermissions('refundOrders:import')
+  @Post('import')
+  @ApiOkResponse({ description: 'Batch import refund orders by settlement code' })
+  importBatch(@Body() dto: ImportRefundOrdersDto, @CurrentUser() user?: JwtPayload) {
+    return this.refundOrders.importBatch(dto, actorUserId(user))
   }
 
   @Get(':id')

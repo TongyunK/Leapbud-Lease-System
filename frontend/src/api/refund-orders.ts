@@ -88,6 +88,39 @@ export function deleteRefundOrderApi(id: string, opts?: { silentError?: boolean 
   return request.delete<{ success: boolean }>(`/refund-orders/${id}`, opts)
 }
 
+export function batchDeleteRefundOrdersApi(ids: string[]) {
+  return request.post<{
+    deleted: number
+    failed: number
+    failures: Array<{ id: string; message: string }>
+  }>('/refund-orders/batch-delete', { ids })
+}
+
+export type RefundOrderImportItem = {
+  refundCode?: string
+  settlementCode?: string
+  amount?: number
+  paidAmount?: number
+  refundDate?: string
+  paymentMethod?: string
+  remark?: string
+}
+
+export type RefundOrderImportBatchResult = {
+  created: number
+  skipped: number
+  failed: number
+  issues?: Array<{
+    status: 'skipped' | 'unlinked' | 'failed'
+    reason: string
+    keys?: Record<string, string>
+  }>
+}
+
+export function importRefundOrdersApi(items: RefundOrderImportItem[]) {
+  return request.post<RefundOrderImportBatchResult>('/refund-orders/import', { items })
+}
+
 /** 打款（全额或部分）：写一条资金流水 */
 export function disburseRefundOrderApi(
   id: string,

@@ -205,10 +205,18 @@ function go(routeName: string) {
   padding: clamp(14px, 2vw, 22px) clamp(14px, 2.2vw, 24px);
   border-radius: 16px;
   background:
-    radial-gradient(120% 140% at 100% 0%, rgba(15, 74, 50, 0.1) 0%, transparent 55%),
-    linear-gradient(135deg, #ffffff 0%, #f3faf6 100%);
-  border: 1px solid #dce5e0;
-  box-shadow: 0 8px 24px rgba(15, 40, 30, 0.05);
+    radial-gradient(
+      120% 140% at 100% 0%,
+      color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, transparent) 0%,
+      transparent 55%
+    ),
+    linear-gradient(
+      135deg,
+      #ffffff 0%,
+      color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #f5f5f5) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, transparent);
 }
 
 .home-hero__main {
@@ -222,7 +230,7 @@ function go(routeName: string) {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6e9784;
+  color: var(--lb-brand-light, #6e9784);
 }
 
 .home-hero__title {
@@ -230,7 +238,7 @@ function go(routeName: string) {
   font-size: clamp(1.25rem, 1.6vw + 0.7rem, 1.75rem);
   font-weight: 750;
   letter-spacing: -0.02em;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   line-height: 1.2;
 }
 
@@ -239,7 +247,7 @@ function go(routeName: string) {
   max-width: 56rem;
   font-size: clamp(0.82rem, 0.2vw + 0.78rem, 0.9rem);
   line-height: 1.5;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .home-clock {
@@ -247,7 +255,7 @@ function go(routeName: string) {
   min-width: min(200px, 100%);
   padding: 12px 16px;
   border-radius: 14px;
-  border: 1px solid #c9ddd2;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #e0e0e0);
   background: rgba(255, 255, 255, 0.92);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
 }
@@ -255,7 +263,7 @@ function go(routeName: string) {
 .home-clock__date {
   font-size: 0.78rem;
   font-weight: 650;
-  color: #3d4f45;
+  color: var(--lb-muted, #666);
   line-height: 1.35;
 }
 
@@ -265,14 +273,14 @@ function go(routeName: string) {
   font-weight: 750;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   line-height: 1.1;
 }
 
 .home-clock__tz {
   margin-top: 6px;
   font-size: 0.72rem;
-  color: #8a9690;
+  color: #8a8a8a;
 }
 
 .home-section {
@@ -286,7 +294,7 @@ function go(routeName: string) {
   padding-left: 2px;
   font-size: 0.95rem;
   font-weight: 750;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .home-grid {
@@ -302,7 +310,7 @@ function go(routeName: string) {
   gap: 12px;
   min-height: 68px;
   padding: 12px 14px;
-  border: 1px solid #dde5e1;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
   border-radius: 14px;
   background: #fff;
   text-align: left;
@@ -315,14 +323,14 @@ function go(routeName: string) {
 }
 
 .home-card:hover {
-  border-color: color-mix(in srgb, #0f4a32 32%, #dde5e1);
-  background: #f7fbf8;
-  box-shadow: 0 8px 18px rgba(15, 40, 30, 0.08);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 32%, #e0e0e0);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, transparent);
   transform: translateY(-1px);
 }
 
 .home-card:focus-visible {
-  outline: 2px solid #0f4a32;
+  outline: 2px solid var(--lb-brand, #0f4a32);
   outline-offset: 2px;
 }
 
@@ -334,22 +342,22 @@ function go(routeName: string) {
   width: 38px;
   height: 38px;
   border-radius: 11px;
-  color: #0f4a32;
-  background: color-mix(in srgb, #0f4a32 11%, #fff);
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 11%, #fff);
 }
 
 .home-card__label {
   min-width: 0;
   font-size: clamp(0.84rem, 0.2vw + 0.8rem, 0.94rem);
   font-weight: 700;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
   line-height: 1.35;
   word-break: break-word;
 }
 
 .home-empty {
   margin: 8px 0 0;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.9rem;
 }
 

@@ -201,27 +201,6 @@ function onOpenCashFlows() {
         </dl>
       </section>
 
-      <section
-        v-if="record.settlementId && (record.settlementRefundDueTotal != null || record.settlementRefundRemaining != null)"
-        class="detail-section"
-      >
-        <h3>{{ t('refundOrder.sections.settlement') }}</h3>
-        <dl class="detail-grid two">
-          <div>
-            <dt>{{ t('refundOrder.fields.settlementRefundDue') }}</dt>
-            <dd>{{ money(record.settlementRefundDueTotal) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('refundOrder.fields.settlementRefunded') }}</dt>
-            <dd>{{ money(record.settlementRefundedTotal) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('refundOrder.fields.settlementRefundRemaining') }}</dt>
-            <dd>{{ money(record.settlementRefundRemaining) }}</dd>
-          </div>
-        </dl>
-      </section>
-
       <section class="detail-section">
         <h3>{{ t('refundOrder.sections.items') }}</h3>
         <div v-if="allocRows.length" class="refund-alloc">

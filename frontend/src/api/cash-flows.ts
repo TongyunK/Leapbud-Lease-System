@@ -92,3 +92,37 @@ export function fetchCashFlow(id: string) {
 export function deleteCashFlowApi(id: string, opts?: { silentError?: boolean }) {
   return request.delete<{ success: boolean }>(`/cash-flows/${id}`, opts)
 }
+
+export function batchDeleteCashFlowsApi(ids: string[]) {
+  return request.post<{
+    deleted: number
+    failed: number
+    failures: Array<{ id: string; message: string }>
+  }>('/cash-flows/batch-delete', { ids })
+}
+
+export type CashFlowImportItem = {
+  flowCode?: string
+  direction?: string
+  amount?: number
+  flowDate?: string
+  paymentMethod?: string
+  sourceType?: string
+  sourceRef?: string
+  remark?: string
+}
+
+export type CashFlowImportBatchResult = {
+  created: number
+  skipped: number
+  failed: number
+  issues?: Array<{
+    status: 'skipped' | 'unlinked' | 'failed'
+    reason: string
+    keys?: Record<string, string>
+  }>
+}
+
+export function importCashFlowsApi(items: CashFlowImportItem[]) {
+  return request.post<CashFlowImportBatchResult>('/cash-flows/import', { items })
+}

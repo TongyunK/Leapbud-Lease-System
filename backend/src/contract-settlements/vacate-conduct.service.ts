@@ -6,10 +6,12 @@ import {
 import {
   ContractSettlementItemType,
   ContractSettlementType,
+  NumberingBizKey,
   Prisma,
   RoomLeaseCapability,
 } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { INVOICE_TYPE_DEPOSIT } from '../invoices/invoice-auto.service'
 import { InvoiceAutoService } from '../invoices/invoice-auto.service'
 import { BookingDepositService } from '../receipts/booking-deposit.service'
@@ -87,6 +89,7 @@ function nonNegInt(v: unknown, field: string): number {
 export class VacateConductService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly numbering: NumberingRulesService,
     private readonly bookingDeposit: BookingDepositService,
     private readonly customerRequirements: CustomerRequirementsService,
     private readonly settlements: ContractSettlementsService,
@@ -631,15 +634,45 @@ export class VacateConductService {
       let excessReceivableId: string | null = null
       let excessInvoiceCode = ''
       if (createExcessReceivable) {
-        const detailHint = deductionRows
-          .map((r) => r.description)
-          .filter(Boolean)
-          .slice(0, 5)
-          .join('；')
-        const offsetNote =
-          bookingOffsetToExcess > 0.009
-            ? `（已抵定金 ${bookingOffsetToExcess.toFixed(2)}）`
-            : ''
+        /** 服务细节：逐项扣款 + 按金／定金抵扣（合计=应加收净额） */
+        const excessLines: Array<{
+          description: string
+          quantity: number
+          unitAmount: number
+          remark?: string
+        }> = []
+        for (const r of deductionRows) {
+          if (r.subtotal <= 0.009) continue
+          const qty = Number(r.quantity) > 0 ? Number(r.quantity) : 1
+          excessLines.push({
+            description: r.description,
+            quantity: qty,
+            unitAmount:
+              Number(r.unitAmount) > 0.009 ? round2(Number(r.unitAmount)) : round2(r.subtotal / qty),
+            remark: r.remark || r.returnStatus || '',
+          })
+        }
+        if (depositPaid > 0.009) {
+          excessLines.push({
+            description: '已收按金抵扣',
+            quantity: 1,
+            unitAmount: round2(-depositPaid),
+          })
+        }
+        if (bookingOffsetToExcess > 0.009) {
+          excessLines.push({
+            description: '定金抵扣',
+            quantity: 1,
+            unitAmount: round2(-bookingOffsetToExcess),
+          })
+        }
+        if (!excessLines.length) {
+          excessLines.push({
+            description: '退租超出按金金额赔偿',
+            quantity: 1,
+            unitAmount: excessCompensation,
+          })
+        }
         const createdInv = await this.invoiceAuto.createVacateExcessCompensationInvoice(
           {
             contractId,
@@ -647,15 +680,7 @@ export class VacateConductService {
             invoiceDate: terminationDate,
             paymentDueDate: terminationDate,
             description: '退租超出按金金额赔偿',
-            lines: [
-              {
-                description: detailHint
-                  ? `超出按金金额赔偿${offsetNote}（${detailHint}${deductionRows.length > 5 ? '…' : ''}）`
-                  : `退租超出按金金额赔偿${offsetNote}`,
-                quantity: 1,
-                unitAmount: excessCompensation,
-              },
-            ],
+            lines: excessLines,
             remark: `退租超出按金金额赔偿 ${vacateRef}`.trim(),
           },
           actorId,
@@ -941,22 +966,13 @@ export class VacateConductService {
   }
 
   private async nextRefundCode() {
-    const now = new Date()
-    const y = String(now.getFullYear()).slice(-2)
-    const m = String(now.getMonth() + 1).padStart(2, '0')
-    const d = String(now.getDate()).padStart(2, '0')
-    const prefix = `DRF${y}${m}${d}`
-    const latest = await this.prisma.depositRefund.findFirst({
-      where: { refundCode: { startsWith: prefix } },
-      orderBy: { refundCode: 'desc' },
-      select: { refundCode: true },
+    return this.numbering.nextCode(NumberingBizKey.depositRefund, {
+      isTaken: async (code) =>
+        !!(await this.prisma.depositRefund.findFirst({
+          where: { refundCode: code },
+          select: { id: true },
+        })),
     })
-    let seq = 1
-    if (latest) {
-      const n = Number(latest.refundCode.slice(prefix.length))
-      if (!Number.isNaN(n)) seq = n + 1
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`
   }
 
   private async syncRoomAfterTermination(

@@ -1005,8 +1005,8 @@ async function savePermissions() {
   margin: 0 0 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: #eef5f1;
-  color: #3d4f45;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  color: var(--lb-muted, #666);
   font-size: 0.8rem;
   line-height: 1.45;
 }
@@ -1024,8 +1024,8 @@ async function savePermissions() {
   min-height: 34px;
   padding-inline: 12px 10px;
   border-radius: 999px !important;
-  background: #fafbfa !important;
-  box-shadow: 0 0 0 1px #d7ded9 inset !important;
+  background: #f7f7f7 !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e0e0e0) inset !important;
   transition:
     background 0.15s ease,
     box-shadow 0.15s ease;
@@ -1033,29 +1033,29 @@ async function savePermissions() {
 
 .perms-search__input :deep(.el-input__wrapper:hover) {
   background: #fff !important;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d7ded9) inset !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d0d0d0) inset !important;
 }
 
 .perms-search__input :deep(.el-input__wrapper.is-focus) {
   background: #fff !important;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #d7ded9) inset,
-    0 0 0 3px rgba(15, 74, 50, 0.1) !important;
+    0 0 0 1px var(--lb-brand, #0f4a32) inset,
+    0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent) !important;
 }
 
 .perms-search__input :deep(.el-input__inner) {
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
   font-size: 0.86rem;
   font-weight: 500;
 }
 
 .perms-search__input :deep(.el-input__inner::placeholder) {
-  color: #8a9a92;
+  color: #9a9a9a;
 }
 
 .perms-search__input :deep(.el-input__prefix),
 .perms-search__input :deep(.el-input__suffix) {
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
 }
 
 .perms-list-wrap {
@@ -1069,9 +1069,9 @@ async function savePermissions() {
 }
 
 .perms-module {
-  border: 1px solid #e2e8e5;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
   border-radius: 12px;
-  background: #fbfcfb;
+  background: #fafafa;
   padding: 10px 12px 8px;
 }
 
@@ -1086,7 +1086,7 @@ async function savePermissions() {
 .perms-module-name {
   font-size: 0.84rem;
   font-weight: 700;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .perms-checks {
@@ -1103,7 +1103,7 @@ async function savePermissions() {
   height: auto;
   padding: 5px 10px 5px 8px;
   border-radius: 999px;
-  border: 1px solid #d7e2dc;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e0e0e0);
   background: #fff;
   transition:
     background 0.15s ease,
@@ -1113,8 +1113,8 @@ async function savePermissions() {
 }
 
 .perms-checks :deep(.perms-check:hover) {
-  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #d7e2dc);
-  background: #f4faf7;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #e0e0e0);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
 }
 
 .perms-checks :deep(.perms-check.is-on),
@@ -1126,7 +1126,7 @@ async function savePermissions() {
 
 .perms-checks :deep(.perms-check .el-checkbox__label) {
   padding-left: 6px;
-  color: #3d4f45;
+  color: var(--lb-muted, #666);
   font-size: 0.8rem;
   font-weight: 600;
   line-height: 1.2;
@@ -1142,7 +1142,7 @@ async function savePermissions() {
   width: 16px;
   height: 16px;
   border-radius: 5px;
-  border-color: #b7c7bd;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #c8c8c8);
 }
 
 .perms-checks :deep(.perms-check .el-checkbox__inner::after) {
@@ -1166,7 +1166,7 @@ async function savePermissions() {
 .perms-checks :deep(.perms-check.is-on .el-checkbox__inner) {
   background-color: var(--lb-brand, #0f4a32);
   border-color: var(--lb-brand, #0f4a32);
-  box-shadow: 0 0 0 3px rgba(15, 74, 50, 0.14);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
 }
 
 .perms-checks :deep(.perms-check.is-disabled) {
@@ -1186,7 +1186,7 @@ async function savePermissions() {
 }
 
 .menu-count-link:hover {
-  color: #0c3d29;
+  color: var(--lb-brand-dark, #0c3d29);
 }
 
 .menus-drawer-body {
@@ -1208,8 +1208,8 @@ async function savePermissions() {
 .menus-selected {
   font-size: 0.78rem;
   font-weight: 650;
-  color: #0f4a32;
-  background: #e4efe9;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
   border-radius: 999px;
   padding: 3px 10px;
 }
@@ -1222,7 +1222,7 @@ async function savePermissions() {
 .menus-text-btn {
   border: 0;
   background: transparent;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 600;
@@ -1232,7 +1232,7 @@ async function savePermissions() {
 }
 
 .menus-text-btn:hover:not(:disabled) {
-  background: #e4efe9;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 
 .menus-text-btn:disabled {
@@ -1245,9 +1245,13 @@ async function savePermissions() {
   min-height: 0;
   overflow: auto;
   padding: 8px 6px 8px 4px;
-  border: 1px solid #e2e8e5;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
   border-radius: 12px;
-  background: linear-gradient(180deg, #fbfcfb 0%, #f7faf8 100%);
+  background: linear-gradient(
+    180deg,
+    #fafafa 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f5f5f5) 100%
+  );
 }
 
 .menus-tree-node {
@@ -1260,11 +1264,11 @@ async function savePermissions() {
 
 .menus-tree-icon {
   flex-shrink: 0;
-  color: #7a8f84;
+  color: var(--lb-muted, #888);
 }
 
 .menus-tree-node.is-dir .menus-tree-icon {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .menus-tree-label {
@@ -1272,12 +1276,12 @@ async function savePermissions() {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.84rem;
-  color: #2a3d34;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .menus-tree-node.is-dir .menus-tree-label {
   font-weight: 700;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .menus-type-tag {
@@ -1287,15 +1291,15 @@ async function savePermissions() {
   line-height: 1;
   padding: 3px 6px;
   border-radius: 999px;
-  color: #0f4a32;
-  background: #e4efe9;
-  border: 1px solid #c9ddd2;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e0e0e0);
 }
 
 .menus-empty {
   margin: 36px 0;
   text-align: center;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .menus-drawer-footer {
@@ -1303,15 +1307,52 @@ async function savePermissions() {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* 大屏：菜单／功能权限字号略加大 */
+@media (min-width: 1440px) {
+  .menus-selected {
+    font-size: 0.84rem;
+    padding: 4px 11px;
+  }
+
+  .menus-text-btn {
+    font-size: 0.84rem;
+  }
+
+  .menus-tree-label {
+    font-size: 0.92rem;
+  }
+
+  .menus-type-tag {
+    font-size: 0.72rem;
+    padding: 3px 7px;
+  }
+
+  .perms-module-name {
+    font-size: 0.9rem;
+  }
+
+  .perms-checks :deep(.perms-check .el-checkbox__label) {
+    font-size: 0.86rem;
+  }
+
+  .perms-admin-hint {
+    font-size: 0.86rem;
+  }
+
+  .perms-search__input :deep(.el-input__inner) {
+    font-size: 0.9rem;
+  }
+}
 </style>
 
 <style>
 .role-perms-drawer.el-drawer,
 .role-menus-drawer.el-drawer {
-  --el-color-primary: #0f4a32;
-  --el-checkbox-checked-bg-color: #0f4a32;
-  --el-checkbox-checked-input-border-color: #0f4a32;
-  --el-checkbox-input-border-color-hover: #0f4a32;
+  --el-color-primary: var(--lb-brand, #0f4a32);
+  --el-checkbox-checked-bg-color: var(--lb-brand, #0f4a32);
+  --el-checkbox-checked-input-border-color: var(--lb-brand, #0f4a32);
+  --el-checkbox-input-border-color-hover: var(--lb-brand, #0f4a32);
   display: flex;
   flex-direction: column;
 }
@@ -1319,11 +1360,11 @@ async function savePermissions() {
 .role-perms-drawer .el-drawer__header {
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8e5;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
 }
 
 .role-perms-drawer .el-drawer__title {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font-weight: 700;
 }
 
@@ -1337,18 +1378,18 @@ async function savePermissions() {
 }
 
 .role-perms-drawer .el-drawer__footer {
-  border-top: 1px solid #e2e8e5;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
   padding-top: 12px;
 }
 
 .role-menus-drawer .el-drawer__header {
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8e5;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
 }
 
 .role-menus-drawer .el-drawer__title {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font-weight: 700;
 }
 
@@ -1362,7 +1403,7 @@ async function savePermissions() {
 }
 
 .role-menus-drawer .el-drawer__footer {
-  border-top: 1px solid #e2e8e5;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
   padding-top: 12px;
 }
 
@@ -1374,19 +1415,34 @@ async function savePermissions() {
 }
 
 .role-menus-drawer .menus-tree .el-tree-node__content:hover {
-  background: #eef5f1;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
 }
 
 .role-menus-drawer .menus-tree .el-tree-node.is-checked > .el-tree-node__content {
-  background: rgba(15, 74, 50, 0.06);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
 }
 
 .role-menus-drawer .menus-tree .el-tree-node__expand-icon {
-  color: #8a9a92;
+  color: #9a9a9a;
   font-size: 14px;
 }
 
 .role-menus-drawer .menus-tree .el-checkbox__inner {
   border-radius: 4px;
+}
+
+@media (min-width: 1440px) {
+  .role-perms-drawer .el-drawer__title,
+  .role-menus-drawer .el-drawer__title {
+    font-size: 1.05rem;
+  }
+
+  .role-menus-drawer .menus-tree .el-tree-node__content {
+    height: 40px;
+  }
+
+  .role-menus-drawer .menus-tree .el-tree-node__expand-icon {
+    font-size: 15px;
+  }
 }
 </style>

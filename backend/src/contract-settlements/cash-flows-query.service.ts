@@ -9,13 +9,27 @@ import {
   parseSortDir,
 } from '../common/pagination'
 import { actorLabelsOrEmpty, auditActorLabel, auditUserInclude } from '../common/audit'
+import { runBatchRemove } from '../common/batch-delete'
 import {
   numberFieldInOrEmpty,
   splitEmptyFilter,
   stringFieldInOrEmpty,
 } from '../common/column-filter'
+import { pushImportIssue, type ImportIssue } from '../common/import-result'
+import { CashFlowsService } from './cash-flows.service'
 import { RefundOrdersService } from './refund-orders.service'
 import { ContractSettlementsService } from './contract-settlements.service'
+import { round2 } from './settlement-code.util'
+
+function s(v?: string | null) {
+  return (v || '').trim()
+}
+
+function parseYmd(v?: string | null): Date | null {
+  const raw = s(v)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+  return new Date(`${raw}T00:00:00.000Z`)
+}
 
 function dateOnly(d: Date | null | undefined): string {
   if (!d) return ''
@@ -43,6 +57,7 @@ const include = {
 export class CashFlowsQueryService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cashFlows: CashFlowsService,
     private readonly refundOrders: RefundOrdersService,
     @Inject(forwardRef(() => ContractSettlementsService))
     private readonly settlements: ContractSettlementsService,
@@ -390,5 +405,175 @@ export class CashFlowsQueryService {
       }
     }
     return { success: true }
+  }
+
+  async removeMany(ids: string[], actor = '') {
+    return runBatchRemove(ids, (id) => this.remove(id, actor))
+  }
+
+  /**
+   * 批量导入资金流水：按来源类型 + 来源单据编号挂接收据／退款单。
+   * 有流水编号且已存在则跳过；收据入账幂等，退款出账每次新建并重算已打。
+   */
+  async importBatch(
+    dto: {
+      items?: Array<{
+        flowCode?: string
+        direction?: string
+        amount?: number
+        flowDate?: string
+        paymentMethod?: string
+        sourceType?: string
+        sourceRef?: string
+        remark?: string
+      }>
+    },
+    actor = '',
+  ) {
+    const items = dto.items || []
+    let created = 0
+    let skipped = 0
+    let failed = 0
+    const issues: ImportIssue[] = []
+
+    const codeHints = [...new Set(items.map((it) => s(it.flowCode)).filter(Boolean))]
+    const existingCodes = new Set(
+      codeHints.length
+        ? (
+            await this.prisma.cashFlow.findMany({
+              where: { flowCode: { in: codeHints } },
+              select: { flowCode: true },
+            })
+          ).map((r) => r.flowCode.toLowerCase())
+        : [],
+    )
+
+    for (const item of items) {
+      const flowCode = s(item.flowCode)
+      const sourceTypeRaw = s(item.sourceType).toLowerCase()
+      const sourceRef = s(item.sourceRef)
+      const keys = {
+        流水編號: flowCode,
+        來源類型: sourceTypeRaw,
+        來源單據: sourceRef,
+      }
+      try {
+        if (flowCode && existingCodes.has(flowCode.toLowerCase())) {
+          skipped += 1
+          pushImportIssue(issues, 'skipped', `流水编号「${flowCode}」已存在`, keys)
+          continue
+        }
+        const amount = round2(Math.max(0, Number(item.amount) || 0))
+        const flowDate = parseYmd(item.flowDate)
+        if (amount <= 0.009 || !flowDate) {
+          failed += 1
+          pushImportIssue(issues, 'failed', '金额或发生日期无效', keys)
+          continue
+        }
+        if (!sourceRef) {
+          failed += 1
+          pushImportIssue(issues, 'failed', '缺少来源单据编号', keys)
+          continue
+        }
+
+        const sourceType =
+          sourceTypeRaw === 'receipt' || sourceTypeRaw === '收据'
+            ? 'receipt'
+            : sourceTypeRaw === 'refund_order' ||
+                sourceTypeRaw === 'refund' ||
+                sourceTypeRaw === '退款单' ||
+                sourceTypeRaw === '退款單'
+              ? 'refund_order'
+              : ''
+        if (!sourceType) {
+          failed += 1
+          pushImportIssue(issues, 'failed', '来源类型须为 receipt 或 refund_order', keys)
+          continue
+        }
+
+        if (sourceType === 'receipt') {
+          const receipt = await this.prisma.receipt.findFirst({
+            where: { receiptCode: sourceRef },
+            select: {
+              id: true,
+              contractId: true,
+              customerId: true,
+              paymentMethod: true,
+            },
+          })
+          if (!receipt?.customerId) {
+            failed += 1
+            pushImportIssue(issues, 'failed', `找不到收据「${sourceRef}」`, keys)
+            continue
+          }
+          const before = await this.prisma.cashFlow.findFirst({
+            where: {
+              sourceType: CashFlowSourceType.receipt,
+              sourceId: receipt.id,
+              direction: CashFlowDirection.in,
+            },
+            select: { id: true },
+          })
+          const row = await this.cashFlows.recordReceiptIn({
+            receiptId: receipt.id,
+            amount,
+            flowDate,
+            paymentMethod: s(item.paymentMethod) || receipt.paymentMethod || undefined,
+            contractId: receipt.contractId,
+            customerId: receipt.customerId,
+            remark: s(item.remark) || undefined,
+            actorId: actor || null,
+          })
+          if (before) {
+            skipped += 1
+            pushImportIssue(issues, 'skipped', `收据「${sourceRef}」已有入账流水`, keys)
+          } else if (row) {
+            if (row.flowCode) existingCodes.add(row.flowCode.toLowerCase())
+            created += 1
+          } else {
+            skipped += 1
+          }
+          continue
+        }
+
+        const refund = await this.prisma.refundOrder.findFirst({
+          where: { refundCode: sourceRef },
+          select: {
+            id: true,
+            contractId: true,
+            customerId: true,
+            settlementId: true,
+            paymentMethod: true,
+          },
+        })
+        if (!refund?.customerId) {
+          failed += 1
+          pushImportIssue(issues, 'failed', `找不到退款单「${sourceRef}」`, keys)
+          continue
+        }
+        const row = await this.cashFlows.recordRefundOut({
+          refundOrderId: refund.id,
+          amount,
+          flowDate,
+          paymentMethod: s(item.paymentMethod) || refund.paymentMethod || undefined,
+          contractId: refund.contractId,
+          customerId: refund.customerId,
+          remark: s(item.remark) || undefined,
+          actorId: actor || null,
+        })
+        await this.refundOrders.syncPaidFromCashFlows(refund.id, actor || null)
+        if (refund.settlementId) {
+          await this.settlements.recalcRefundTotals(refund.settlementId, actor || null)
+        }
+        if (row?.flowCode) existingCodes.add(row.flowCode.toLowerCase())
+        created += 1
+      } catch (e) {
+        failed += 1
+        const msg = e instanceof Error ? e.message : String(e)
+        pushImportIssue(issues, 'failed', msg, keys)
+      }
+    }
+
+    return { created, skipped, failed, issues }
   }
 }

@@ -122,4 +122,34 @@ export const NUMBERING_DEFAULTS: Record<NumberingBizKey, NumberingRuleDefaults> 
     startValue: 1,
     resetCycle: NumberingResetCycle.daily,
   },
+  [NumberingBizKey.receivable]: {
+    format: 'AR%YY%MM%DD%04d',
+    startValue: 1,
+    resetCycle: NumberingResetCycle.daily,
+  },
+  [NumberingBizKey.depositRefund]: {
+    format: 'DRF%YY%MM%DD%04d',
+    startValue: 1,
+    resetCycle: NumberingResetCycle.daily,
+  },
+  [NumberingBizKey.contractSettlement]: {
+    format: 'CST%YY%MM%DD%04d',
+    startValue: 1,
+    resetCycle: NumberingResetCycle.daily,
+  },
+  [NumberingBizKey.refundOrder]: {
+    format: 'RFO%YY%MM%DD%04d',
+    startValue: 1,
+    resetCycle: NumberingResetCycle.daily,
+  },
+  [NumberingBizKey.cashFlow]: {
+    format: 'CFL%YY%MM%DD%04d',
+    startValue: 1,
+    resetCycle: NumberingResetCycle.daily,
+  },
+  [NumberingBizKey.receivableWriteoff]: {
+    format: 'WOF%YY%MM%DD%04d',
+    startValue: 1,
+    resetCycle: NumberingResetCycle.daily,
+  },
 };

@@ -175,9 +175,9 @@ export function contractSettlementRefundStatusTone(
   return contractSettlementStatusTone(status)
 }
 
-/** 应收（应补）状态色 */
+/** 应收（应补）状态色（历史 none 同 settled） */
 const CONTRACT_SETTLEMENT_COLLECT_STATUS_TONES: Record<string, StatusTone> = {
-  none: 'neutral',
+  none: 'idle',
   pending_collect: 'signing',
   partial: 'contracting',
   settled: 'idle',
@@ -186,7 +186,8 @@ const CONTRACT_SETTLEMENT_COLLECT_STATUS_TONES: Record<string, StatusTone> = {
 export function contractSettlementCollectStatusTone(
   status: string | null | undefined,
 ): StatusTone {
-  const key = (status || '').trim()
+  const raw = (status || '').trim()
+  const key = raw === 'none' || !raw ? 'settled' : raw
   return CONTRACT_SETTLEMENT_COLLECT_STATUS_TONES[key] || 'neutral'
 }
 

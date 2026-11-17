@@ -21,6 +21,7 @@ import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import RefreshListButton from '@/components/RefreshListButton.vue'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { formatSettlementItemDesc } from '@/utils/settlementItemDesc'
 import { packFilterValues } from '@/utils/columnFilter'
 import { ACTION_COL_ICON, useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
@@ -317,7 +318,7 @@ async function exportDeductionsXlsx(scope: 'page' | 'filtered' | 'all') {
             :min-width="textColW(t('depositDeduction.fields.description'), { kind: 'long' })"
             show-overflow-tooltip
           >
-            <template #default="{ row }">{{ row.description || '—' }}</template>
+            <template #default="{ row }">{{ formatSettlementItemDesc(row, t) }}</template>
           </el-table-column>
           <el-table-column
             :min-width="colW(t('depositDeduction.fields.quantity'), { interactive: true, contentMin: 72 })"

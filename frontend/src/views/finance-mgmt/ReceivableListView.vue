@@ -2506,9 +2506,9 @@ async function onImportFile(ev: Event) {
 
 .period-table__head {
   min-height: 34px;
-  background: #f4f7f5;
-  border-bottom: 1px solid #e4ebe6;
-  color: #3d4f45;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -2662,7 +2662,7 @@ async function onImportFile(ev: Event) {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-  color: #3d4f45;
+  color: var(--lb-brand, #0f4a32);
   font-size: 0.84rem;
 }
 

@@ -8,6 +8,7 @@ import type {
   ContractSettlementItemRecord,
   ContractSettlementRecord,
 } from '@/types/contract-settlement'
+import { normalizeCollectStatus } from '@/types/contract-settlement'
 import type { ReceivableRecord } from '@/types/receivable'
 import type { RefundOrderRecord } from '@/types/refund-order'
 import {
@@ -20,6 +21,7 @@ import { formatMoney } from '@/utils/format'
 import AttachmentField from '@/components/AttachmentField.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import {
+  contractSettlementCollectStatusTone,
   contractSettlementRefundStatusTone,
   contractStatusTone,
   receivableValidityKey,
@@ -227,6 +229,18 @@ const activeReceivables = computed(() =>
   receivables.value.filter((r) => receivableValidityKey(r.invoiceStatus) !== 'invalid'),
 )
 
+/** 单笔待收：优先库内未收；若与开票−已收+已退不一致且库内为 0，以推算为准（防误显示已结清） */
+function rowOpenAmount(r: ReceivableRecord) {
+  const inv = Number(r.invoiceAmount) || 0
+  const received = Number(r.receivedAmount) || 0
+  const refunded = Number(r.refundedAmount) || 0
+  const derived = round2(Math.max(0, inv - received + refunded))
+  const stored = Number(r.receivableAmount)
+  if (!Number.isFinite(stored)) return derived
+  if (stored <= 0.009 && derived > 0.009) return derived
+  return round2(Math.max(0, stored))
+}
+
 const receivableInvoiceTotal = computed(() =>
   round2(activeReceivables.value.reduce((s, r) => s + (Number(r.invoiceAmount) || 0), 0)),
 )
@@ -236,10 +250,39 @@ const receivableReceivedTotal = computed(() =>
 )
 
 const receivableOpenTotal = computed(() =>
-  round2(activeReceivables.value.reduce((s, r) => s + (Number(r.receivableAmount) || 0), 0)),
+  round2(activeReceivables.value.reduce((s, r) => s + rowOpenAmount(r), 0)),
 )
 
-const receivableSettled = computed(() => receivableOpenTotal.value <= 0.009)
+/** 本结算应补（ADDITIONAL_CHARGE）待收：以金额为准，避免 partial 被误显示为已结清 */
+const settlementCollectDue = computed(() => round2(Number(record.value?.collectDueTotal) || 0))
+const settlementCollected = computed(() => round2(Number(record.value?.collectedTotal) || 0))
+const settlementCollectRemaining = computed(() => {
+  if (record.value?.collectRemaining != null) {
+    return round2(Math.max(0, Number(record.value.collectRemaining) || 0))
+  }
+  return round2(Math.max(0, settlementCollectDue.value - settlementCollected.value))
+})
+
+const settlementCollectStatus = computed(() => {
+  const due = settlementCollectDue.value
+  const collected = settlementCollected.value
+  const remaining = settlementCollectRemaining.value
+  if (due > 0.009) {
+    if (remaining > 0.009 && collected > 0.009) return 'partial' as const
+    if (remaining > 0.009) return 'pending_collect' as const
+    return 'settled' as const
+  }
+  return normalizeCollectStatus(record.value?.collectStatus)
+})
+
+/**
+ * 整段「已结清」：结算应补已收齐，且合约有效应收也无待收。
+ * 只收了一部分应补时 remaining>0，不得显示已结清。
+ */
+const receivableSettled = computed(
+  () =>
+    settlementCollectRemaining.value <= 0.009 && receivableOpenTotal.value <= 0.009,
+)
 
 /** 取消详情：发票口径（含已作废）— 开票／已收／需退／未退 */
 const cancelInvoiceTotal = computed(() =>
@@ -471,11 +514,12 @@ function loanToneClass(row: ContractSettlementItemRecord) {
               />
               <StatusBadge
                 v-else
-                :tone="receivableSettled ? 'idle' : 'signing'"
+                :tone="contractSettlementCollectStatusTone(settlementCollectStatus)"
                 :label="
-                  receivableSettled
-                    ? t('contractSettlement.collectStatus.settled')
-                    : t('contractSettlement.collectStatus.pending_collect')
+                  t(
+                    `contractSettlement.collectStatus.${settlementCollectStatus}`,
+                    settlementCollectStatus,
+                  )
                 "
               />
             </span>
@@ -907,10 +951,25 @@ function loanToneClass(row: ContractSettlementItemRecord) {
                 <p v-if="receivableSettled" class="term-dlg__banner-title">
                   {{ t('contract.vacateReceivableSettledOk') }}
                 </p>
+                <p
+                  v-else-if="settlementCollectStatus === 'partial'"
+                  class="term-dlg__banner-title"
+                >
+                  {{
+                    t('contract.vacateReceivablePartialHint', {
+                      vacateRemain: money(settlementCollectRemaining),
+                      amount: money(receivableOpenTotal),
+                    })
+                  }}
+                </p>
                 <p v-else class="term-dlg__banner-title">
                   {{
                     t('contract.vacateReceivableUnsettledHint', {
-                      amount: money(receivableOpenTotal),
+                      amount: money(
+                        receivableOpenTotal > 0.009
+                          ? receivableOpenTotal
+                          : settlementCollectRemaining,
+                      ),
                     })
                   }}
                 </p>
@@ -1004,8 +1063,8 @@ function loanToneClass(row: ContractSettlementItemRecord) {
                     </div>
                     <div class="term-dlg__unset-amt">
                       <span class="term-dlg__unset-amt-label">{{ t('contract.vacateAmtOpen') }}</span>
-                      <strong :class="{ 'is-open': (Number(r.receivableAmount) || 0) > 0.009 }">
-                        {{ money(r.receivableAmount) }}
+                      <strong :class="{ 'is-open': rowOpenAmount(r) > 0.009 }">
+                        {{ money(rowOpenAmount(r)) }}
                       </strong>
                     </div>
                   </div>

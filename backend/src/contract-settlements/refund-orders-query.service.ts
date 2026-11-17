@@ -19,11 +19,13 @@ import {
   parseSortDir,
 } from '../common/pagination'
 import { actorLabelsOrEmpty, auditActorLabel, auditUserInclude } from '../common/audit'
+import { runBatchRemove } from '../common/batch-delete'
 import {
   numberFieldInOrEmpty,
   splitEmptyFilter,
   stringFieldInOrEmpty,
 } from '../common/column-filter'
+import { pushImportIssue, type ImportIssue } from '../common/import-result'
 import { allocateRefundOrderPayoutToReceivables } from '../receipts/receivable-received.sync'
 import { BookingDepositService } from '../receipts/booking-deposit.service'
 import { RefundOrdersService } from './refund-orders.service'
@@ -54,6 +56,12 @@ function parseDateOnly(v: string | null | undefined, field: string): Date {
 
 function s(v?: string | null) {
   return (v || '').trim()
+}
+
+function parseYmd(v?: string | null): Date | null {
+  const raw = s(v)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+  return new Date(`${raw}T00:00:00.000Z`)
 }
 
 function uploadsRoot() {
@@ -529,6 +537,129 @@ export class RefundOrdersQueryService {
       await this.settlements.recalcRefundTotals(settlementId, actorId)
     }
     return { success: true }
+  }
+
+  async removeMany(ids: string[], actor = '') {
+    return runBatchRemove(ids, (id) => this.remove(id, actor))
+  }
+
+  /**
+   * 批量导入退款单：按终止结算编号开单；有退款编号且已存在则跳过。
+   * 应退金额省略时取结算「待退」；paidAmount>0 时写首笔出账流水。
+   */
+  async importBatch(
+    dto: {
+      items?: Array<{
+        refundCode?: string
+        settlementCode?: string
+        amount?: number
+        paidAmount?: number
+        refundDate?: string
+        paymentMethod?: string
+        remark?: string
+      }>
+    },
+    actor = '',
+  ) {
+    const items = dto.items || []
+    let created = 0
+    let skipped = 0
+    let failed = 0
+    const issues: ImportIssue[] = []
+
+    const codeHints = [
+      ...new Set(items.map((it) => s(it.refundCode)).filter(Boolean)),
+    ]
+    const existingCodes = new Set(
+      codeHints.length
+        ? (
+            await this.prisma.refundOrder.findMany({
+              where: { refundCode: { in: codeHints } },
+              select: { refundCode: true },
+            })
+          ).map((r) => r.refundCode.toLowerCase())
+        : [],
+    )
+
+    for (const item of items) {
+      const refundCode = s(item.refundCode)
+      const settlementCode = s(item.settlementCode)
+      const keys = {
+        退款編號: refundCode,
+        結算編號: settlementCode,
+      }
+      try {
+        if (refundCode && existingCodes.has(refundCode.toLowerCase())) {
+          skipped += 1
+          pushImportIssue(issues, 'skipped', `退款编号「${refundCode}」已存在`, keys)
+          continue
+        }
+        if (!settlementCode) {
+          failed += 1
+          pushImportIssue(issues, 'failed', '缺少终止结算编号', keys)
+          continue
+        }
+        const settlement = await this.prisma.contractSettlement.findFirst({
+          where: { settlementCode },
+          select: {
+            id: true,
+            contractId: true,
+            customerId: true,
+            roomId: true,
+            refundDueTotal: true,
+            refundedTotal: true,
+          },
+        })
+        if (!settlement) {
+          failed += 1
+          pushImportIssue(issues, 'failed', `找不到结算单「${settlementCode}」`, keys)
+          continue
+        }
+        const due = round2(Number(settlement.refundDueTotal?.toString?.() ?? settlement.refundDueTotal ?? 0))
+        const got = round2(Number(settlement.refundedTotal?.toString?.() ?? settlement.refundedTotal ?? 0))
+        const remaining = Math.max(0, round2(due - got))
+        const amount = round2(
+          item.amount != null && Number.isFinite(Number(item.amount))
+            ? Math.max(0, Number(item.amount))
+            : remaining,
+        )
+        if (amount <= 0.009) {
+          failed += 1
+          pushImportIssue(issues, 'failed', '应退金额须大于 0', keys)
+          continue
+        }
+        const paidAmount = round2(Math.max(0, Number(item.paidAmount) || 0))
+        const refundDate = parseYmd(item.refundDate)
+        const row = await this.refundOrders.create({
+          contractId: settlement.contractId,
+          customerId: settlement.customerId,
+          roomId: settlement.roomId,
+          settlementId: settlement.id,
+          amount,
+          initialPaidAmount: paidAmount > 0.009 ? paidAmount : 0,
+          refundDate,
+          paymentMethod: s(item.paymentMethod) || undefined,
+          remark: s(item.remark) || undefined,
+          items: [
+            {
+              itemType: 'other',
+              description: '导入',
+              amount,
+            },
+          ],
+          actorId: actor || null,
+        })
+        existingCodes.add(String(row.refundCode || '').toLowerCase())
+        await this.settlements.recalcRefundTotals(settlement.id, actor || null)
+        created += 1
+      } catch (e) {
+        failed += 1
+        const msg = e instanceof Error ? e.message : String(e)
+        pushImportIssue(issues, 'failed', msg, keys)
+      }
+    }
+
+    return { created, skipped, failed, issues }
   }
 
   async markPaid(

@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common'
 import {
   CashFlowDirection,
   CashFlowSourceType,
+  NumberingBizKey,
   Prisma,
 } from '@prisma/client'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
-import { dec, nextCashFlowCode, round2 } from './settlement-code.util'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
+import { dec, round2 } from './settlement-code.util'
 
 type Db = Prisma.TransactionClient | PrismaService
 
@@ -27,7 +29,10 @@ export type RecordCashFlowInput = {
 
 @Injectable()
 export class CashFlowsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numbering: NumberingRulesService,
+  ) {}
 
   async record(input: RecordCashFlowInput, db?: Db) {
     const client = db ?? this.prisma
@@ -47,7 +52,14 @@ export class CashFlowsService {
       if (existing) return existing
     }
 
-    const flowCode = await nextCashFlowCode(client)
+    const flowCode = await this.numbering.nextCode(NumberingBizKey.cashFlow, {
+      db: client,
+      isTaken: async (code) =>
+        !!(await client.cashFlow.findFirst({
+          where: { flowCode: code },
+          select: { id: true },
+        })),
+    })
     const actorId = input.actorId || null
     return client.cashFlow.create({
       data: {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Delete, Download, EditPen, Plus, QuestionFilled, Rank, Search, Upload, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -152,8 +153,58 @@ import {
   CONTRACT_INLINE_FIELDS,
   type ContractInlineField,
 } from '@/config/inlineEditWhitelist'
+import {
+  consumeContractCreatePrefill,
+  prefillToPeriodUnitValue,
+  type ContractCreatePrefill,
+} from '@/utils/contractCreatePrefill'
+
+const props = withDefaults(
+  defineProps<{
+    /** 嵌入其它页：只开新增合约弹窗（不渲染列表） */
+    embedCreateOnly?: boolean
+    /** 嵌入时预填 */
+    embedPrefill?: ContractCreatePrefill | null
+    /** 嵌入时弹窗 z-index（须高于来源弹窗） */
+    embedZIndex?: number
+  }>(),
+  {
+    embedCreateOnly: false,
+    embedPrefill: null,
+    embedZIndex: undefined,
+  },
+)
+
+const emit = defineEmits<{
+  embedClose: []
+  embedCreated: []
+}>()
+
+/** 嵌入抬高层弹窗内：下拉／日期须显式高于 dialog z（见 ui-and-runtime） */
+const formDialogZ = computed(() => {
+  if (!props.embedCreateOnly) return 0
+  return Math.max(Number(props.embedZIndex) || 0, OVERLAY_ABOVE_FEATURE_MENU_Z)
+})
+const formFieldPopperStyle = computed(() => {
+  if (!formDialogZ.value) return undefined
+  return { zIndex: formDialogZ.value + 20 }
+})
+const formTipPopperStyle = computed(() => {
+  if (!formDialogZ.value) return undefined
+  return { zIndex: formDialogZ.value + 40 }
+})
+
+/** 定金补缴弹窗：叠在合约表单之上（嵌入时须再抬一层） */
+const topUpDialogZ = ref<number | undefined>(undefined)
+const topUpFieldPopperStyle = computed(() => {
+  const z = Number(topUpDialogZ.value) || 0
+  if (!z) return undefined
+  return { zIndex: z + 20 }
+})
 
 const { t, locale } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const isMobile = useIsMobile()
 const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
@@ -1340,6 +1391,7 @@ function openTopUpBookingDepositFor(row: ContractRecord | null | undefined) {
   topUpForm.paymentVoucher = ''
   topUpForm.remark = ''
   topUpReceiptOptions.value = []
+  topUpDialogZ.value = props.embedCreateOnly ? allocZ(formDialogZ.value) : undefined
   topUpVisible.value = true
   void loadTopUpReceiptOptions(row.id)
   return true
@@ -2224,6 +2276,8 @@ async function onCustomerSelectVisible(open: boolean) {
  * EP clearable 默认 valueOnClear 为 undefined，须配合 value-on-clear=""。
  */
 const pinnedRequirements = ref<CustomerRequirementRecord[]>([])
+/** openCreate 预填时抑制 customerId watch 清空 requirementId（watch 在 formVisible=true 后才 flush） */
+const suppressRequirementReset = ref(false)
 
 function pinRequirementOption(row: CustomerRequirementRecord) {
   if (!row?.id) return
@@ -2260,8 +2314,8 @@ const requirementSelectOptions = computed(() => {
   return [...map.values()]
 })
 
-/** 合约可选关联的需求：未跟进／已取消（大厦范围由列表接口 BuildingAccess + 顶栏大厦注入） */
-const CONTRACT_LINKABLE_REQUIREMENT_STATUSES = ['未跟進', '已取消'] as const
+/** 合约可选关联的需求：未跟进／跟进中（不可选已签约、已取消） */
+const CONTRACT_LINKABLE_REQUIREMENT_STATUSES = ['未跟進', '跟進中'] as const
 
 async function loadRequirementsForCustomer(customerId: string) {
   if (!String(customerId ?? '').trim()) {
@@ -2295,8 +2349,8 @@ async function loadRequirementsForCustomer(customerId: string) {
 watch(
   () => form.customerId,
   async (cid, prev) => {
-    // 仅用户在弹窗内改客户时清空需求；openEdit 赋值时 dialog 尚未打开，勿冲掉 requirementId
-    if (cid !== prev && formVisible.value) {
+    // 仅用户在弹窗内改客户时清空需求；预填／openEdit 赋值勿冲掉 requirementId
+    if (cid !== prev && formVisible.value && !suppressRequirementReset.value) {
       form.requirementId = ''
       pinnedRequirements.value = []
     }
@@ -2577,6 +2631,12 @@ async function loadOptions() {
 }
 
 onMounted(() => {
+  if (props.embedCreateOnly) {
+    void loadOptions().then(() => {
+      openCreate(props.embedPrefill)
+    })
+    return
+  }
   void loadList()
   void loadOptions()
   void loadHeadChipCounts()
@@ -2584,6 +2644,25 @@ onMounted(() => {
   document.addEventListener('pointerdown', onContractMoreDocPointer, true)
   window.addEventListener('scroll', onContractMoreScrollOrResize, true)
   window.addEventListener('resize', onContractMoreScrollOrResize)
+  tryOpenCreateFromPrefill()
+})
+
+watch(
+  () => route.query.create,
+  (v) => {
+    if (props.embedCreateOnly) return
+    if (v == null || v === '') return
+    tryOpenCreateFromPrefill()
+  },
+)
+
+watch(formVisible, (open, wasOpen) => {
+  if (!props.embedCreateOnly) return
+  if (open) {
+    // 抬高栈顶，避免后续 EP nextZIndex 仍落在弹窗遮罩下
+    raiseFloor(formDialogZ.value)
+  }
+  if (wasOpen && !open) emit('embedClose')
 })
 
 onBeforeUnmount(() => {
@@ -2617,10 +2696,11 @@ watch(
   },
 )
 
-function openCreate() {
+function openCreate(prefill?: ContractCreatePrefill | null) {
   if (!perms.create) return
   editing.value = null
   roomDepositTouched.value = false
+  suppressRequirementReset.value = true
   Object.assign(form, emptyForm())
   form.leaseType = leaseTypeOptions.value[0]?.label || ''
   // 銷售經理默認當前登錄用戶
@@ -2641,7 +2721,81 @@ function openCreate() {
   customerSelectPage.value = 1
   customerSelectHasMore.value = true
   customerSelectKeyword.value = ''
+
+  const p = prefill || null
+  const prefillRequirementId = p?.requirementId?.trim() || ''
+  const prefillRequirementCode = p?.requirementCode?.trim() || prefillRequirementId
+  if (p?.salesManagerId?.trim()) form.salesManagerId = p.salesManagerId.trim()
+  if (p?.customerId?.trim()) {
+    form.customerId = p.customerId.trim()
+    customerSelectOptions.value = [
+      {
+        id: form.customerId,
+        customerCode: p.customerCode || form.customerId,
+        name: p.customerName || p.customerCode || form.customerId,
+        buildingId: p.buildingId || '',
+      } as CustomerRecord,
+    ]
+  }
+  if (p?.roomId?.trim()) {
+    form.roomId = p.roomId.trim()
+    roomSelectOptions.value = [
+      {
+        id: form.roomId,
+        roomCode: p.roomCode || form.roomId,
+        name: p.roomName || p.roomCode || form.roomId,
+        buildingId: p.buildingId || '',
+        buildingName: p.buildingName || '',
+        monthlyRent: p.monthlyRent ?? null,
+      } as RoomRecord,
+    ]
+  }
+  if (prefillRequirementId) {
+    form.requirementId = prefillRequirementId
+    pinRequirementOption({
+      id: prefillRequirementId,
+      requirementCode: prefillRequirementCode,
+      customerId: form.customerId,
+    } as CustomerRequirementRecord)
+  }
+  const periodHit = prefillToPeriodUnitValue(p?.leaseDurationAmount, p?.leaseDurationUnit)
+  if (periodHit) {
+    const row = defaultPeriodRow()
+    row.dateUnit = periodHit.dateUnit
+    row.dateValue = periodHit.dateValue
+    periods.value = [row]
+  }
+  if (p?.remark?.trim()) form.remark = p.remark.trim()
+
   formVisible.value = true
+  if (form.roomId) onRoomSelectChange(form.roomId)
+  void (async () => {
+    try {
+      if (form.customerId) await loadRequirementsForCustomer(form.customerId)
+      // watch flush 可能仍晚于本段；再写回一次确保预填需求留在选中态
+      if (prefillRequirementId) {
+        form.requirementId = prefillRequirementId
+        pinRequirementOption({
+          id: prefillRequirementId,
+          requirementCode: prefillRequirementCode,
+          customerId: form.customerId,
+        } as CustomerRequirementRecord)
+      }
+    } finally {
+      suppressRequirementReset.value = false
+    }
+  })()
+}
+
+function tryOpenCreateFromPrefill() {
+  const draft = consumeContractCreatePrefill()
+  if (!draft) return
+  openCreate(draft)
+  if (route.query.create != null) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.create
+    void router.replace({ query: nextQuery })
+  }
 }
 
 function periodDurationLabel(p: PeriodFormRow): string {
@@ -3368,11 +3522,14 @@ async function saveForm(mode: 'save' | 'issue' = 'save') {
       ElMessage.success(
         issueNow ? t('contract.issueNowDone') : t('contract.createdWithInvoices'),
       )
+      if (props.embedCreateOnly) emit('embedCreated')
     }
     formVisible.value = false
-    await loadHeadChipCounts()
-    await loadList()
-    void loadIssueBlockedAlerts()
+    if (!props.embedCreateOnly) {
+      await loadHeadChipCounts()
+      await loadList()
+      void loadIssueBlockedAlerts()
+    }
   } catch {
     /* interceptor */
   } finally {
@@ -3700,15 +3857,16 @@ function openReceiptsList(row: ContractRecord, opts?: { force?: boolean; zIndex?
   relatedReceiptsDrawerVisible.value = true
 }
 
-/** 收款／退租弹窗内打开收款记录：必须盖过当前弹窗 */
+/** 收款／退租弹窗内打开收款记录：链式抬层，盖过当前所有已开业务弹窗 */
 function openReceiptsFromReceivePay(row: ContractRecord) {
-  const above =
-    receivePayVisible.value && receivePayZIndex.value != null
-      ? receivePayZIndex.value
-      : terminateVisible.value && terminateZIndex.value != null
-        ? terminateZIndex.value
-        : undefined
-  openReceiptsList(row, { force: true, zIndex: above })
+  const above = Math.max(
+    receivePayVisible.value ? Number(receivePayZIndex.value) || 0 : 0,
+    terminateVisible.value ? Number(terminateZIndex.value) || 0 : 0,
+    vacateDetailVisible.value ? Number(vacateDetailZIndex.value) || 0 : 0,
+  )
+  const floor = above > 0 ? above : undefined
+  if (floor != null) raiseFloor(floor)
+  openReceiptsList(row, { force: true, zIndex: floor })
 }
 
 function openCashFlowsList(row: ContractRecord, opts?: { zIndex?: number }) {
@@ -3824,7 +3982,10 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 </script>
 
 <template>
-  <div class="admin-page">
+  <div
+    class="admin-page"
+    :class="{ 'admin-page--embed-create': embedCreateOnly }"
+  >
     <div class="admin-page-head admin-page-head--with-chips">
       <RefreshListButton :loading="loading" @refresh="() => void onRefreshList()" />
       <h2>{{ t('menu.contracts') }}</h2>
@@ -4908,9 +5069,24 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       v-model="receivePayVisible"
       :contract="receivePayContract"
       :z-index="receivePayZIndex"
-      @open-contract="(id) => relationDrawers?.openContractSide(id, { zIndex: receivePayZIndex })"
-      @open-customer="(id) => openCustomerSide(id, 'ltr', { zIndex: receivePayZIndex })"
-      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id, { zIndex: receivePayZIndex })"
+      @open-contract="
+        (id) => {
+          if (receivePayZIndex != null) raiseFloor(receivePayZIndex)
+          relationDrawers?.openContractSide(id, { zIndex: receivePayZIndex })
+        }
+      "
+      @open-customer="
+        (id) => {
+          if (receivePayZIndex != null) raiseFloor(receivePayZIndex)
+          openCustomerSide(id, 'ltr', { zIndex: receivePayZIndex })
+        }
+      "
+      @open-invoice="
+        (id) => {
+          if (receivePayZIndex != null) raiseFloor(receivePayZIndex)
+          relationDrawers?.openInvoiceSide(id, { zIndex: receivePayZIndex })
+        }
+      "
       @open-receipts="openReceiptsFromReceivePay"
       @collected="onReceivePayCollected"
     />
@@ -5110,7 +5286,9 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       v-model="formVisible"
       :width="dialogWidth"
       class="lb-dialog contract-form-dialog"
+      append-to-body
       destroy-on-close
+      :z-index="embedCreateOnly ? embedZIndex : undefined"
     >
       <template #header="{ titleId, titleClass }">
         <div class="contract-form-dlg-header">
@@ -5154,6 +5332,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   reserve-keyword
                   style="width: 100%"
                   popper-class="contract-room-select-popper"
+                  :popper-style="formFieldPopperStyle"
                   :placeholder="t('contract.fields.roomCode')"
                   :remote-method="searchRoomsRemote"
                   :loading="roomSelectLoading"
@@ -5215,6 +5394,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   fit-input-width
                   style="width: 100%"
                   popper-class="contract-customer-select-popper"
+                  :popper-style="formFieldPopperStyle"
                   :placeholder="t('contract.fields.customerName')"
                   :remote-method="searchCustomersRemote"
                   :loading="customerSelectLoading"
@@ -5240,6 +5420,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 filterable
                 clearable
                 style="width: 100%"
+                :popper-style="formFieldPopperStyle"
                 :placeholder="t('contract.fields.salesManager')"
               >
                 <el-option v-for="u in users" :key="u.id" :label="userLabel(u)" :value="u.id" />
@@ -5257,6 +5438,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   clearable
                   value-on-clear=""
                   style="width: 100%"
+                  :popper-style="formFieldPopperStyle"
                   :disabled="!form.customerId"
                   :placeholder="t('contract.fields.requirementCode')"
                 >
@@ -5275,6 +5457,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 type="date"
                 value-format="YYYY-MM-DD"
                 style="width: 100%"
+                :popper-style="formFieldPopperStyle"
               />
             </el-form-item>
             <el-form-item :label="t('contract.fields.endDate')" required>
@@ -5283,6 +5466,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 type="date"
                 value-format="YYYY-MM-DD"
                 style="width: 100%"
+                :popper-style="formFieldPopperStyle"
               />
             </el-form-item>
             <el-form-item
@@ -5468,7 +5652,11 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                     </button>
                   </div>
                   <div class="period-table__cell period-table__cell--type" role="cell">
-                    <el-select v-model="p.dateType" style="width: 100%">
+                    <el-select
+                      v-model="p.dateType"
+                      style="width: 100%"
+                      :popper-style="formFieldPopperStyle"
+                    >
                       <el-option
                         v-for="pt in periodTypeOptions"
                         :key="pt.id"
@@ -5481,6 +5669,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                     <el-select
                       v-model="p.dateUnit"
                       style="width: 100%"
+                      :popper-style="formFieldPopperStyle"
                       @change="onPeriodDurationChange(p, index)"
                     >
                       <el-option
@@ -5510,6 +5699,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       value-format="YYYY-MM-DD"
                       :placeholder="t('contract.fields.periodStart')"
                       style="width: 100%"
+                      :popper-style="formFieldPopperStyle"
                       @change="onPeriodDatesChange(p, index)"
                     />
                   </div>
@@ -5523,6 +5713,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       value-format="YYYY-MM-DD"
                       :placeholder="t('contract.fields.periodEnd')"
                       style="width: 100%"
+                      :popper-style="formFieldPopperStyle"
                       @change="onPeriodDatesChange(p, index)"
                     />
                   </div>
@@ -5717,6 +5908,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 v-model="form.paymentCycle"
                 filterable
                 style="width: 100%"
+                :popper-style="formFieldPopperStyle"
               >
                 <el-option
                   v-for="pc in CONTRACT_PAYMENT_CYCLES"
@@ -5743,6 +5935,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   <el-tooltip
                     :content="t('contract.fields.loanItemsDepositHint')"
                     placement="top"
+                    :popper-style="formTipPopperStyle"
                   >
                     <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
                   </el-tooltip>
@@ -5786,6 +5979,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   <el-tooltip
                     :content="t('contract.fields.totalDepositHint')"
                     placement="top"
+                    :popper-style="formTipPopperStyle"
                   >
                     <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
                   </el-tooltip>
@@ -5825,6 +6019,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                     v-if="bookingDepositLocked"
                     :content="t('contract.fields.bookingDepositLockedHint')"
                     placement="top"
+                    :popper-style="formTipPopperStyle"
                   >
                     <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
                   </el-tooltip>
@@ -5845,6 +6040,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 type="date"
                 value-format="YYYY-MM-DD"
                 style="width: 100%"
+                :popper-style="formFieldPopperStyle"
                 :disabled="formReadonly || bookingDepositLocked"
               />
             </el-form-item>
@@ -5858,6 +6054,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 clearable
                 :value-on-clear="null"
                 style="width: 100%"
+                :popper-style="formFieldPopperStyle"
                 :placeholder="t('common.pleaseSelect')"
                 :disabled="formReadonly || bookingDepositLocked"
               >
@@ -5904,6 +6101,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   v-if="!formReadonly"
                   :content="t('contract.issueNowHint')"
                   placement="top"
+                  :popper-style="formTipPopperStyle"
                 >
                   <el-icon class="form-label-tip" :size="14"><QuestionFilled /></el-icon>
                 </el-tooltip>
@@ -5964,6 +6162,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       append-to-body
       destroy-on-close
       class="lb-dialog"
+      :z-index="topUpDialogZ"
     >
       <template #header="{ titleId, titleClass }">
         <div class="top-up-dlg-header">
@@ -6068,6 +6267,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             :loading="topUpReceiptsLoading"
             :placeholder="t('common.pleaseSelect')"
             popper-class="top-up-dlg-popper"
+            :popper-style="topUpFieldPopperStyle"
             @change="applyMergePaymentMethodLock"
           >
             <el-option
@@ -6094,6 +6294,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             value-format="YYYY-MM-DD"
             style="width: 100%"
             popper-class="top-up-dlg-popper"
+            :popper-style="topUpFieldPopperStyle"
           />
         </el-form-item>
         <el-form-item
@@ -6109,6 +6310,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             :placeholder="t('common.pleaseSelect')"
             :disabled="topUpForm.mode === 'merge' && !!mergeTargetReceiptMethod"
             popper-class="top-up-dlg-popper"
+            :popper-style="topUpFieldPopperStyle"
           >
             <el-option v-for="pm in RECEIPT_PAYMENT_METHODS" :key="pm" :label="pm" :value="pm" />
           </el-select>
@@ -6166,6 +6368,18 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 </template>
 
 <style scoped>
+/* 嵌入其它页开新增弹窗：宿主藏起，表单 dialog 已 append-to-body */
+.admin-page--embed-create {
+  position: fixed;
+  left: -99999px;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .head-search {
   width: min(280px, 42vw);
 }
@@ -6492,7 +6706,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-  color: #3d4f45;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .period-table-wrap {
@@ -6589,9 +6803,9 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 .period-table__head {
   min-height: 34px;
-  background: #f4f7f5;
-  border-bottom: 1px solid #e4ebe6;
-  color: #3d4f45;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -6794,8 +7008,9 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   min-height: 32px;
   padding: 6px 12px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #f4f7f5);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
+  /* 白底淡染主题色；勿用旧绿灰 #f4f7f5 作混色底 */
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
 }
 
 .total-deposit-field__value {
@@ -7039,7 +7254,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 .expiring-soon-edit-popper .expiring-edit__mode .el-radio-button__inner {
   width: 100%;
   padding: 8px 6px;
-  border-color: #d7ded9 !important;
+  border-color: var(--lb-muted-border, #d0d0d0) !important;
   color: #4a5c54;
   font-weight: 600;
   box-shadow: none !important;
@@ -7083,7 +7298,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   gap: 8px;
   padding: 10px 14px 12px;
   border-top: 1px solid #e8efe9;
-  background: #fafbfa;
+  background: var(--lb-muted-fill, #f5f5f5);
   border-radius: 0 0 14px 14px;
 }
 

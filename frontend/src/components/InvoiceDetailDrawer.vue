@@ -343,11 +343,8 @@ async function onPrintInvoice() {
 
 <style scoped>
 .change-log-text {
-  white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  color: #3a4a42;
+  white-space: pre-line;
+  word-break: break-word;
 }
 
 .fee-list {

@@ -1405,10 +1405,12 @@ export class ContractCancelService {
         const open = round2(Number(r.receivableAmount?.toString() ?? 0));
         items.push({
           itemType: ContractSettlementItemType.VOID_RECEIVABLE,
-          description: `取消合约作废应收 ${inv.invoiceCode || ''}`.trim(),
+          // 库内繁中可读；展示由前端按 remark／旧文案 i18n
+          description: `取消合約作廢應收 ${inv.invoiceCode || ''}`.trim(),
           amount: open,
           receivableId: r.id,
           invoiceId: inv.id,
+          remark: 'void_receivable_cancel',
           writeWriteoff: open > 0.009,
           writeoffReasonType: 'void_cancel',
         });
@@ -1418,7 +1420,7 @@ export class ContractCancelService {
     if (params.bookingForfeited > 0.009) {
       items.push({
         itemType: ContractSettlementItemType.PENALTY_DEDUCTION,
-        description: '取消合约扣留定金余额',
+        description: '取消合約扣留定金餘額',
         amount: params.bookingForfeited,
         remark: 'booking_deposit_forfeit',
       });
@@ -1426,7 +1428,7 @@ export class ContractCancelService {
     if (params.cashForfeited > 0.009) {
       items.push({
         itemType: ContractSettlementItemType.PENALTY_DEDUCTION,
-        description: '取消合约扣留发票另收',
+        description: '取消合約扣留發票另收',
         amount: params.cashForfeited,
         remark: 'invoice_cash_forfeit',
       });
@@ -1434,7 +1436,7 @@ export class ContractCancelService {
     if (params.invoiceDepositForfeited > 0.009) {
       items.push({
         itemType: ContractSettlementItemType.PENALTY_DEDUCTION,
-        description: '取消合约扣留发票定金抵扣',
+        description: '取消合約扣留發票定金抵扣',
         amount: params.invoiceDepositForfeited,
         remark: 'invoice_deposit_offset_forfeit',
       });
@@ -1451,8 +1453,9 @@ export class ContractCancelService {
     if (refundAlloc > 0.009) {
       items.push({
         itemType: ContractSettlementItemType.REFUND_ALLOCATION,
-        description: '取消合约应退／待退额度（定金余额＋发票另收等）',
+        description: '取消合約應退／待退額度（定金餘額＋發票另收等）',
         amount: refundAlloc,
+        remark: 'refund_allocation_cancel',
       });
     }
 

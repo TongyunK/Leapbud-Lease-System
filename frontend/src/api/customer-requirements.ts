@@ -101,13 +101,28 @@ export function updateCustomerRequirementApi(
   return request.patch<CustomerRequirementRecord>(`/customer-requirements/${id}`, payload)
 }
 
+/** 软取消（状态 → 已取消） */
 export function deleteCustomerRequirementApi(id: string) {
   return request.delete<{ success: boolean }>(`/customer-requirements/${id}`)
 }
 
+/** 批量软取消 */
 export function batchDeleteCustomerRequirementsApi(ids: string[]) {
   return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
     '/customer-requirements/batch-delete',
+    { ids },
+  )
+}
+
+/** 物理删除 */
+export function purgeCustomerRequirementApi(id: string) {
+  return request.post<{ success: boolean }>(`/customer-requirements/${id}/purge`)
+}
+
+/** 批量物理删除 */
+export function batchPurgeCustomerRequirementsApi(ids: string[]) {
+  return request.post<{ deleted: number; failed: number; failures: Array<{ id: string; message: string }> }>(
+    '/customer-requirements/batch-purge',
     { ids },
   )
 }

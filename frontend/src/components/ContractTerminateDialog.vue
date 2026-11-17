@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { ElDialog, ElMessageBox } from 'element-plus'
 import { Delete, Plus, QuestionFilled, Rank } from '@element-plus/icons-vue'
 import type { ContractRecord } from '@/types/contract'
 import {
@@ -13,6 +13,7 @@ import {
 import { uploadDepositRefundAttachmentsApi } from '@/api/deposit-refunds'
 import { formatMoney } from '@/utils/format'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
+import { OVERLAY_ABOVE_FEATURE_MENU_Z } from '@/composables/useOverlayStackZ'
 import { contractStatusTone } from '@/constants/statusBadges'
 import AttachmentField from '@/components/AttachmentField.vue'
 import MultiAttachmentField from '@/components/MultiAttachmentField.vue'
@@ -25,7 +26,20 @@ const props = defineProps<{
   contract: ContractRecord | null
   /** 盖在合约「更多」面板之上时传入更高 z-index */
   zIndex?: number
+  /** 预填退租日期（如从终止结算「新增」带入；空则今日） */
+  initialDate?: string
+  /**
+   * 嵌在外层业务弹窗内：不遮罩、不 teleport、无标题栏；
+   * 由外层弹窗承载关闭／切换。
+   */
+  embedded?: boolean
 }>()
+
+/** 问号 tooltip／日期浮层须高于本弹窗 */
+const tipZIndex = computed(
+  () => Math.max(Number(props.zIndex) || 0, OVERLAY_ABOVE_FEATURE_MENU_Z) + 20,
+)
+const fieldPopperStyle = computed(() => ({ zIndex: tipZIndex.value }))
 
 const emit = defineEmits<{
   done: []
@@ -229,6 +243,19 @@ const excessCompensationGross = computed(() => {
 
 const bookingBalance = computed(() => Number(preview.value?.bookingDeposit.balance) || 0)
 
+/** 非按金未结（阻断／须勾选允许） */
+const nonDepositUnsettledTotal = computed(() => Number(preview.value?.unsettledTotal) || 0)
+/** 未交按金（退租时作废，不阻断，但不得显示「已结清」） */
+const depositUnpaidTotal = computed(() => Number(preview.value?.depositUnpaid) || 0)
+/** 第 4 步绿勾：非按金与按金均无待收 */
+const step4ReceivableSettled = computed(
+  () => nonDepositUnsettledTotal.value <= 0.009 && depositUnpaidTotal.value <= 0.009,
+)
+/** 第 4 步仍显示收款：任一待收 */
+const step4NeedsCollect = computed(
+  () => nonDepositUnsettledTotal.value > 0.009 || depositUnpaidTotal.value > 0.009,
+)
+
 /** 勾选抵扣时：定金抵超额金额 */
 const bookingOffsetToExcess = computed(() => {
   if (!form.applyBookingDepositToExcess) return 0
@@ -270,11 +297,65 @@ const finalRefundTotal = computed(() => {
   return Math.round((room + bookingRefundDisplay.value) * 100) / 100
 })
 
+function resetEmptyTerminateForm() {
+  preview.value = null
+  form.terminationDate = (props.initialDate || '').trim() || todayYmd()
+  form.terminationKind = 'expiry'
+  form.reason = ''
+  form.noticeAttachment = ''
+  form.doorKeyReturnedQty = 0
+  form.smartCardReturnedQty = 0
+  form.doorKeyDeductAmount = 0
+  form.smartCardDeductAmount = 0
+  form.siteCondition = ''
+  form.remark = ''
+  form.allowUnsettledReceivables = false
+  form.applyBookingDepositToExcess = false
+  form.refundDate = form.terminationDate
+  form.depositRefundStatus = '已退'
+  form.loanChecks = []
+  form.actualRefundAmount = 0
+  form.bookingDepositRefundAmount = 0
+  extraDeductions.value = []
+  extraPage.value = 1
+  resetRefundAttachments()
+}
+
+/** 嵌套模式：未选合约也展示步骤壳 */
+const showConductBody = computed(() => Boolean(preview.value) || Boolean(props.embedded))
+
+/** 嵌在外层弹窗时用普通 div，避免 el-overlay 撑破布局 */
+const shellBind = computed(() => {
+  if (props.embedded) {
+    return {
+      class: 'term-dlg-embed',
+      style: visible.value ? undefined : { display: 'none' },
+    }
+  }
+  return {
+    modelValue: visible.value,
+    'onUpdate:modelValue': (v: boolean) => {
+      visible.value = v
+    },
+    title: t('contract.terminateTitle'),
+    width: '900px',
+    class: 'lb-dialog term-dlg-dialog',
+    destroyOnClose: true,
+    appendToBody: true,
+    zIndex: props.zIndex,
+  }
+})
+
 watch(
   () => [visible.value, props.contract?.id] as const,
   async ([open, id]) => {
-    if (!open || !id) {
+    if (!open) {
       preview.value = null
+      return
+    }
+    if (!id) {
+      if (props.embedded) resetEmptyTerminateForm()
+      else preview.value = null
       return
     }
     loading.value = true
@@ -287,7 +368,7 @@ watch(
         unpaidDepositReceivables: data.unpaidDepositReceivables || [],
         suggestedDepositRefund: Number(data.suggestedDepositRefund) || 0,
       }
-      form.terminationDate = todayYmd()
+      form.terminationDate = (props.initialDate || '').trim() || todayYmd()
       form.terminationKind = data.suggestedKind
       form.reason = data.suggestedKind === 'early' ? t('contract.terminateKindEarly') : t('contract.terminateKindExpiry')
       form.noticeAttachment = ''
@@ -321,11 +402,13 @@ watch(
         type: 'error',
         confirmButtonText: t('common.confirm'),
       }).catch(() => undefined)
-      visible.value = false
+      if (props.embedded) resetEmptyTerminateForm()
+      else visible.value = false
     } finally {
       loading.value = false
     }
   },
+  { immediate: true },
 )
 
 watch(
@@ -657,21 +740,14 @@ async function onSubmit() {
 </script>
 
 <template>
-  <el-dialog
-    v-model="visible"
-    :title="t('contract.terminateTitle')"
-    width="900px"
-    class="lb-dialog term-dlg-dialog"
-    destroy-on-close
-    append-to-body
-    :z-index="zIndex"
-  >
+  <component :is="embedded ? 'div' : ElDialog" v-bind="shellBind">
     <div v-loading="loading" class="term-dlg">
-      <template v-if="preview">
+      <template v-if="showConductBody">
         <header class="term-dlg__hero">
           <div class="term-dlg__hero-code">
-            <strong>{{ preview.contract.contractCode }}</strong>
+            <strong>{{ preview?.contract.contractCode || '—' }}</strong>
             <StatusBadge
+              v-if="preview?.contract.status"
               :tone="contractStatusTone(preview.contract.status)"
               :label="statusLabel(preview.contract.status)"
             />
@@ -679,11 +755,11 @@ async function onSubmit() {
           <div class="term-dlg__hero-meta">
             <span>
               <em>{{ t('contract.fields.endDate') }}</em>
-              {{ preview.contract.endDate || '—' }}
+              {{ preview?.contract.endDate || '—' }}
             </span>
             <span>
               <em>{{ t('contract.fields.customerName') }}</em>
-              {{ preview.contract.customerName || '—' }}
+              {{ preview?.contract.customerName || '—' }}
             </span>
           </div>
         </header>
@@ -875,6 +951,7 @@ async function onSubmit() {
                 <el-tooltip
                   :content="t('contract.terminateExtraDeductionsHint')"
                   placement="top"
+                      :z-index="tipZIndex"
                 >
                   <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
                 </el-tooltip>
@@ -1023,20 +1100,33 @@ async function onSubmit() {
           </div>
           <div
             class="term-dlg__banner"
-            :class="preview.unsettledTotal <= 0 ? 'is-ok' : 'is-warn'"
+            :class="step4ReceivableSettled ? 'is-ok' : 'is-warn'"
           >
             <div class="term-dlg__banner-dot" />
             <div class="term-dlg__banner-body">
-              <p v-if="preview.unsettledTotal <= 0" class="term-dlg__banner-title">
+              <p v-if="step4ReceivableSettled" class="term-dlg__banner-title">
                 {{ t('contract.terminateSettledOk') }}
               </p>
               <template v-else>
                 <div class="term-dlg__banner-head">
                   <p class="term-dlg__banner-title">
-                    {{ t('contract.terminateUnsettledHint', { amount: money(preview.unsettledTotal) }) }}
+                    <template v-if="nonDepositUnsettledTotal > 0.009">
+                      {{
+                        t('contract.terminateUnsettledHint', {
+                          amount: money(nonDepositUnsettledTotal),
+                        })
+                      }}
+                    </template>
+                    <template v-else>
+                      {{
+                        t('contract.terminateDepositUnpaidBanner', {
+                          amount: money(depositUnpaidTotal),
+                        })
+                      }}
+                    </template>
                   </p>
                   <button
-                    v-if="receiptPerms.create"
+                    v-if="receiptPerms.create && step4NeedsCollect"
                     v-admin-glow="receiptPerms.codes.create"
                     type="button"
                     class="action-pill action-pill--accent term-dlg__recv-btn"
@@ -1045,22 +1135,62 @@ async function onSubmit() {
                     {{ t('contract.receivePayment') }}
                   </button>
                 </div>
-                <div v-if="preview.unsettledReceivables.length" class="term-dlg__unset-wrap">
-                  <span class="term-dlg__unset-label">{{ t('contract.terminateUnsettledList') }}</span>
+                <div
+                  v-if="
+                    (preview?.unsettledReceivables.length || 0) > 0 ||
+                    (preview?.unpaidDepositReceivables?.length || 0) > 0
+                  "
+                  class="term-dlg__unset-wrap"
+                >
                   <ul class="term-dlg__unset">
-                    <li v-for="r in preview.unsettledReceivables" :key="r.id">
-                      <button
-                        type="button"
-                        class="term-dlg__unset-code term-dlg__unset-code--link"
-                        @click="emit('openReceivable', r.id)"
-                      >
-                        {{ r.invoiceCode || r.receivableCode || '—' }}
-                      </button>
+                    <li v-for="r in preview?.unsettledReceivables || []" :key="r.id">
+                      <span class="term-dlg__unset-left">
+                        <button
+                          type="button"
+                          class="term-dlg__unset-code term-dlg__unset-code--link"
+                          @click="emit('openReceivable', r.id)"
+                        >
+                          {{ r.invoiceCode || r.receivableCode || '—' }}
+                        </button>
+                        <el-tooltip
+                          :content="t('contract.terminateUnsettledList')"
+                          placement="top"
+                      :z-index="tipZIndex"
+                        >
+                          <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
+                        </el-tooltip>
+                      </span>
+                      <strong>{{ money(r.openAmount) }}</strong>
+                    </li>
+                    <li v-for="r in preview?.unpaidDepositReceivables || []" :key="r.id">
+                      <span class="term-dlg__unset-left">
+                        <button
+                          type="button"
+                          class="term-dlg__unset-code term-dlg__unset-code--link"
+                          @click="emit('openReceivable', r.id)"
+                        >
+                          {{ r.invoiceCode || r.receivableCode || '—' }}
+                        </button>
+                        <span class="term-dlg__unset-tag">{{
+                          t('contract.terminateDepositTag')
+                        }}</span>
+                        <el-tooltip
+                          :content="t('contract.terminateDepositUnpaidHint')"
+                          placement="top"
+                          :z-index="tipZIndex"
+                        >
+                          <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
+                        </el-tooltip>
+                      </span>
                       <strong>{{ money(r.openAmount) }}</strong>
                     </li>
                   </ul>
                 </div>
-                <el-checkbox v-model="form.allowUnsettledReceivables" class="term-dlg__allow">
+                <el-checkbox
+                  v-if="nonDepositUnsettledTotal > 0.009"
+                  v-model="form.allowUnsettledReceivables"
+                  class="term-dlg__allow"
+                >
                   {{ t('contract.terminateAllowUnsettled') }}
                 </el-checkbox>
               </template>
@@ -1076,7 +1206,7 @@ async function onSubmit() {
           <div class="term-dlg__tiles">
             <div class="term-dlg__tile">
               <span>{{ t('contract.terminateDepositPaid') }}</span>
-              <strong>{{ money(preview.depositPaid ?? 0) }}</strong>
+              <strong>{{ money(preview?.depositPaid ?? 0) }}</strong>
             </div>
             <div class="term-dlg__tile" :class="{ 'is-deduct': deductionPreview > 0 }">
               <span>{{ t('contract.terminateDeductionTotal') }}</span>
@@ -1088,7 +1218,7 @@ async function onSubmit() {
             </div>
             <div class="term-dlg__tile">
               <span>{{ t('contract.terminateBookingBalance') }}</span>
-              <strong class="term-dlg__bal">{{ money(preview.bookingDeposit.balance) }}</strong>
+              <strong class="term-dlg__bal">{{ money(preview?.bookingDeposit.balance ?? 0) }}</strong>
             </div>
           </div>
           <div
@@ -1116,6 +1246,7 @@ async function onSubmit() {
                       })
                     "
                     placement="top"
+                      :z-index="tipZIndex"
                   >
                     <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
                   </el-tooltip>
@@ -1144,6 +1275,7 @@ async function onSubmit() {
                   <el-tooltip
                     :content="t('contract.terminateRefundNowHint')"
                     placement="top"
+                      :z-index="tipZIndex"
                   >
                     <el-icon
                       class="term-dlg__label-tip"
@@ -1166,6 +1298,7 @@ async function onSubmit() {
                         <el-tooltip
                           :content="t('contract.terminateRefundRemainingHint')"
                           placement="top"
+                      :z-index="tipZIndex"
                         >
                           <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
                         </el-tooltip>
@@ -1182,6 +1315,7 @@ async function onSubmit() {
                         <el-tooltip
                           :content="t('depositRefund.fields.bookingDepositMustFullHint')"
                           placement="top"
+                      :z-index="tipZIndex"
                         >
                           <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
                         </el-tooltip>
@@ -1221,6 +1355,7 @@ async function onSubmit() {
                         <el-tooltip
                           :content="t('depositRefund.fields.bookingDepositMustFullHint')"
                           placement="top"
+                      :z-index="tipZIndex"
                         >
                           <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
                         </el-tooltip>
@@ -1243,6 +1378,7 @@ async function onSubmit() {
                       type="date"
                       value-format="YYYY-MM-DD"
                       style="width: 100%"
+                      :popper-style="fieldPopperStyle"
                     />
                   </el-form-item>
                 </div>
@@ -1254,6 +1390,7 @@ async function onSubmit() {
                         <el-tooltip
                           :content="t('contract.terminateRefundRemainingHint')"
                           placement="top"
+                      :z-index="tipZIndex"
                         >
                           <el-icon class="term-dlg__label-tip" :size="14"><QuestionFilled /></el-icon>
                         </el-tooltip>
@@ -1285,8 +1422,23 @@ async function onSubmit() {
       </template>
     </div>
 
-    <template #footer>
-      <el-button :disabled="submitting" @click="visible = false">{{ t('common.cancel') }}</el-button>
+    <div v-if="embedded" class="term-dlg-embed__footer">
+      <el-button
+        v-if="termPerms.create"
+        v-admin-glow="termPerms.codes.create"
+        type="primary"
+        class="lb-btn-primary"
+        :loading="submitting"
+        :disabled="!preview?.contract.terminable"
+        @click="onSubmit"
+      >
+        {{ t('contract.terminateSubmit') }}
+      </el-button>
+    </div>
+    <template v-if="!embedded" #footer>
+      <el-button :disabled="submitting" @click="visible = false">
+        {{ t('common.cancel') }}
+      </el-button>
       <el-button
         v-if="termPerms.create"
         v-admin-glow="termPerms.codes.create"
@@ -1299,7 +1451,7 @@ async function onSubmit() {
         {{ t('contract.terminateSubmit') }}
       </el-button>
     </template>
-  </el-dialog>
+  </component>
 
   <ContractReceivePaymentDialog
     v-model="receivePayVisible"
@@ -1480,9 +1632,9 @@ async function onSubmit() {
 
 .term-dlg__extra-head {
   min-height: 34px;
-  background: #f4f7f5;
-  border-bottom: 1px solid #e4ebe6;
-  color: #3d4f45;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -1531,7 +1683,7 @@ async function onSubmit() {
   justify-content: flex-end;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #0d3a28;
+  color: var(--lb-brand, #0f4a32);
   font-size: 0.84rem;
 }
 
@@ -1690,8 +1842,8 @@ async function onSubmit() {
   align-items: center;
   padding: 0 12px;
   border-radius: 8px;
-  background: #f3f5f4;
-  border: 1px solid #d7ded9;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
   box-sizing: border-box;
 }
 
@@ -2020,14 +2172,6 @@ async function onSubmit() {
   margin-top: 8px;
 }
 
-.term-dlg__unset-label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #8a6a45;
-}
-
 .term-dlg__unset {
   list-style: none;
   margin: 0;
@@ -2048,6 +2192,25 @@ async function onSubmit() {
   border: 1px solid #f0dfc4;
   font-size: 14px;
   color: #5a4a36;
+}
+
+.term-dlg__unset-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.term-dlg__unset-tag {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 18px;
+  color: #8a5a10;
+  background: #f8ecd8;
+  border: 1px solid #ecd9b4;
 }
 
 .term-dlg__unset-code {
@@ -2239,5 +2402,19 @@ async function onSubmit() {
   .term-dlg-dialog.el-dialog {
     margin-top: 3vh !important;
   }
+}
+
+.term-dlg-embed {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.term-dlg-embed__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #e8eeea;
 }
 </style>

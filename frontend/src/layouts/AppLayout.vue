@@ -10,21 +10,26 @@ import {
   ArrowDown,
   Filter,
   Lock,
+  Message,
   OfficeBuilding,
   Search,
   SwitchButton,
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import SidebarMenuNodes from '@/components/SidebarMenuNodes.vue'
+import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
 import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useNavStore } from '@/stores/nav'
 import { useStatusStore } from '@/stores/status'
-import { changePasswordApi } from '@/api/auth'
+import { useBrandingStore } from '@/stores/branding'
+import { changeEmailApi, changePasswordApi, fetchMeApi } from '@/api/auth'
+import { isAxiosError } from 'axios'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
 import { useFrequentRoutes, type FrequentRouteName } from '@/composables/useFrequentRoutes'
 import { registerMainBoundsPublisher } from '@/utils/layoutMainBounds'
+import { sweepOrphanOverlays } from '@/utils/sweepStuckOverlays'
 import type { MenuRecord } from '@/types/menu'
 import { menuDisplayName } from '@/utils/menuLabel'
 
@@ -34,6 +39,9 @@ const router = useRouter()
 const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const navStore = useNavStore()
+const brandingStore = useBrandingStore()
+const { logoUrl, title: brandTitle, subtitle: brandSubtitle, logoFrameless } =
+  storeToRefs(brandingStore)
 const ALL_BUILDINGS = '__all__'
 const isMobile = useIsMobile()
 const isCompact = useIsCompact()
@@ -84,6 +92,24 @@ const pwdForm = reactive({
   next: '',
   confirm: '',
 })
+const emailVisible = ref(false)
+const emailLoading = ref(false)
+const emailSaving = ref(false)
+const emailForm = reactive({
+  current: '',
+  next: '',
+  password: '',
+})
+
+function accountErrorMessage(e: unknown, fallback: string) {
+  if (isAxiosError(e)) {
+    const msg = (e.response?.data as { message?: string | string[] } | undefined)?.message
+    if (Array.isArray(msg) && msg[0]) return String(msg[0])
+    if (typeof msg === 'string' && msg.trim()) return msg
+  }
+  if (e instanceof Error && e.message) return e.message
+  return fallback
+}
 
 const displayName = computed(
   () => userStore.user?.displayName || userStore.user?.account || 'User',
@@ -224,6 +250,8 @@ function onBuildingChange(id: string) {
 
 function onSelect(index: string) {
   if (!index) return
+  // 弹窗关闭后偶发残留遮罩挡侧栏：先清再跳转，避免「点一下没反应」
+  sweepOrphanOverlays()
   router.push({ name: index })
   mobileOpen.value = false
   menuKeyword.value = ''
@@ -243,26 +271,52 @@ function onUserCommand(cmd: string) {
     pwdForm.next = ''
     pwdForm.confirm = ''
     pwdVisible.value = true
+  } else if (cmd === 'email') {
+    void openEmailDialog()
   } else if (cmd === 'logout') {
     onLogout()
   }
 }
 
+async function openEmailDialog() {
+  emailForm.current = (userStore.user?.email || '').trim()
+  emailForm.next = ''
+  emailForm.password = ''
+  emailVisible.value = true
+  emailLoading.value = true
+  try {
+    const { data } = await fetchMeApi()
+    const email = (data?.email || '').trim()
+    emailForm.current = email
+    userStore.patchUser({ email })
+  } catch (e: unknown) {
+    await ElMessageBox.alert(
+      accountErrorMessage(e, t('account.emailLoadFailed')),
+      t('common.tip'),
+      { type: 'error' },
+    )
+  } finally {
+    emailLoading.value = false
+  }
+}
+
 async function submitPassword() {
   if (!pwdForm.current || !pwdForm.next) {
-    ElMessage.warning(t('account.passwordRequired'))
+    await ElMessageBox.alert(t('account.passwordRequired'), t('common.tip'), { type: 'warning' })
     return
   }
   if (pwdForm.next !== pwdForm.confirm) {
-    ElMessage.warning(t('account.passwordMismatch'))
+    await ElMessageBox.alert(t('account.passwordMismatch'), t('common.tip'), { type: 'warning' })
     return
   }
   if (pwdForm.next.length < 6) {
-    ElMessage.warning(t('account.passwordTooShort'))
+    await ElMessageBox.alert(t('account.passwordTooShort'), t('common.tip'), { type: 'warning' })
     return
   }
   if (pwdForm.current === pwdForm.next) {
-    ElMessage.warning(t('account.passwordSameAsCurrent'))
+    await ElMessageBox.alert(t('account.passwordSameAsCurrent'), t('common.tip'), {
+      type: 'warning',
+    })
     return
   }
   try {
@@ -270,11 +324,51 @@ async function submitPassword() {
       currentPassword: pwdForm.current,
       newPassword: pwdForm.next,
     })
+    await ElMessageBox.alert(t('account.passwordChanged'), t('common.tip'), { type: 'success' })
     pwdVisible.value = false
-    ElMessage.success(t('account.passwordChanged'))
     onLogout()
   } catch {
     /* interceptor shows 目前密碼不正確 等业务错误；勿当 401 踢出 */
+  }
+}
+
+async function submitEmail() {
+  const next = emailForm.next.trim()
+  const password = emailForm.password.trim()
+  if (!next) {
+    await ElMessageBox.alert(t('account.emailRequired'), t('common.tip'), { type: 'warning' })
+    return
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next)) {
+    await ElMessageBox.alert(t('account.emailInvalid'), t('common.tip'), { type: 'warning' })
+    return
+  }
+  if (next.toLowerCase() === emailForm.current.trim().toLowerCase()) {
+    await ElMessageBox.alert(t('account.emailSameAsCurrent'), t('common.tip'), { type: 'warning' })
+    return
+  }
+  if (!password) {
+    await ElMessageBox.alert(t('account.emailPasswordRequired'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
+  emailSaving.value = true
+  try {
+    const { data } = await changeEmailApi({ email: next, currentPassword: password })
+    const email = (data?.user?.email || next).trim()
+    userStore.patchUser({ email })
+    // 先提示再关弹窗，避免 destroy-on-close 与 MessageBox 抢遮罩导致成功框被推迟
+    await ElMessageBox.alert(t('account.emailChanged'), t('common.tip'), { type: 'success' })
+    emailVisible.value = false
+  } catch (e: unknown) {
+    await ElMessageBox.alert(
+      accountErrorMessage(e, t('account.emailRequired')),
+      t('common.tip'),
+      { type: 'error' },
+    )
+  } finally {
+    emailSaving.value = false
   }
 }
 
@@ -294,6 +388,7 @@ function shortcutLabel(name: FrequentRouteName) {
 }
 
 function goShortcut(name: FrequentRouteName) {
+  sweepOrphanOverlays()
   if (route.name === name) return
   router.push({ name })
 }
@@ -319,12 +414,12 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
     <aside class="sidebar" :class="{ 'is-drawer': isMobile, open: mobileOpen }">
       <div class="sidebar-brand" @click="router.push({ name: 'home' }); mobileOpen = false">
-        <div class="brand-mark">
-          <img src="/leapbud_logo.png" alt="leapbud" class="brand-logo" />
+        <div class="brand-mark" :class="{ 'is-frameless': logoFrameless }">
+          <img :src="logoUrl" :alt="brandTitle" class="brand-logo" />
         </div>
         <div v-show="showLabels" class="brand-text">
-          <strong>leapbud</strong>
-          <span>{{ t('layout.systemName') }}</span>
+          <strong>{{ brandTitle }}</strong>
+          <span>{{ brandSubtitle }}</span>
         </div>
         <button
           v-if="isMobile"
@@ -349,7 +444,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
       <div class="sidebar-nav">
         <el-menu
-          :key="`${isMobile}-${sidebarCollapsed}-${menuRevision}-${activeMenu}-${menuKeyword.trim()}`"
+          :key="`${isMobile}-${sidebarCollapsed}-${menuRevision}-${menuKeyword.trim()}`"
           :default-active="activeMenu"
           :default-openeds="openMenus"
           :collapse="sidebarCollapsed"
@@ -467,6 +562,10 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
                 <el-icon><Lock /></el-icon>
                 <span>{{ t('account.changePassword') }}</span>
               </el-dropdown-item>
+              <el-dropdown-item command="email">
+                <el-icon><Message /></el-icon>
+                <span>{{ t('account.manageEmail') }}</span>
+              </el-dropdown-item>
               <el-dropdown-item divided command="logout">
                 <el-icon><SwitchButton /></el-icon>
                 <span>{{ t('home.logout') }}</span>
@@ -485,7 +584,6 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
       v-model="pwdVisible"
       :title="t('account.changePassword')"
       width="420px"
-      align-center
       destroy-on-close
       class="lb-dialog"
     >
@@ -505,6 +603,46 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
         <el-button type="primary" @click="submitPassword">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="emailVisible"
+      :title="t('account.manageEmail')"
+      width="420px"
+      destroy-on-close
+      class="lb-dialog"
+    >
+      <el-form v-loading="emailLoading" label-position="top">
+        <p class="account-email-hint">{{ t('account.emailHint') }}</p>
+        <el-form-item :label="t('account.currentEmail')">
+          <el-input
+            :model-value="emailForm.current || t('account.emailEmpty')"
+            disabled
+          />
+        </el-form-item>
+        <el-form-item :label="t('account.newEmail')" required>
+          <el-input
+            v-model="emailForm.next"
+            type="email"
+            autocomplete="email"
+            :placeholder="t('account.newEmail')"
+          />
+        </el-form-item>
+        <el-form-item :label="t('account.currentPassword')" required>
+          <el-input
+            v-model="emailForm.password"
+            type="password"
+            show-password
+            autocomplete="current-password"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="emailVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="emailSaving" @click="submitEmail">
+          {{ t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -519,7 +657,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   min-height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
-  background: #eef1f0;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f3f3f3);
   transition: grid-template-columns 0.22s ease;
 }
 
@@ -562,7 +700,12 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   width: var(--sidebar-w);
   height: 100vh;
   height: 100dvh;
-  background: linear-gradient(180deg, #115338 0%, #0f4a32 42%, #0c3d29 100%);
+  background: linear-gradient(
+    180deg,
+    var(--lb-sidebar-from, #115338) 0%,
+    var(--lb-sidebar-mid, #0f4a32) 42%,
+    var(--lb-sidebar-to, #0c3d29) 100%
+  );
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -611,16 +754,27 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   border-radius: 11px;
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  display: grid;
-  place-items: center;
   flex-shrink: 0;
   overflow: hidden;
 }
 
+.brand-mark.is-frameless {
+  background: transparent;
+  border: 0;
+  overflow: visible;
+}
+
 .brand-logo {
-  width: 28px;
-  height: 28px;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+
+.brand-mark.is-frameless .brand-logo {
   object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
 }
 
 .brand-text {
@@ -950,7 +1104,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   padding: 8px 14px;
   background: #fff;
   border: 0;
-  border-bottom: 1px solid #e2e8e5;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
   border-radius: 0;
   box-shadow: none;
 }
@@ -971,34 +1125,34 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   border-radius: 999px !important;
   min-height: 32px;
   padding: 0 10px 0 8px;
-  background: #e4efe9;
-  box-shadow: 0 0 0 1px #0f4a32 inset !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
+  box-shadow: 0 0 0 1px var(--lb-brand, #0f4a32) inset !important;
 }
 
 .utility-building :deep(.el-select__wrapper.is-hovering:not(.is-disabled)),
 .utility-building :deep(.el-select__wrapper.is-focused) {
-  background: #d8ebe2;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #fff);
   box-shadow:
-    0 0 0 1px #0f4a32 inset,
-    0 2px 8px rgba(15, 74, 50, 0.14) !important;
+    0 0 0 1px var(--lb-brand, #0f4a32) inset,
+    0 2px 8px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent) !important;
 }
 
 .utility-building :deep(.el-select__wrapper.is-disabled) {
-  background: #eef3f0;
-  box-shadow: 0 0 0 1px #c5d5cc inset !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f3f3f3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #d0d0d0) inset !important;
   cursor: default;
 }
 
 .utility-building :deep(.el-select__selected-item),
 .utility-building :deep(.el-select__placeholder) {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font-size: 0.82rem;
   font-weight: 650;
 }
 
 .utility-building :deep(.el-select__caret),
 .utility-building__icon {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 
 /* 仅一栋大厦可访问时隐藏下拉箭头，避免误导可切换 */
@@ -1024,17 +1178,17 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .utility-building-empty {
   flex-shrink: 0;
   font-size: 0.78rem;
-  color: #8a978f;
+  color: var(--lb-muted, #888);
   white-space: nowrap;
 }
 
 .header-fold-btn {
   width: 34px;
   height: 34px;
-  border: 1px solid #d5ddd8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e0e0e0);
   border-radius: 10px;
   background: #fff;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1044,8 +1198,8 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .header-fold-btn:hover {
-  background: #f7f9f8;
-  border-color: #b8c8bf;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f5f5f5);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #c8c8c8);
 }
 
 .quick-nav {
@@ -1093,7 +1247,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 .quick-link:hover {
   color: var(--lb-brand);
-  background: rgba(15, 74, 50, 0.06);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
 }
 
 .quick-link.active {
@@ -1165,7 +1319,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: #0f4a32;
+  background: var(--lb-brand, #0f4a32);
   color: #fff;
   font-size: 0.75rem;
   font-weight: 700;
@@ -1175,7 +1329,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 .user-name {
   font-size: 0.84rem;
-  color: #1f2d27;
+  color: var(--lb-ink, #1a1a1a);
   font-weight: 560;
   max-width: 110px;
   overflow: hidden;
@@ -1184,7 +1338,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .user-caret {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   flex-shrink: 0;
   transition: transform 0.18s ease;
 }
@@ -1199,8 +1353,8 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   margin: 10px 12px 12px;
   background: #fff;
   border-radius: 16px;
-  border: 1px solid #e2e8e5;
-  box-shadow: 0 8px 28px rgba(15, 40, 30, 0.06);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, transparent);
   overflow: hidden;
   padding: 12px 14px 10px;
   display: flex;
@@ -1215,12 +1369,13 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 /* 首页：外壳滚动，避免内容被 overflow:hidden 裁切 */
 .content-shell--home {
   padding: 10px 12px 12px;
-  background: #eef1f0;
+  /* 勿用旧绿灰 #eef1f0；中性浅灰 + 主题淡染 */
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f3f3f3);
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: rgba(15, 74, 50, 0.28) transparent;
+  scrollbar-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, transparent) transparent;
 }
 
 .content-shell--home > * {
@@ -1240,14 +1395,14 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .content-shell--home::-webkit-scrollbar-thumb {
-  background: rgba(15, 74, 50, 0.2);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 20%, transparent);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 .content-shell--home::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 74, 50, 0.38);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 38%, transparent);
   background-clip: padding-box;
 }
 
@@ -1316,13 +1471,20 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
     width: min(220px, 72vw);
   }
 }
+
+.account-email-hint {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--lb-muted, #666);
+}
 </style>
 
 <style>
 .user-dropdown-popper.el-popper {
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6) !important;
   border-radius: 10px !important;
-  box-shadow: 0 10px 28px rgba(15, 40, 30, 0.12) !important;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, transparent) !important;
   overflow: hidden;
   padding: 0 !important;
 }
@@ -1349,11 +1511,11 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 .user-dropdown-popper .el-dropdown-menu__item .el-icon {
   margin: 0;
   font-size: 15px;
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
 }
 
 .user-dropdown-popper .el-dropdown-menu__item:not(.is-disabled):hover {
-  background: #f3f5f4 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) !important;
   color: var(--lb-brand) !important;
 }
 
@@ -1363,7 +1525,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 .user-dropdown-popper .el-dropdown-menu__item--divided {
   margin-top: 6px;
-  border-top: 1px solid #e8eeea;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e8e8e8);
 }
 
 .user-dropdown-popper .el-dropdown-menu__item--divided::before {
@@ -1372,9 +1534,9 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 /* 侧栏折叠后的悬浮子菜单 */
 .sidebar-menu-popper.el-popper {
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6) !important;
   border-radius: 12px !important;
-  box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent) !important;
   overflow: hidden;
   padding: 0 !important;
   background: #fff !important;
@@ -1407,7 +1569,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   margin-right: 8px !important;
   width: 1.15em !important;
   height: 1.15em !important;
-  color: #5b6b63 !important;
+  color: var(--lb-muted, #666) !important;
   flex-shrink: 0;
 }
 
@@ -1423,7 +1585,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .sidebar-menu-popper .el-menu-item:hover {
-  background: #eef5f1 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) !important;
   color: var(--lb-brand) !important;
 }
 
@@ -1432,7 +1594,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .sidebar-menu-popper .el-menu-item.is-active {
-  background: #e4efe9 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff) !important;
   color: var(--lb-brand) !important;
   font-weight: 700 !important;
   box-shadow: none !important;

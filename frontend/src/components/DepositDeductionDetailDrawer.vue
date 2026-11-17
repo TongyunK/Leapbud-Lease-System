@@ -6,6 +6,7 @@ import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import { formatMoney } from '@/utils/format'
+import { formatSettlementItemDesc } from '@/utils/settlementItemDesc'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -153,7 +154,7 @@ function itemTypeLabel(raw?: string | null) {
           </div>
           <div class="full">
             <dt>{{ t('depositDeduction.fields.description') }}</dt>
-            <dd>{{ dash(fee.description) }}</dd>
+            <dd>{{ fee ? formatSettlementItemDesc(fee, t) : '—' }}</dd>
           </div>
         </dl>
       </section>

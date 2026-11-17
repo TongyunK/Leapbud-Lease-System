@@ -5,15 +5,39 @@
  * 正确做法：把 MessageBox 挂到当前最上层业务弹窗的 .el-overlay 内，
  * 使其落在同一层叠上下文、盖住弹窗内容——不要再抬全局 z-index。
  */
+
+function isUsableDialogOverlay(el: HTMLElement): boolean {
+  // 跳过 MessageBox 自己的遮罩（含已挂到业务弹窗内的嵌套层）
+  if (el.classList.contains('is-message-box')) return false
+  if (el.querySelector(':scope > .el-overlay-message-box, :scope > .el-message-box')) {
+    return false
+  }
+  const dialog = el.querySelector('.el-dialog, .lb-dialog') as HTMLElement | null
+  if (!dialog) return false
+
+  const style = getComputedStyle(el)
+  if (style.display === 'none' || style.visibility === 'hidden') return false
+  if (style.pointerEvents === 'none') return false
+  const opacity = Number(style.opacity)
+  if (Number.isFinite(opacity) && opacity <= 0.01) return false
+
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 8 || rect.height < 8) return false
+
+  const dStyle = getComputedStyle(dialog)
+  if (dStyle.display === 'none' || dStyle.visibility === 'hidden') return false
+  const dRect = dialog.getBoundingClientRect()
+  if (dRect.width < 8 || dRect.height < 8) return false
+
+  return true
+}
+
 export function findTopDialogOverlay(): HTMLElement | null {
   if (typeof document === 'undefined') return null
   let best: HTMLElement | null = null
   let bestZ = -Infinity
   document.querySelectorAll<HTMLElement>('.el-overlay').forEach((el) => {
-    // 跳过 MessageBox 自己的遮罩（含已挂到业务弹窗内的嵌套层）
-    if (el.classList.contains('is-message-box')) return
-    if (el.querySelector(':scope > .el-overlay-message-box, :scope > .el-message-box')) return
-    if (!el.querySelector('.el-dialog, .lb-dialog')) return
+    if (!isUsableDialogOverlay(el)) return
     const z = Number(getComputedStyle(el).zIndex)
     const score = Number.isFinite(z) ? z : 0
     if (score >= bestZ) {

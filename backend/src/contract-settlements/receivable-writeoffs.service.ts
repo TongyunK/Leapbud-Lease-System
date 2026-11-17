@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import {
+  NumberingBizKey,
   Prisma,
   ReceivableWriteoffDirection,
 } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { dec, nextWriteoffCode, round2 } from './settlement-code.util'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
+import { dec, round2 } from './settlement-code.util'
 
 type Db = Prisma.TransactionClient | PrismaService
 
@@ -23,14 +25,24 @@ export type CreateWriteoffInput = {
 
 @Injectable()
 export class ReceivableWriteoffsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numbering: NumberingRulesService,
+  ) {}
 
   async create(input: CreateWriteoffInput, db?: Db) {
     const client = db ?? this.prisma
     const amount = round2(Math.max(0, Number(input.amount) || 0))
     if (amount <= 0.009) return null
 
-    const writeoffCode = await nextWriteoffCode(client)
+    const writeoffCode = await this.numbering.nextCode(NumberingBizKey.receivableWriteoff, {
+      db: client,
+      isTaken: async (code) =>
+        !!(await client.receivableWriteoff.findFirst({
+          where: { writeoffCode: code },
+          select: { id: true },
+        })),
+    })
     const actorId = input.actorId || null
     return client.receivableWriteoff.create({
       data: {

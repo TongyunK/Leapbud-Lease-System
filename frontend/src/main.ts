@@ -8,6 +8,7 @@ import { i18n, LOCALE_KEY } from './i18n'
 import { vAdminGlow } from './directives/adminGlow'
 import { setupDialogContentFullscreen } from './utils/dialogContentFullscreen'
 import { messageBoxAppendHost } from './utils/liftMessageBoxOverlay'
+import { useBrandingStore } from './stores/branding'
 import './style.css'
 
 document.documentElement.lang = localStorage.getItem(LOCALE_KEY) || 'zh-TW'
@@ -61,7 +62,8 @@ ElMessageBox.prompt = withDialogDefaults(ElMessageBox.prompt.bind(ElMessageBox))
 
 const app = createApp(App)
 
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
 app.use(i18n)
 app.directive('admin-glow', vAdminGlow)
@@ -71,3 +73,6 @@ app.directive('admin-glow', vAdminGlow)
 
 app.mount('#app')
 setupDialogContentFullscreen()
+
+/** 启动即拉公开品牌配置（登录页／侧栏 Logo、主题色、名称） */
+void useBrandingStore(pinia).load()

@@ -5,16 +5,24 @@ import type {
   ContractSettlementRecord,
   ReceivableWriteoffRecord,
 } from '@/types/contract-settlement'
+import { normalizeCollectStatus } from '@/types/contract-settlement'
 import { fetchSettlementWriteoffs } from '@/api/contract-settlements'
+import { fetchReceivables } from '@/api/receivables'
 import { useIsMobile } from '@/composables/useMediaQuery'
+import {
+  OVERLAY_ABOVE_FEATURE_MENU_Z,
+  useOverlayStackZ,
+} from '@/composables/useOverlayStackZ'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import CountListPill from '@/components/CountListPill.vue'
+import ContractSettlementItemsDialog from '@/components/ContractSettlementItemsDialog.vue'
 import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import {
   contractSettlementCollectStatusTone,
   contractSettlementRefundStatusTone,
   contractSettlementTypeTone,
+  receivableValidityKey,
 } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
 
@@ -39,13 +47,19 @@ const emit = defineEmits<{
   openCustomer: [customerId: string]
   openRoom: [roomId: string]
   openReceivable: [receivableId: string]
+  openInvoice: [invoiceId: string]
   openRefundOrders: [settlement: ContractSettlementRecord]
 }>()
 
 const { t, te } = useI18n()
 const isMobile = useIsMobile()
+const { allocZ, raiseFloor } = useOverlayStackZ()
 const writeoffs = ref<ReceivableWriteoffRecord[]>([])
 const writeoffsLoading = ref(false)
+/** 关联合约当前有效应收未收合计 */
+const contractOpenReceivable = ref<number | null>(null)
+const itemsDialogVisible = ref(false)
+const itemsDialogZ = ref<number | undefined>(undefined)
 
 const direction = computed(() => (isMobile.value ? 'btt' : props.desktopDirection))
 const drawerSize = computed(() => (isMobile.value ? '100%' : '640px'))
@@ -79,6 +93,39 @@ const showRemark = computed(() => {
   return remark !== reason
 })
 
+function round2(n: number) {
+  return Math.round(n * 100) / 100
+}
+
+/** 豁免未实现、定金抵扣并入应加收公式：条数均不计入 */
+function isHiddenSettlementItem(it: { itemType?: string | null; remark?: string | null }) {
+  const ty = (it.itemType || '').trim()
+  if (ty === 'WAIVER' || ty === 'BOOKING_DEPOSIT_OFFSET') return true
+  return (it.remark || '').trim() === 'booking_offset_excess'
+}
+
+const visibleItemCount = computed(
+  () => (props.record?.items || []).filter((it) => !isHiddenSettlementItem(it)).length,
+)
+
+function openItemsDialog() {
+  if (!visibleItemCount.value) return
+  itemsDialogZ.value = allocZ(
+    Math.max(Number(props.zIndex) || 0, OVERLAY_ABOVE_FEATURE_MENU_Z),
+  )
+  itemsDialogVisible.value = true
+}
+
+function onItemsDialogOpenReceivable(id: string) {
+  if (itemsDialogZ.value != null) raiseFloor(itemsDialogZ.value)
+  emit('openReceivable', id)
+}
+
+function onItemsDialogOpenInvoice(id: string) {
+  if (itemsDialogZ.value != null) raiseFloor(itemsDialogZ.value)
+  emit('openInvoice', id)
+}
+
 function dash(v?: string | null) {
   return v?.trim() ? v : '—'
 }
@@ -94,6 +141,8 @@ function writeoffReasonLabel(code?: string | null) {
   return te(key) ? t(key) : c
 }
 
+defineExpose({ openItemsDialog })
+
 async function loadWriteoffs(id: string) {
   writeoffsLoading.value = true
   try {
@@ -106,11 +155,40 @@ async function loadWriteoffs(id: string) {
   }
 }
 
+async function loadContractOpenReceivable(contractId?: string | null) {
+  const id = (contractId || '').trim()
+  if (!id) {
+    contractOpenReceivable.value = null
+    return
+  }
+  try {
+    const { data } = await fetchReceivables({
+      contractId: id,
+      validity: 'all',
+      page: 1,
+      pageSize: 200,
+    })
+    const open = (data.items ?? [])
+      .filter((r) => receivableValidityKey(r.invoiceStatus) !== 'invalid')
+      .reduce((s, r) => s + (Number(r.receivableAmount) || 0), 0)
+    contractOpenReceivable.value = round2(open)
+  } catch {
+    contractOpenReceivable.value = null
+  }
+}
+
 watch(
-  () => [visible.value, props.record?.id] as const,
-  ([open, id]) => {
-    if (open && id) void loadWriteoffs(id)
-    if (!open) writeoffs.value = []
+  () => [visible.value, props.record?.id, props.record?.contractId] as const,
+  ([open, id, contractId]) => {
+    if (open && id) {
+      void loadWriteoffs(id)
+      void loadContractOpenReceivable(contractId)
+    }
+    if (!open) {
+      writeoffs.value = []
+      contractOpenReceivable.value = null
+      itemsDialogVisible.value = false
+    }
   },
 )
 
@@ -184,8 +262,7 @@ function onOpenRefundOrders() {
                 :tone="contractSettlementCollectStatusTone(record.collectStatus)"
                 :label="
                   t(
-                    `contractSettlement.collectStatus.${record.collectStatus || 'none'}`,
-                    record.collectStatus || 'none',
+                    `contractSettlement.collectStatus.${normalizeCollectStatus(record.collectStatus)}`,
                   )
                 "
               />
@@ -277,22 +354,18 @@ function onOpenRefundOrders() {
 
       <section class="detail-section">
         <h3>{{ t('contractSettlement.sections.amounts') }}</h3>
-        <dl class="detail-grid two">
-          <div>
-            <dt>{{ t('contractSettlement.fields.depositTotal') }}</dt>
-            <dd>{{ money(record.depositTotal) }}</dd>
-          </div>
+        <dl class="detail-grid three">
           <div>
             <dt>{{ t('contractSettlement.fields.deductionTotal') }}</dt>
             <dd>{{ money(record.deductionTotal) }}</dd>
           </div>
           <div>
-            <dt>{{ t('contractSettlement.fields.waiverTotal') }}</dt>
-            <dd>{{ money(record.waiverTotal) }}</dd>
-          </div>
-          <div>
             <dt>{{ t('contractSettlement.fields.additionalTotal') }}</dt>
             <dd>{{ money(record.additionalTotal) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('contractSettlement.fields.contractOpenReceivable') }}</dt>
+            <dd>{{ money(contractOpenReceivable) }}</dd>
           </div>
           <div>
             <dt>{{ t('contractSettlement.fields.refundDueTotal') }}</dt>
@@ -319,69 +392,18 @@ function onOpenRefundOrders() {
               }}
             </dd>
           </div>
-          <div>
-            <dt>{{ t('contractSettlement.fields.collectDueTotal') }}</dt>
-            <dd>{{ money(record.collectDueTotal) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('contractSettlement.fields.collectedTotal') }}</dt>
-            <dd>{{ money(record.collectedTotal) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('contractSettlement.fields.collectRemaining') }}</dt>
-            <dd>
-              {{
-                money(
-                  record.collectRemaining != null
-                    ? record.collectRemaining
-                    : Math.max(
-                        0,
-                        Math.round(
-                          (Number(record.collectDueTotal) - Number(record.collectedTotal || 0)) *
-                            100,
-                        ) / 100,
-                      ),
-                )
-              }}
-            </dd>
-          </div>
         </dl>
       </section>
 
       <section class="detail-section">
         <h3>{{ t('contractSettlement.sections.items') }}</h3>
-        <el-table :data="record.items || []" border>
-          <el-table-column
-            :label="t('contractSettlement.fields.itemType')"
-            min-width="120"
-          >
-            <template #default="{ row }">
-              {{ t(`contractSettlement.itemType.${row.itemType}`, row.itemType) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="description" :label="t('common.description')" min-width="160" />
-          <el-table-column :label="t('contractSettlement.fields.quantity')" width="88" align="right">
-            <template #default="{ row }">{{ row.quantity ?? '—' }}</template>
-          </el-table-column>
-          <el-table-column :label="t('contractSettlement.fields.unitAmount')" width="110" align="right">
-            <template #default="{ row }">{{ money(row.unitAmount) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('contractSettlement.fields.returnStatus')" min-width="100">
-            <template #default="{ row }">
-              {{
-                row.returnStatus
-                  ? t(`depositDeduction.returnStatus.${row.returnStatus}`, row.returnStatus)
-                  : '—'
-              }}
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('common.amount')" width="110" align="right">
-            <template #default="{ row }">{{ money(row.amount) }}</template>
-          </el-table-column>
-        </el-table>
+        <CountListPill :count="visibleItemCount" @click="openItemsDialog" />
+        <p v-if="!visibleItemCount" class="settlement-detail__empty">
+          {{ t('contractSettlement.itemGroups.empty') }}
+        </p>
       </section>
 
-      <section class="detail-section">
+      <section v-if="writeoffsLoading || writeoffs.length" class="detail-section">
         <h3>{{ t('contractSettlement.sections.writeoffs') }}</h3>
         <el-table v-loading="writeoffsLoading" :data="writeoffs" border>
           <el-table-column prop="writeoffCode" :label="t('contractSettlement.fields.writeoffCode')" min-width="140" />
@@ -416,6 +438,14 @@ function onOpenRefundOrders() {
       />
     </template>
   </el-drawer>
+
+  <ContractSettlementItemsDialog
+    v-model="itemsDialogVisible"
+    :record="record"
+    :z-index="itemsDialogZ"
+    @open-receivable="onItemsDialogOpenReceivable"
+    @open-invoice="onItemsDialogOpenInvoice"
+  />
 </template>
 
 <style scoped>
@@ -448,5 +478,20 @@ function onOpenRefundOrders() {
   font-weight: 600;
   color: #8a5a10;
   line-height: 1.45;
+}
+
+.settlement-detail__empty {
+  margin: 8px 0 0;
+  color: #8a9a90;
+  font-size: 0.95rem;
+}
+
+/* 金额汇总与基本信息略加大，与明细一致 */
+:deep(.detail-grid dt) {
+  font-size: 0.82rem;
+}
+
+:deep(.detail-grid dd) {
+  font-size: 0.95rem;
 }
 </style>

@@ -11,7 +11,9 @@ import { CurrentUser, actorUserId } from '../auth/current-user.decorator'
 import type { JwtPayload } from '../auth/jwt-auth.guard'
 import { SystemSettingsService } from './system-settings.service'
 import {
+  UpdateBrandingDto,
   UpdateContractExpiringSoonDto,
+  UpdateMailSmtpDto,
   UpdateSystemSettingsDto,
 } from './dto/system-setting.dto'
 
@@ -19,6 +21,13 @@ import {
 @Controller('system-settings')
 export class SystemSettingsController {
   constructor(private readonly service: SystemSettingsService) {}
+
+  /** 公开：登录页／侧栏品牌（无鉴权） */
+  @Get('branding')
+  @ApiOkResponse({ description: 'Public branding (logo / theme / titles)' })
+  getBranding() {
+    return this.service.getBranding()
+  }
 
   @Get()
   @ApiBearerAuth()
@@ -50,5 +59,27 @@ export class SystemSettingsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.updateContractExpiringSoon(dto, actorUserId(user))
+  }
+
+  /** 邮件 SMTP（忘记密码发信等） */
+  @Put('mail-smtp')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @RequirePermissions('systemSettings:update')
+  @ApiOkResponse({ description: 'Update mail SMTP settings' })
+  updateMailSmtp(@Body() dto: UpdateMailSmtpDto, @CurrentUser() user: JwtPayload) {
+    return this.service.updateMailSmtp(dto, actorUserId(user))
+  }
+
+  /** 品牌外观：Logo / 主题色 / 公司名称 */
+  @Put('branding')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.admin, UserRole.user)
+  @RequirePermissions('systemSettings:update')
+  @ApiOkResponse({ description: 'Update branding settings' })
+  updateBranding(@Body() dto: UpdateBrandingDto, @CurrentUser() user: JwtPayload) {
+    return this.service.updateBranding(dto, actorUserId(user))
   }
 }

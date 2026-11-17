@@ -7,9 +7,11 @@ import {
 } from '@nestjs/common'
 import {
   BookingDepositMovementType,
+  NumberingBizKey,
   Prisma,
   RefundOrderStatus,
 } from '@prisma/client'
+import { NumberingRulesService } from '../numbering-rules/numbering-rules.service'
 import { ContractSettlementsService } from '../contract-settlements/contract-settlements.service'
 import { RefundOrdersService } from '../contract-settlements/refund-orders.service'
 import { createReadStream } from 'fs'
@@ -129,6 +131,7 @@ export class DepositRefundsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: BuildingAccessService,
+    private readonly numbering: NumberingRulesService,
     private readonly bookingDeposit: BookingDepositService,
     private readonly settlements: ContractSettlementsService,
     private readonly refundOrders: RefundOrdersService,
@@ -800,21 +803,12 @@ export class DepositRefundsService {
   }
 
   private async nextRefundCode(): Promise<string> {
-    const now = new Date()
-    const y = String(now.getUTCFullYear()).slice(-2)
-    const m = String(now.getUTCMonth() + 1).padStart(2, '0')
-    const d = String(now.getUTCDate()).padStart(2, '0')
-    const prefix = `DRF${y}${m}${d}`
-    const latest = await this.prisma.depositRefund.findFirst({
-      where: { refundCode: { startsWith: prefix } },
-      orderBy: { refundCode: 'desc' },
-      select: { refundCode: true },
+    return this.numbering.nextCode(NumberingBizKey.depositRefund, {
+      isTaken: async (code) =>
+        !!(await this.prisma.depositRefund.findFirst({
+          where: { refundCode: code },
+          select: { id: true },
+        })),
     })
-    let seq = 1
-    if (latest?.refundCode) {
-      const n = Number(latest.refundCode.slice(prefix.length))
-      if (!Number.isNaN(n)) seq = n + 1
-    }
-    return `${prefix}${String(seq).padStart(4, '0')}`
   }
 }

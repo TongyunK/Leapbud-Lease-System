@@ -1328,7 +1328,7 @@ export class ContractsService {
     if (customerId && row.customerId !== customerId) {
       throw new BadRequestException('requirementId 不属于所选客户');
     }
-    // 本合约已挂同一需求时可保留；新建／改挂仅允许未跟进、已取消
+    // 本合约已挂同一需求时可保留；新建／改挂仅允许未跟进、跟进中（不可选已签约／已取消）
     if (currentContractId) {
       const alreadyLinked = await this.prisma.contract.findFirst({
         where: { id: currentContractId, requirementId },
@@ -1338,7 +1338,7 @@ export class ContractsService {
     }
     if (!REQUIREMENT_LINKABLE_STATUSES.has(row.status)) {
       throw new BadRequestException(
-        '僅可關聯狀態為「未跟進」或「已取消」的客戶需求',
+        '僅可關聯狀態為「未跟進」或「跟進中」的客戶需求',
       );
     }
   }

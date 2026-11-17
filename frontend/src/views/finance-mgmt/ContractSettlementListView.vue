@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete, Download, Plus, Rank, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 import {
   createVacateSettlementApi,
   deleteContractSettlementApi,
+  batchDeleteContractSettlementsApi,
   fetchContractSettlement,
   fetchContractSettlements,
   importVacateSettlementsApi,
@@ -17,11 +18,13 @@ import {
 } from '@/api/contract-settlements'
 import { fetchContract, fetchContracts } from '@/api/contracts'
 import type { ContractRecord } from '@/types/contract'
+import { isSigningContractStatus } from '@/types/contract'
 import type { ContractSettlementRecord } from '@/types/contract-settlement'
 import {
   CONTRACT_SETTLEMENT_COLLECT_STATUSES,
   CONTRACT_SETTLEMENT_REFUND_STATUSES,
   CONTRACT_SETTLEMENT_TYPES,
+  normalizeCollectStatus,
 } from '@/types/contract-settlement'
 import { useServerPagedList } from '@/composables/useServerPagedList'
 import { useTableSortFilter } from '@/composables/useTableSortFilter'
@@ -38,6 +41,7 @@ import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import ContractSettlementDetailDrawer from '@/components/ContractSettlementDetailDrawer.vue'
+import ContractSettlementItemsDialog from '@/components/ContractSettlementItemsDialog.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
 import RelatedWriteoffsDrawer from '@/components/RelatedWriteoffsDrawer.vue'
 import RelatedRefundOrdersDrawer from '@/components/RelatedRefundOrdersDrawer.vue'
@@ -46,12 +50,20 @@ import RefundOrderDetailDrawer from '@/components/RefundOrderDetailDrawer.vue'
 import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
 import ContractSettlementRefundDialog from '@/components/ContractSettlementRefundDialog.vue'
 import ContractReceivePaymentDialog from '@/components/ContractReceivePaymentDialog.vue'
+import ContractTerminateDialog from '@/components/ContractTerminateDialog.vue'
+import ContractCancelDialog from '@/components/ContractCancelDialog.vue'
 import RelatedReceiptsDrawer from '@/components/RelatedReceiptsDrawer.vue'
 import SelectWithViewAction from '@/components/SelectWithViewAction.vue'
-import { useOverlayStackZ } from '@/composables/useOverlayStackZ'
+import {
+  OVERLAY_ABOVE_FEATURE_MENU_Z,
+  useOverlayStackZ,
+} from '@/composables/useOverlayStackZ'
 import AttachmentField from '@/components/AttachmentField.vue'
 import ExportIcon from '@/components/icons/ExportIcon.vue'
 import ImportProgressDialog from '@/components/ImportProgressDialog.vue'
+import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
+import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
+import { useBatchProgress } from '@/composables/useBatchProgress'
 import { fetchRefundOrder } from '@/api/refund-orders'
 import { fetchCashFlow } from '@/api/cash-flows'
 import type { RefundOrderRecord } from '@/types/refund-order'
@@ -75,9 +87,22 @@ import {
 const { t } = useI18n()
 const isMobile = useIsMobile()
 const perms = useResourcePermissions('contractSettlements')
+const contractPerms = useResourcePermissions('contracts')
 const refundPerms = useResourcePermissions('refundOrders')
 const receiptPerms = useResourcePermissions('receipts')
-const { allocZ } = useOverlayStackZ()
+const { allocZ, raiseFloor } = useOverlayStackZ()
+
+/** 退租可办：租赁中／退租中／已续约；取消可办：签约中族 */
+const VACATE_CONTRACT_STATUSES = ['租賃中', '退租中', '已續約']
+const CANCEL_CONTRACT_STATUSES = ['簽約中', '草稿', '已簽約', '交吉中']
+
+function todayYmd() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 const { actionColW } = useActionColWidth()
 const {
   colW,
@@ -93,6 +118,9 @@ const keyword = ref('')
 const drawerVisible = ref(false)
 const current = ref<ContractSettlementRecord | null>(null)
 const detailDirection = ref<'ltr' | 'rtl'>('rtl')
+const itemsDialogVisible = ref(false)
+const itemsDialogRecord = ref<ContractSettlementRecord | null>(null)
+const itemsDialogZ = ref<number | undefined>(undefined)
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
 const relatedWriteoffsVisible = ref(false)
 const relatedRefundOrdersVisible = ref(false)
@@ -105,6 +133,19 @@ const cashFlowRecord = ref<CashFlowRecord | null>(null)
 
 const formVisible = ref(false)
 const editing = ref<ContractSettlementRecord | null>(null)
+/** 新增入口：同弹窗内切换退租／取消办理页 */
+const createLauncherVisible = ref(false)
+const createKind = ref<'VACATE' | 'CANCEL'>('VACATE')
+const createForm = reactive({
+  contractId: '',
+})
+const createConductContract = ref<ContractRecord | null>(null)
+const createConductLoading = ref(false)
+const createDialogWidth = computed(() => (isMobile.value ? '94%' : '920px'))
+const terminateVisible = ref(false)
+const terminateInitialDate = ref('')
+const cancelVisible = ref(false)
+const cancelInitialDate = ref('')
 const refundDialogVisible = ref(false)
 const refundSettlement = ref<ContractSettlementRecord | null>(null)
 const receivePayVisible = ref(false)
@@ -380,12 +421,24 @@ async function loadContractsPage(reset: boolean) {
   const scrollEl = contractSelectScrollEl
   const prevTop = scrollEl?.scrollTop ?? 0
   try {
+    const selectedId = createLauncherVisible.value ? createForm.contractId : form.contractId
+    const statuses = createLauncherVisible.value
+      ? createKind.value === 'CANCEL'
+        ? CANCEL_CONTRACT_STATUSES
+        : VACATE_CONTRACT_STATUSES
+      : undefined
     const { data } = await fetchContracts({
       keyword: contractSelectKeyword.value || undefined,
       page,
       pageSize: SELECT_PAGE_SIZE,
+      statuses,
     })
-    const items: VacateContractOpt[] = data.items.map((c) => ({
+    let mapped = data.items
+    // 取消：再收窄为签约中族（含历史归并态文案）
+    if (createLauncherVisible.value && createKind.value === 'CANCEL') {
+      mapped = mapped.filter((c) => isSigningContractStatus(c.status))
+    }
+    const items: VacateContractOpt[] = mapped.map((c) => ({
       id: c.id,
       contractCode: c.contractCode,
       customerId: c.customerId,
@@ -396,7 +449,7 @@ async function loadContractsPage(reset: boolean) {
     if (reset) {
       contractSelectOptions.value = keepSelectedInOptions(
         items,
-        form.contractId,
+        selectedId,
         contractSelectOptions.value,
         stickyContractOption.value,
       )
@@ -408,9 +461,10 @@ async function loadContractsPage(reset: boolean) {
     contractSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
   } catch {
     if (reset) {
+      const selectedId = createLauncherVisible.value ? createForm.contractId : form.contractId
       contractSelectOptions.value = keepSelectedInOptions(
         [],
-        form.contractId,
+        selectedId,
         contractSelectOptions.value,
         stickyContractOption.value,
       )
@@ -501,7 +555,9 @@ async function openCollectPayment(row: ContractSettlementRecord) {
 
 function openReceiptsFromReceivePay(contract: ContractRecord) {
   relatedReceiptsContract.value = contract
-  relatedReceiptsZIndex.value = allocZ(receivePayZIndex.value)
+  const floor = Number(receivePayZIndex.value) || 0
+  if (floor > 0) raiseFloor(floor)
+  relatedReceiptsZIndex.value = allocZ(floor > 0 ? floor : undefined)
   relatedReceiptsVisible.value = true
 }
 
@@ -628,6 +684,70 @@ const {
   },
   fetchPage: fetchContractSettlements,
 })
+
+const {
+  tableRef,
+  selectedCount,
+  selectedIds,
+  onSelectionChange,
+  clearSelection,
+  selectRows,
+} = useTableSelection<ContractSettlementRecord>()
+const batchDeleting = ref(false)
+const selectAllLoading = ref(false)
+const {
+  state: batchState,
+  percentage: batchPercentage,
+  begin: beginBatch,
+  setProgress: setBatchProgress,
+  finish: finishBatch,
+  close: closeBatch,
+} = useBatchProgress()
+
+watch([keyword, filters, sortKey, sortOrder, dateRanges], () => {
+  clearSelection()
+})
+
+async function onSelectAll() {
+  if (selectAllLoading.value || total.value === 0) return
+  selectAllLoading.value = true
+  try {
+    const rows = await fetchExportRows('filtered')
+    await selectRows(rows)
+  } finally {
+    selectAllLoading.value = false
+  }
+}
+
+async function onBatchDelete() {
+  if (!perms.batchDelete || !selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('common.batchDeleteConfirm', { n: selectedIds.value.length }),
+      t('common.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  const ids = [...selectedIds.value]
+  batchDeleting.value = true
+  beginBatch(ids.length)
+  try {
+    const { ok, fail } = await runServerBatchDelete(
+      ids,
+      (chunk) => batchDeleteContractSettlementsApi(chunk),
+      setBatchProgress,
+    )
+    finishBatch(ok, fail)
+    clearSelection()
+    await loadList()
+  } catch {
+    finishBatch(0, ids.length)
+  } finally {
+    batchDeleting.value = false
+  }
+}
 
 const codeLayoutKey = computed(() =>
   [
@@ -788,18 +908,39 @@ async function openDetail(row: ContractSettlementRecord, direction: 'ltr' | 'rtl
 
 function onRowClick(
   row: ContractSettlementRecord,
-  column: { type?: string } | undefined,
+  column: { type?: string; property?: string } | undefined,
   event: Event,
 ) {
   if (column?.type === 'selection' || column?.type === 'index') return
+  if (column?.property === 'itemCount') {
+    void openItemsSide(row)
+    return
+  }
   const el = event.target as HTMLElement | null
   if (el?.closest('.action-pills, button, a, .fk-link, input, textarea')) return
   void openDetail(row, 'rtl')
 }
 
-function openItemsSide(row: ContractSettlementRecord) {
+async function openItemsSide(row: ContractSettlementRecord) {
   if (!(row.itemCount ?? 0)) return
-  void openDetail(row)
+  itemsDialogZ.value = allocZ(OVERLAY_ABOVE_FEATURE_MENU_Z)
+  try {
+    const { data } = await fetchContractSettlement(row.id)
+    itemsDialogRecord.value = data
+  } catch {
+    itemsDialogRecord.value = row
+  }
+  itemsDialogVisible.value = true
+}
+
+function onItemsDialogOpenReceivable(id: string) {
+  if (itemsDialogZ.value != null) raiseFloor(itemsDialogZ.value)
+  relationDrawers.value?.openReceivableSide(id, { zIndex: itemsDialogZ.value })
+}
+
+function onItemsDialogOpenInvoice(id: string) {
+  if (itemsDialogZ.value != null) raiseFloor(itemsDialogZ.value)
+  relationDrawers.value?.openInvoiceSide(id, { zIndex: itemsDialogZ.value })
 }
 
 function openWriteoffsSide(row: ContractSettlementRecord) {
@@ -889,14 +1030,102 @@ function seedContractOption(row: {
   }
 }
 
+function syncCreatePanelVisibility() {
+  terminateInitialDate.value = todayYmd()
+  cancelInitialDate.value = todayYmd()
+  if (createKind.value === 'VACATE') {
+    terminateVisible.value = true
+    cancelVisible.value = false
+  } else {
+    cancelVisible.value = true
+    terminateVisible.value = false
+  }
+}
+
+function clearCreateConductContract() {
+  createConductContract.value = null
+}
+
 function openCreate() {
   editing.value = null
-  Object.assign(form, emptyForm())
-  deductionRows.value = []
-  deductionPage.value = 1
+  createKind.value = 'VACATE'
+  createForm.contractId = ''
+  clearCreateConductContract()
   stickyContractOption.value = null
   contractSelectOptions.value = []
-  formVisible.value = true
+  createLauncherVisible.value = true
+  syncCreatePanelVisibility()
+}
+
+function onCreateKindChange(next: string | number | boolean | undefined) {
+  const kind = next === 'CANCEL' ? 'CANCEL' : 'VACATE'
+  if (kind === createKind.value) return
+  if (kind === 'CANCEL' && !contractPerms.update) {
+    void alertBox(t('contractSettlement.cancelNeedContractPerm'))
+    return
+  }
+  createKind.value = kind
+  createForm.contractId = ''
+  clearCreateConductContract()
+  stickyContractOption.value = null
+  contractSelectOptions.value = []
+  contractSelectKeyword.value = ''
+  contractSelectHasMore.value = true
+  syncCreatePanelVisibility()
+  void loadContractsPage(true)
+}
+
+async function loadCreateConductForContract(contractId: string) {
+  const id = contractId.trim()
+  if (!createLauncherVisible.value) return
+  if (!id) {
+    clearCreateConductContract()
+    syncCreatePanelVisibility()
+    return
+  }
+  createConductLoading.value = true
+  try {
+    const { data } = await fetchContract(id)
+    if (createForm.contractId.trim() !== id) return
+    if (createKind.value === 'CANCEL' && !isSigningContractStatus(data.status)) {
+      await alertBox(t('contract.cancelOnlySigning'))
+      createForm.contractId = ''
+      clearCreateConductContract()
+      return
+    }
+    createConductContract.value = data
+    syncCreatePanelVisibility()
+  } catch {
+    /* interceptor */
+  } finally {
+    createConductLoading.value = false
+  }
+}
+
+watch(
+  () => createForm.contractId,
+  (id) => {
+    void loadCreateConductForContract(id || '')
+  },
+)
+
+function onCreateLauncherClosed() {
+  clearCreateConductContract()
+  terminateVisible.value = false
+  cancelVisible.value = false
+}
+
+function onConductDone() {
+  createLauncherVisible.value = false
+  onCreateLauncherClosed()
+  createForm.contractId = ''
+  void loadList()
+}
+
+function openReceiptsFromTerminate(c: ContractRecord) {
+  relatedReceiptsContract.value = c
+  relatedReceiptsZIndex.value = allocZ()
+  relatedReceiptsVisible.value = true
 }
 
 async function openEdit(row: ContractSettlementRecord) {
@@ -1249,6 +1478,7 @@ onMounted(() => {
         element-loading-background="rgba(247, 250, 248, 0.78)"
       >
         <el-table
+          ref="tableRef"
           :key="`${tableLayoutKey}-${codeLayoutKey}-${listActionColWidth}`"
           :data="list"
           row-key="id"
@@ -1257,8 +1487,17 @@ onMounted(() => {
           border
           scrollbar-always-on
           style="width: 100%"
+          @selection-change="onSelectionChange"
           @row-click="onRowClick"
         >
+          <el-table-column
+            type="selection"
+            width="48"
+            fixed="left"
+            align="center"
+            header-align="center"
+            reserve-selection
+          />
           <el-table-column
             type="index"
             :index="rowIndex"
@@ -1380,8 +1619,7 @@ onMounted(() => {
                 :tone="contractSettlementCollectStatusTone(row.collectStatus)"
                 :label="
                   t(
-                    `contractSettlement.collectStatus.${row.collectStatus || 'none'}`,
-                    row.collectStatus || 'none',
+                    `contractSettlement.collectStatus.${normalizeCollectStatus(row.collectStatus)}`,
                   )
                 "
               />
@@ -1560,6 +1798,7 @@ onMounted(() => {
             </template>
           </el-table-column>
           <el-table-column
+            prop="itemCount"
             :min-width="
               colW(t('contractSettlement.fields.itemCount'), { interactive: true, contentMin: 88 })
             "
@@ -1891,7 +2130,24 @@ onMounted(() => {
       v-model:page-size="pageSize"
       :total="total"
       :page-sizes="pageSizes"
-    />
+      :selected-count="selectedCount"
+      enable-select-all
+      :select-all-loading="selectAllLoading"
+      @select-all="onSelectAll"
+      @clear-selection="clearSelection"
+    >
+      <template v-if="perms.batchDelete" #batch>
+        <button
+          v-admin-glow="perms.codes.batchDelete"
+          type="button"
+          class="lb-pager__batch-btn"
+          :disabled="batchDeleting || selectAllLoading"
+          @click="onBatchDelete"
+        >
+          {{ t('common.batchDelete') }}
+        </button>
+      </template>
+    </TablePagination>
 
     <ContractSettlementDetailDrawer
       v-model="drawerVisible"
@@ -1901,7 +2157,15 @@ onMounted(() => {
       @open-customer="(id) => relationDrawers?.openCustomerSide(id)"
       @open-room="(id) => relationDrawers?.openRoomSide(id)"
       @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+      @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
       @open-refund-orders="openRefundOrdersSide"
+    />
+    <ContractSettlementItemsDialog
+      v-model="itemsDialogVisible"
+      :record="itemsDialogRecord"
+      :z-index="itemsDialogZ"
+      @open-receivable="onItemsDialogOpenReceivable"
+      @open-invoice="onItemsDialogOpenInvoice"
     />
     <RelatedWriteoffsDrawer
       v-model="relatedWriteoffsVisible"
@@ -1973,8 +2237,108 @@ onMounted(() => {
     />
 
     <el-dialog
+      v-model="createLauncherVisible"
+      :title="t('contractSettlement.createVacate')"
+      :width="createDialogWidth"
+      :fullscreen="isMobile"
+      destroy-on-close
+      class="lb-dialog settlement-create-dialog"
+      @closed="onCreateLauncherClosed"
+    >
+      <div class="settlement-create-source-switch">
+        <el-radio-group
+          :model-value="createKind"
+          class="lb-yesno-seg settlement-create-source-seg"
+          @change="onCreateKindChange"
+        >
+          <el-radio-button value="VACATE">{{ t('contractSettlement.createTypeVacate') }}</el-radio-button>
+          <el-radio-button value="CANCEL" :disabled="!contractPerms.update">
+            {{ t('contractSettlement.createTypeCancel') }}
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+      <el-form label-position="top" class="settlement-create-form">
+        <el-form-item :label="t('contractSettlement.fields.contractCode')" required>
+          <SelectWithViewAction
+            clearable
+            :disabled="!createForm.contractId"
+            @view="relationDrawers?.openContractSide(createForm.contractId)"
+          >
+            <el-select
+              v-model="createForm.contractId"
+              filterable
+              remote
+              reserve-keyword
+              clearable
+              value-on-clear=""
+              fit-input-width
+              style="width: 100%"
+              popper-class="vacate-contract-select-popper"
+              :placeholder="t('contractSettlement.fields.contractCode')"
+              :remote-method="searchContractRemote"
+              :loading="contractSelectLoading"
+              @visible-change="onContractSelectVisible"
+            >
+              <el-option
+                v-for="opt in contractSelectOptions"
+                :key="opt.id"
+                :label="`${opt.contractCode} · ${opt.customerName} · ${opt.roomCode}`"
+                :value="opt.id"
+                :title="`${opt.contractCode} · ${opt.customerName} · ${opt.roomCode}`"
+              >
+                <span
+                  class="select-option-ellipsis"
+                  :title="`${opt.contractCode} · ${opt.customerName} · ${opt.roomCode}`"
+                >
+                  {{ opt.contractCode }} · {{ opt.customerName }} · {{ opt.roomCode }}
+                </span>
+              </el-option>
+              <template #empty>
+                <div class="vacate-select-empty">
+                  {{
+                    createKind === 'CANCEL'
+                      ? t('contractSettlement.contractSelectEmptyCancel')
+                      : t('contractSettlement.contractSelectEmptyVacate')
+                  }}
+                </div>
+              </template>
+            </el-select>
+          </SelectWithViewAction>
+        </el-form-item>
+      </el-form>
+
+      <div v-loading="createConductLoading" class="settlement-create-panel">
+        <ContractTerminateDialog
+          v-if="createKind === 'VACATE'"
+          v-model="terminateVisible"
+          embedded
+          :contract="createConductContract"
+          :initial-date="terminateInitialDate"
+          @done="onConductDone"
+          @open-contract="(id) => relationDrawers?.openContractSide(id)"
+          @open-customer="(id) => relationDrawers?.openCustomerSide(id, 'ltr')"
+          @open-invoice="(id) => relationDrawers?.openInvoiceSide(id)"
+          @open-receivable="(id) => relationDrawers?.openReceivableSide(id)"
+          @open-receipts="openReceiptsFromTerminate"
+        />
+        <ContractCancelDialog
+          v-else
+          v-model="cancelVisible"
+          embedded
+          :contract="createConductContract"
+          :initial-date="cancelInitialDate"
+          @done="onConductDone"
+          @open-invoice="(id, opts) => relationDrawers?.openInvoiceSide(id, opts)"
+          @open-receipt="(id, opts) => relationDrawers?.openReceiptSide(id, opts)"
+          @open-settlement="(id, opts) => relationDrawers?.openSettlementSide(id, opts)"
+          @open-refund-order="(id, opts) => relationDrawers?.openRefundOrderSide(id, opts)"
+        />
+      </div>
+    </el-dialog>
+
+    <el-dialog
       v-model="formVisible"
-      :title="editing ? t('contractSettlement.editVacate') : t('contractSettlement.createVacate')"
+      :title="t('contractSettlement.editVacate')"
       :width="dialogWidth"
       :fullscreen="isMobile"
       destroy-on-close
@@ -2327,6 +2691,18 @@ onMounted(() => {
       :issues="importState.issues"
       @close="closeImport"
     />
+
+    <BatchProgressDialog
+      v-model="batchState.visible"
+      :phase="batchState.phase"
+      :total="batchState.total"
+      :current="batchState.current"
+      :percentage="batchPercentage"
+      :ok="batchState.ok"
+      :fail="batchState.fail"
+      :result-tone="batchState.resultTone"
+      @close="closeBatch"
+    />
   </div>
 </template>
 
@@ -2468,9 +2844,9 @@ onMounted(() => {
 }
 .period-table__head {
   min-height: 34px;
-  background: #f4f7f5;
-  border-bottom: 1px solid #e4ebe6;
-  color: #3d4f45;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -2530,7 +2906,7 @@ onMounted(() => {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-  color: #3d4f45;
+  color: var(--lb-brand, #0f4a32);
 }
 .vacate-deduction-table__cell--actions {
   justify-content: center;
@@ -2639,6 +3015,39 @@ onMounted(() => {
   .vacate-form .form-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.settlement-create-source-switch {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
+  border: 1px solid #e4ebe6;
+}
+.settlement-create-source-seg.lb-yesno-seg {
+  width: 100%;
+  max-width: 420px;
+}
+.settlement-create-source-seg :deep(.el-radio-button) {
+  flex: 1 1 0;
+}
+.settlement-create-source-seg :deep(.el-radio-button__inner) {
+  width: 100%;
+  padding: 8px 14px;
+  font-weight: 650;
+  font-size: 0.88rem;
+}
+.settlement-create-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+.settlement-create-panel {
+  margin-top: 4px;
+  min-height: 80px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 </style>
 

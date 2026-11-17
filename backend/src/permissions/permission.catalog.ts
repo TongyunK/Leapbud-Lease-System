@@ -5,7 +5,10 @@ export type PermissionAction =
   | 'update'
   | 'delete'
   | 'import'
-  | 'batchDelete';
+  | 'batchDelete'
+  /** 物理删除（客户需求等：与软取消 delete 区分） */
+  | 'purge'
+  | 'batchPurge';
 
 export type PermissionModuleDef = {
   module: string;
@@ -63,14 +66,18 @@ const ACTION_LABEL: Record<PermissionAction, string> = {
   delete: '刪除',
   import: '導入',
   batchDelete: '批量刪除',
+  purge: '刪除',
+  batchPurge: '批量刪除',
 };
 
-/** 个别模块动作文案（权限码不变；客户需求：跟进/取消） */
+/** 个别模块动作文案（权限码不变；客户需求：跟进/取消；物理删除用 purge） */
 const ACTION_LABEL_BY_MODULE: Partial<Record<string, Partial<Record<PermissionAction, string>>>> = {
   customerRequirements: {
     update: '跟進',
     delete: '取消',
     batchDelete: '批量取消',
+    purge: '刪除',
+    batchPurge: '批量刪除',
   },
   refundOrders: {
     update: '辦理打款',
@@ -83,6 +90,7 @@ const ACTION_LABEL_BY_MODULE: Partial<Record<string, Partial<Record<PermissionAc
   },
 };
 
+/** 全模块标准动作（不含仅个别模块需要的 purge） */
 const ACTIONS: PermissionAction[] = [
   'create',
   'update',
@@ -91,19 +99,27 @@ const ACTIONS: PermissionAction[] = [
   'batchDelete',
 ];
 
+/** 仅挂在指定模块上的额外动作（默认不授予普通 user；超管运行时全权限） */
+const EXTRA_MODULE_ACTIONS: Partial<Record<string, PermissionAction[]>> = {
+  customerRequirements: ['purge', 'batchPurge'],
+};
+
 function actionLabel(module: string, action: PermissionAction): string {
   return ACTION_LABEL_BY_MODULE[module]?.[action] || ACTION_LABEL[action];
 }
 
-export const PERMISSION_CATALOG: PermissionDef[] = PERMISSION_MODULES.flatMap((m) =>
-  ACTIONS.map((action, idx) => ({
+function buildModulePermissions(m: PermissionModuleDef): PermissionDef[] {
+  const actions = [...ACTIONS, ...(EXTRA_MODULE_ACTIONS[m.module] || [])];
+  return actions.map((action, idx) => ({
     code: `${m.module}:${action}`,
     module: m.module,
     action,
     name: `${actionLabel(m.module, action)}${m.moduleName}`,
     sortOrder: m.sortOrder * 10 + idx,
-  })),
-);
+  }));
+}
+
+export const PERMISSION_CATALOG: PermissionDef[] = PERMISSION_MODULES.flatMap(buildModulePermissions);
 
 /** 普通角色默认授予：业务模块的新增 + 编辑（不含系统管理） */
 export const DEFAULT_USER_PERMISSION_CODES: string[] = PERMISSION_MODULES.filter(

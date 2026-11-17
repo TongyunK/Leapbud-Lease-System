@@ -142,6 +142,13 @@ export class CustomerRequirementsController {
     return this.customerRequirementsService.removeMany(dto.ids, actorUserId(user));
   }
 
+  @RequirePermissions('customerRequirements:batchPurge')
+  @Post('batch-purge')
+  @ApiOkResponse({ description: 'Batch hard-delete customer requirements' })
+  purgeMany(@Body() dto: BatchDeleteDto, @CurrentUser() user?: JwtPayload) {
+    return this.customerRequirementsService.purgeMany(dto.ids, actorUserId(user));
+  }
+
   @RequirePermissions('customerRequirements:create')
   @Post()
   create(@Body() dto: CreateCustomerRequirementDto, @CurrentUser() user?: JwtPayload) {
@@ -163,5 +170,12 @@ export class CustomerRequirementsController {
   @ApiOkResponse({ description: 'Cancel customer requirement (set status to 已取消)' })
   remove(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
     return this.customerRequirementsService.remove(id, actorUserId(user));
+  }
+
+  @RequirePermissions('customerRequirements:purge')
+  @Post(':id/purge')
+  @ApiOkResponse({ description: 'Hard-delete customer requirement' })
+  purge(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
+    return this.customerRequirementsService.purge(id, actorUserId(user));
   }
 }

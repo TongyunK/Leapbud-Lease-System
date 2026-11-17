@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { ElDialog, ElMessageBox } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import type { ContractRecord } from '@/types/contract'
 import {
@@ -28,6 +28,13 @@ const visible = defineModel<boolean>({ default: false })
 const props = defineProps<{
   contract: ContractRecord | null
   zIndex?: number
+  /** 预填取消日期（如从终止结算「新增」带入；空则用预览建议日／今日） */
+  initialDate?: string
+  /**
+   * 嵌在外层业务弹窗内：不遮罩、不 teleport、无标题栏；
+   * 由外层弹窗承载关闭／切换。
+   */
+  embedded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -322,7 +329,7 @@ function removeRefundPendingAttachment(key: string) {
 }
 
 function resetForm(p: CancelContractPreview) {
-  form.cancelDate = p.suggestedCancelDate || todayYmd()
+  form.cancelDate = (props.initialDate || '').trim() || p.suggestedCancelDate || todayYmd()
   form.refundDate = form.cancelDate || todayYmd()
   form.remark = ''
   invoiceSettles.value = p.paidInvoices
@@ -349,6 +356,43 @@ function resetForm(p: CancelContractPreview) {
   resetRefundAttachments()
 }
 
+function resetEmptyCancelForm() {
+  preview.value = null
+  form.cancelDate = (props.initialDate || '').trim() || todayYmd()
+  form.refundDate = form.cancelDate
+  form.remark = ''
+  invoiceSettles.value = []
+  depositDeductAmount.value = 0
+  refundTiming.value = 'now'
+  refundNowAmount.value = 0
+  resetRefundAttachments()
+}
+
+/** 嵌套模式：未选合约也展示步骤壳 */
+const showCancelBody = computed(() => Boolean(preview.value) || Boolean(props.embedded))
+
+/** 嵌在外层弹窗时用普通 div，避免 el-overlay 撑破布局 */
+const shellBind = computed(() => {
+  if (props.embedded) {
+    return {
+      class: 'cancel-dlg-embed',
+      style: visible.value ? undefined : { display: 'none' },
+    }
+  }
+  return {
+    modelValue: visible.value,
+    'onUpdate:modelValue': (v: boolean) => {
+      visible.value = v
+    },
+    title: t('contract.cancelTitle'),
+    width: '800px',
+    class: 'lb-dialog cancel-dlg-dialog',
+    destroyOnClose: true,
+    appendToBody: true,
+    zIndex: dialogZ.value,
+  }
+})
+
 watch(
   () => form.cancelDate,
   (d) => {
@@ -357,7 +401,10 @@ watch(
 )
 
 async function loadPreview() {
-  if (!props.contract?.id) return
+  if (!props.contract?.id) {
+    if (props.embedded) resetEmptyCancelForm()
+    return
+  }
   loading.value = true
   preview.value = null
   try {
@@ -371,20 +418,21 @@ async function loadPreview() {
     }
   } catch {
     await alertBox(t('contract.cancelLoadFailed'), 'error')
-    visible.value = false
+    if (props.embedded) resetEmptyCancelForm()
+    else visible.value = false
   } finally {
     loading.value = false
   }
 }
 
 watch(
-  () => [visible.value, dialogZ.value] as const,
-  ([open, z]) => {
-    if (open) {
-      raiseFloor(z)
-      void loadPreview()
-    }
+  () => [visible.value, props.contract?.id, dialogZ.value] as const,
+  ([open, , z]) => {
+    if (!open) return
+    raiseFloor(z)
+    void loadPreview()
   },
+  { immediate: true },
 )
 
 async function onSubmit() {
@@ -549,21 +597,14 @@ async function showCancelSuccess(
 </script>
 
 <template>
-  <el-dialog
-    v-model="visible"
-    :title="t('contract.cancelTitle')"
-    width="800px"
-    class="lb-dialog cancel-dlg-dialog"
-    destroy-on-close
-    append-to-body
-    :z-index="dialogZ"
-  >
+  <component :is="embedded ? 'div' : ElDialog" v-bind="shellBind">
     <div v-loading="loading" class="cancel-dlg">
-      <template v-if="preview">
+      <template v-if="showCancelBody">
         <header class="cancel-dlg__hero">
           <div class="cancel-dlg__hero-code">
-            <strong>{{ preview.contract.contractCode }}</strong>
+            <strong>{{ preview?.contract.contractCode || '—' }}</strong>
             <StatusBadge
+              v-if="preview?.contract.status"
               :tone="contractStatusTone(preview.contract.status)"
               :label="statusLabel(preview.contract.status)"
             />
@@ -571,11 +612,11 @@ async function showCancelSuccess(
           <div class="cancel-dlg__hero-meta">
             <span>
               <em>{{ t('contract.fields.customerName') }}</em>
-              {{ preview.contract.customerName || '—' }}
+              {{ preview?.contract.customerName || '—' }}
             </span>
             <span>
               <em>{{ t('contract.fields.roomCode') }}</em>
-              {{ preview.contract.roomCode || '—' }}
+              {{ preview?.contract.roomCode || '—' }}
             </span>
           </div>
         </header>
@@ -626,7 +667,7 @@ async function showCancelSuccess(
             <span class="cancel-dlg__unset-label">{{ t('contract.cancelInvoiceList') }}</span>
             <ul class="cancel-dlg__unset">
               <li
-                v-for="inv in [...preview.unpaidInvoices, ...preview.paidInvoices]"
+                v-for="inv in [...(preview?.unpaidInvoices || []), ...(preview?.paidInvoices || [])]"
                 :key="inv.id"
                 class="cancel-dlg__card"
               >
@@ -699,7 +740,7 @@ async function showCancelSuccess(
 
           <div
             v-if="
-              preview.bookingDeposit.receiptId ||
+              preview?.bookingDeposit.receiptId ||
               summaryDepositCollected > 0.009 ||
               depositApplied > 0.009 ||
               depositBalance > 0.009
@@ -712,12 +753,12 @@ async function showCancelSuccess(
                 <div class="cancel-dlg__card-row">
                   <div class="cancel-dlg__unset-main">
                     <button
-                      v-if="preview.bookingDeposit.receiptId"
+                      v-if="preview?.bookingDeposit.receiptId"
                       type="button"
                       class="cancel-dlg__unset-code cancel-dlg__unset-code--link"
-                      @click="openRelated('receipt', preview.bookingDeposit.receiptId!)"
+                      @click="openRelated('receipt', preview!.bookingDeposit.receiptId!)"
                     >
-                      {{ preview.bookingDeposit.receiptCode || preview.bookingDeposit.receiptId }}
+                      {{ preview?.bookingDeposit.receiptCode || preview?.bookingDeposit.receiptId }}
                     </button>
                     <span v-else class="cancel-dlg__unset-type">{{ t('contract.cancelDepositReceipt') }}</span>
                   </div>
@@ -902,7 +943,19 @@ async function showCancelSuccess(
       </template>
     </div>
 
-    <template #footer>
+    <div v-if="embedded" class="cancel-dlg-embed__footer">
+      <el-button
+        v-if="perms.update"
+        v-admin-glow="perms.codes.update"
+        type="danger"
+        :loading="submitting"
+        :disabled="loading || !preview?.contract.cancellable"
+        @click="onSubmit"
+      >
+        {{ t('contract.cancelSubmit') }}
+      </el-button>
+    </div>
+    <template v-if="!embedded" #footer>
       <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
       <el-button
         v-if="perms.update"
@@ -915,7 +968,7 @@ async function showCancelSuccess(
         {{ t('contract.cancelSubmit') }}
       </el-button>
     </template>
-  </el-dialog>
+  </component>
 </template>
 
 <style scoped>
@@ -1558,5 +1611,19 @@ async function showCancelSuccess(
   .cancel-dlg-dialog.el-dialog {
     margin-top: 3vh !important;
   }
+}
+
+.cancel-dlg-embed {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.cancel-dlg-embed__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #e8eeea;
 }
 </style>
