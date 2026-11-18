@@ -492,6 +492,7 @@ async function toggleActive(row: RoomTypeOption) {
       v-model="formVisible"
       :title="editing ? t('roomType.edit') : t('roomType.create')"
       :width="dialogWidth"
+      class="lb-dialog"
       destroy-on-close
     >
       <el-form label-position="top">
@@ -499,7 +500,15 @@ async function toggleActive(row: RoomTypeOption) {
           <el-input v-model="form.label" />
         </el-form-item>
         <el-form-item :label="t('roomType.fields.tone')">
-          <el-select clearable value-on-clear="" fit-input-width v-model="form.tone" style="width: 100%">
+          <el-select
+            v-model="form.tone"
+            clearable
+            value-on-clear=""
+            fit-input-width
+            :teleported="false"
+            style="width: 100%"
+            popper-class="room-type-tone-select-popper"
+          >
             <el-option
               v-for="tone in ROOM_TYPE_TONE_OPTIONS"
               :key="tone"
@@ -556,5 +565,14 @@ async function toggleActive(row: RoomTypeOption) {
   color: var(--lb-muted, #666);
   font-size: 0.9rem;
   flex-shrink: 0;
+}
+
+/* 弹窗内下拉：宽度贴齐输入框，避免 teleported 后算宽溢出 */
+:deep(.room-type-tone-select-popper.el-popper),
+:deep(.room-type-tone-select-popper.el-select__popper) {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 </style>
