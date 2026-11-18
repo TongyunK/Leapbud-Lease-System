@@ -617,3 +617,71 @@ export class ImportContractsDto {
   @Type(() => ImportContractItemDto)
   items!: ImportContractItemDto[];
 }
+
+/** 合约续约：新开合约并迁移按金／定金（不调差） */
+export class RenewContractDto {
+  @ApiProperty({ description: '月租（须用户确认／调整）' })
+  @Type(() => Number)
+  @IsNumber()
+  monthlyRent!: number
+
+  @ApiProperty({ description: '新约开始日期 YYYY-MM-DD' })
+  @IsString()
+  @MinLength(1)
+  startDate!: string
+
+  @ApiProperty({ description: '新约结束日期 YYYY-MM-DD' })
+  @IsString()
+  @MinLength(1)
+  endDate!: string
+
+  @ApiPropertyOptional({ description: '缴费周期；省略则沿用旧约' })
+  @IsOptional()
+  @IsString()
+  paymentCycle?: string
+
+  @ApiPropertyOptional({ description: '电费／度；省略则沿用旧约' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  electricityRate?: number | null
+
+  @ApiPropertyOptional({ description: '房门钥匙数量；省略则沿用旧约' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  doorKeyQty?: number
+
+  @ApiPropertyOptional({ description: '信箱钥匙／智能卡数量；省略则沿用旧约' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  mailboxKeyQty?: number
+
+  @ApiPropertyOptional({ type: [ContractPeriodInputDto], description: '新约合约期；省略则按起止日生成一段使用期' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ContractPeriodInputDto)
+  periods?: ContractPeriodInputDto[]
+
+  @ApiPropertyOptional({
+    type: [ContractLoanItemInputDto],
+    description:
+      '新约借出物品（可改数量）；仅写入新约，不改旧约清单与按金发票；省略则按旧约原样复制',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ContractLoanItemInputDto)
+  loanItems?: ContractLoanItemInputDto[]
+
+  @ApiPropertyOptional({ description: '备注' })
+  @IsOptional()
+  @IsString()
+  remark?: string
+}

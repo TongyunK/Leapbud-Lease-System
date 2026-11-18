@@ -395,7 +395,6 @@ function triggerLabel(trigger: string) {
     <div class="admin-page-head">
       <div class="head-title-block">
         <h2>{{ t('menu.scheduledJobs') }}</h2>
-        <p class="head-subtitle">{{ t('scheduledJob.subtitle') }}</p>
       </div>
       <div class="head-actions">
         <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
@@ -822,15 +821,6 @@ function triggerLabel(trigger: string) {
 <style scoped>
 .head-title-block {
   min-width: 0;
-}
-
-.head-subtitle {
-  margin: 4px 0 0;
-  max-width: 42rem;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--el-text-color-secondary);
-  font-weight: 400;
 }
 
 .name-edit-link {

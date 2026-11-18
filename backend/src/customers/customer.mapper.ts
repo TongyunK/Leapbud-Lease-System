@@ -165,7 +165,27 @@ function toPrimaryOccupantDto(
   };
 }
 
-export function toCustomerDto(row: CustomerWithRelations) {
+/** 客户在租／过往合约摘要（由占用状态合约推导） */
+export type CustomerLeaseSummaryDto = {
+  contractId: string
+  contractCode: string
+  roomId: string
+  roomCode: string
+  roomName: string
+  occupancyMode: string
+  partLabel: string
+  status: string
+  startDate: string
+  endDate: string
+}
+
+export function toCustomerDto(
+  row: CustomerWithRelations,
+  extras?: {
+    activeLeases?: CustomerLeaseSummaryDto[]
+    pastLeases?: CustomerLeaseSummaryDto[]
+  },
+) {
   const primaryOccupant = toPrimaryOccupantDto(row.primaryOccupant);
   return {
     id: row.id,
@@ -181,7 +201,6 @@ export function toCustomerDto(row: CustomerWithRelations) {
     businessRegCopy: row.businessRegCopy,
     remark: row.remark,
     source: row.source,
-    rentedRooms: row.rentedRooms,
     buildingId: row.buildingId,
     buildingName: row.building?.name ?? '',
     agreementTemplateId: row.agreementTemplateId,
@@ -199,6 +218,10 @@ export function toCustomerDto(row: CustomerWithRelations) {
     receiptCount: row._count?.receipts ?? 0,
     terminationCount: row._count?.contractSettlements ?? 0,
     depositRefundCount: row._count?.depositRefunds ?? 0,
+    /** 占用中合约对应的在租房间／合约 */
+    activeLeases: extras?.activeLeases ?? [],
+    /** 非占用中的过往合约（详情用；列表可为空） */
+    pastLeases: extras?.pastLeases ?? [],
     createdBy: auditActorLabel(row.createdByUser),
     updatedBy: auditActorLabel(row.updatedByUser),
     createdAt: iso(row.createdAt),

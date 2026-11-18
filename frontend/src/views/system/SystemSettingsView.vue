@@ -1067,7 +1067,7 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   margin: 0 0 8px;
-  font-size: 0.9rem;
+  font-size: var(--lb-table-body, 0.82rem);
   font-weight: 700;
   color: var(--lb-ink, #1a1a1a);
   line-height: 1.3;
@@ -1093,7 +1093,7 @@ onMounted(() => {
 }
 
 .field-block__unit {
-  font-size: 0.9rem;
+  font-size: var(--lb-table-body, 0.82rem);
   font-weight: 650;
   color: var(--lb-muted, #666);
   white-space: nowrap;
@@ -1113,13 +1113,18 @@ onMounted(() => {
 }
 
 .ssl-toggle__text {
-  font-size: 0.86rem;
+  font-size: var(--lb-table-body, 0.82rem);
   font-weight: 650;
   color: var(--lb-muted, #666);
 }
 
 .field-block > :deep(.el-input) {
   width: 100%;
+  font-size: var(--lb-table-body, 0.82rem);
+}
+
+.field-block :deep(.el-input__inner) {
+  font-size: var(--lb-table-body, 0.82rem);
 }
 
 .field-block :deep(.el-input__wrapper) {
@@ -1179,7 +1184,7 @@ onMounted(() => {
   height: 38px;
   line-height: 38px;
   text-align: left;
-  font-size: 0.92rem;
+  font-size: var(--lb-table-body, 0.82rem);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--lb-ink, #1a1a1a);
@@ -1237,7 +1242,7 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  font-size: 0.88rem;
+  font-size: var(--lb-table-body, 0.82rem);
   font-weight: 500;
   color: var(--lb-muted, #666);
 }

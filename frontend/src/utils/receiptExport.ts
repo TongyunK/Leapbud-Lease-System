@@ -1,4 +1,5 @@
 import type { ReceiptRecord } from '@/types/receipt'
+import { formatBookingDepositChangeLog } from '@/utils/bookingDepositChangeLog'
 
 export const RECEIPT_IO_FIELD_KEYS = [
   'receiptCode',
@@ -57,7 +58,9 @@ export function receiptToIoRow(
     [h('paymentMethod')]: row.paymentMethod || '',
     [h('amount')]: row.amount ?? '',
     [h('remark')]: row.remark || '',
-    [h('changeLog')]: row.changeLog || '',
+    [h('changeLog')]: formatBookingDepositChangeLog(row.changeLog, (key, values) =>
+      t(key, values),
+    ),
     [h('createdBy')]: row.createdBy || '',
     [h('createdAt')]: row.createdAt || '',
   }

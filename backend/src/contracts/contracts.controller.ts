@@ -13,11 +13,13 @@ import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger
 import { UserRole } from '@prisma/client';
 import { ContractsService } from './contracts.service';
 import { ContractCancelService } from './contract-cancel.service';
+import { ContractRenewalService } from './contract-renewal.service';
 import {
   CreateContractDto,
   UpdateContractDto,
   ImportContractsDto,
   OpenContractOrderDto,
+  RenewContractDto,
 } from './dto/contract.dto';
 import {
   ConductCancelContractDto,
@@ -42,6 +44,7 @@ export class ContractsController {
   constructor(
     private readonly contractsService: ContractsService,
     private readonly contractCancelService: ContractCancelService,
+    private readonly contractRenewalService: ContractRenewalService,
   ) {}
 
   @Get()
@@ -238,6 +241,30 @@ export class ContractsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.contractsService.openOrder(id, dto, actorUserId(user));
+  }
+
+  @RequirePermissions('contracts:create')
+  @Get(':id/renewal-preview')
+  @ApiOkResponse({ description: 'Preview contract renewal (deposit transfer, outstanding rent)' })
+  renewalPreview(@Param('id') id: string) {
+    return this.contractRenewalService.preview(id);
+  }
+
+  @RequirePermissions('contracts:create')
+  @Post(':id/renew')
+  @ApiOkResponse({ description: 'Renew contract: create new lease and transfer deposits' })
+  renew(
+    @Param('id') id: string,
+    @Body() dto: RenewContractDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.contractRenewalService.renew(id, dto, actorUserId(user));
+  }
+
+  @Get(':id/deposit-transfers')
+  @ApiOkResponse({ description: 'List deposit transfer records for a contract' })
+  listDepositTransfers(@Param('id') id: string) {
+    return this.contractRenewalService.listTransfers(id);
   }
 
   @RequirePermissions('contracts:update')

@@ -112,6 +112,9 @@ export class BuildingAccessService {
     return {
       OR: [
         { buildingId: { in: ids } },
+        // 旧数据大量客户未设所属大厦：在大厦视图／签约下拉中仍可选，签约时再按房间补全
+        { buildingId: null },
+        { buildingId: '' },
         { contracts: { some: { room: { buildingId: { in: ids } } } } },
       ],
     };

@@ -24,6 +24,7 @@ import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useNavStore } from '@/stores/nav'
 import { useStatusStore } from '@/stores/status'
 import { useBrandingStore } from '@/stores/branding'
+import { useMenuRoleAccessStore } from '@/stores/menuRoleAccess'
 import { changeEmailApi, changePasswordApi, fetchMeApi } from '@/api/auth'
 import { isAxiosError } from 'axios'
 import { useIsCompact, useIsMobile } from '@/composables/useMediaQuery'
@@ -40,8 +41,17 @@ const userStore = useUserStore()
 const buildingScope = useBuildingScopeStore()
 const navStore = useNavStore()
 const brandingStore = useBrandingStore()
+const menuRoleAccess = useMenuRoleAccessStore()
 const { logoUrl, title: brandTitle, subtitle: brandSubtitle, logoFrameless } =
   storeToRefs(brandingStore)
+
+function syncMenuRoleAccess() {
+  if (userStore.isLoggedIn && userStore.isSuperAdmin) {
+    void menuRoleAccess.load()
+  } else {
+    menuRoleAccess.clear()
+  }
+}
 const ALL_BUILDINGS = '__all__'
 const isMobile = useIsMobile()
 const isCompact = useIsCompact()
@@ -203,10 +213,19 @@ watch(
     if (ok) {
       void navStore.loadNav()
       void buildingScope.load()
+      syncMenuRoleAccess()
     } else {
       navStore.clear()
       buildingScope.clear()
+      menuRoleAccess.clear()
     }
+  },
+)
+
+watch(
+  () => userStore.isSuperAdmin,
+  () => {
+    syncMenuRoleAccess()
   },
 )
 
@@ -214,6 +233,7 @@ onMounted(() => {
   if (userStore.isLoggedIn) {
     void navStore.loadNav()
     void buildingScope.load()
+    syncMenuRoleAccess()
   }
   registerMainBoundsPublisher(publishMainBounds)
   void nextTick(() => {
@@ -261,6 +281,7 @@ function onLogout() {
   userStore.logout()
   navStore.clear()
   buildingScope.clear()
+  menuRoleAccess.clear()
   useStatusStore().clear()
   router.replace({ name: 'login' })
 }
@@ -970,11 +991,14 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 .sidebar-menu :deep(.el-menu-item),
 .sidebar-menu :deep(.el-sub-menu__title) {
+  position: relative;
   margin: 2px 0;
   border-radius: 10px;
   height: 40px;
   line-height: 40px;
   color: #fff !important;
+  display: flex !important;
+  align-items: center;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
@@ -983,9 +1007,39 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   background: rgba(255, 255, 255, 0.1) !important;
 }
 
+.sidebar-menu :deep(.el-menu-item:hover > .nav-role-access),
+.sidebar-menu :deep(.el-sub-menu__title:hover > .nav-role-access),
+.sidebar-menu :deep(.nav-role-access.is-open),
+.sidebar-menu :deep(.nav-role-access.is-forced-open) {
+  opacity: 1;
+  transform: translate(0, -50%);
+  pointer-events: auto;
+}
+
+/* 仅悬停显示权限徽章时，才给标题让出右侧空间 */
+.sidebar-menu :deep(.el-menu-item:hover > .nav-label),
+.sidebar-menu :deep(.el-menu-item:has(.nav-role-access.is-open) > .nav-label),
+.sidebar-menu :deep(.el-menu-item:has(.nav-role-access.is-forced-open) > .nav-label) {
+  padding-right: 52px;
+}
+
+.sidebar-menu :deep(.el-sub-menu__title:hover > .nav-label),
+.sidebar-menu :deep(.el-sub-menu__title:has(.nav-role-access.is-open) > .nav-label),
+.sidebar-menu :deep(.el-sub-menu__title:has(.nav-role-access.is-forced-open) > .nav-label) {
+  padding-right: 58px;
+}
+
 .sidebar-menu :deep(.el-sub-menu__title) {
   font-weight: 650;
   padding-right: 32px !important;
+}
+
+.sidebar-menu :deep(.el-sub-menu__title > .nav-role-access) {
+  right: 28px;
+}
+
+.app-layout.collapsed .sidebar-menu :deep(.nav-role-access) {
+  display: none !important;
 }
 
 .sidebar-menu :deep(.el-sub-menu__icon-arrow) {
@@ -1038,6 +1092,8 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 
 /* 与 Element Plus 菜单默认一致（约 14px）；此前未 :deep，大屏实际一直是这档 */
 .sidebar-menu :deep(.nav-label) {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -1481,6 +1537,119 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 </style>
 
 <style>
+.nav-role-access-popper.el-popper {
+  max-width: 240px;
+  min-width: 148px;
+  padding: 0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  background: linear-gradient(180deg, #3a4048 0%, #2a2f36 100%) !important;
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset !important;
+  overflow: hidden;
+}
+
+.nav-role-access-popper .el-popper__arrow::before {
+  background: #323841 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.nav-role-access-tip {
+  padding: 10px 11px 9px;
+}
+
+.nav-role-access-tip__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-role-access-tip__head-icon {
+  color: #7dd3fc;
+  flex-shrink: 0;
+}
+
+.nav-role-access-tip__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.nav-role-access-tip__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.2);
+  color: #bae6fd;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.nav-role-access-tip__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-role-access-tip__list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #f8fafc;
+  transition: background 0.12s ease;
+}
+
+.nav-role-access-tip__list li:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-role-access-tip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #7dd3fc;
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.16);
+}
+
+.nav-role-access-tip__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-role-access-tip__empty {
+  margin: 2px 0 0;
+  padding: 4px 2px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 .user-dropdown-popper.el-popper {
   border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6) !important;
   border-radius: 10px !important;

@@ -51,7 +51,7 @@ export const PERMISSION_MODULES: PermissionModuleDef[] = [
   { module: 'roomConfigs', moduleName: '房間配置', sortOrder: 210, defaultGrant: false },
   { module: 'roomTypes', moduleName: '房間類型', sortOrder: 220, defaultGrant: false },
   { module: 'customerSources', moduleName: '客戶來源', sortOrder: 230, defaultGrant: false },
-  { module: 'documentTemplates', moduleName: '單據模板', sortOrder: 240, defaultGrant: false },
+  { module: 'documentTemplates', moduleName: '列印模板', sortOrder: 240, defaultGrant: false },
   { module: 'numberingRules', moduleName: '自動編號', sortOrder: 250, defaultGrant: false },
   { module: 'systemSettings', moduleName: '系統設置', sortOrder: 255, defaultGrant: false },
   { module: 'scheduledJobs', moduleName: '定時任務', sortOrder: 256, defaultGrant: false },
@@ -80,7 +80,7 @@ const ACTION_LABEL_BY_MODULE: Partial<Record<string, Partial<Record<PermissionAc
     batchPurge: '批量刪除',
   },
   refundOrders: {
-    update: '辦理打款',
+    update: '打款',
   },
   systemSettings: {
     update: '保存',

@@ -93,7 +93,7 @@ const receiptPerms = useResourcePermissions('receipts')
 const { allocZ, raiseFloor } = useOverlayStackZ()
 
 /** 退租可办：租赁中／退租中／已续约；取消可办：签约中族 */
-const VACATE_CONTRACT_STATUSES = ['租賃中', '退租中', '已續約']
+const VACATE_CONTRACT_STATUSES = ['租賃中', '退租中']
 const CANCEL_CONTRACT_STATUSES = ['簽約中', '草稿', '已簽約', '交吉中']
 
 function todayYmd() {

@@ -14,7 +14,12 @@ import {
   NestedOccupantDto,
   UpdateCustomerDto,
 } from './dto/customer.dto';
-import { customerInclude, customerListInclude, toCustomerDto } from './customer.mapper';
+import {
+  customerInclude,
+  customerListInclude,
+  toCustomerDto,
+  type CustomerLeaseSummaryDto,
+} from './customer.mapper';
 import { actorLabelsOrEmpty } from '../common/audit';
 import {
   dateRangeFilter,
@@ -30,6 +35,7 @@ import {
   ensureOpenAffiliation,
   rebindOccupantAffiliation,
 } from '../common/occupant-customer-affiliation';
+import { OCCUPYING_CONTRACT_STATUSES } from '../common/room-lease';
 
 function s(v?: string | null) {
   return (v ?? '').trim();
@@ -162,12 +168,102 @@ export class CustomersService {
       }),
     ]);
 
+    const items = await this.attachLeaseSummaries(
+      rows.map((row) => toCustomerDto(row)),
+      { includePast: false },
+    );
     return {
-      items: rows.map(toCustomerDto),
+      items,
       total,
       page,
       pageSize: pageSize ?? total,
     };
+  }
+
+  private dateOnlyStr(d: Date | null | undefined): string {
+    if (!d) return '';
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  private toLeaseSummary(row: {
+    id: string;
+    contractCode: string;
+    status: string;
+    occupancyMode: string;
+    partLabel: string;
+    startDate: Date | null;
+    endDate: Date | null;
+    roomId: string;
+    room: { roomCode: string; name: string } | null;
+  }): CustomerLeaseSummaryDto {
+    return {
+      contractId: row.id,
+      contractCode: row.contractCode,
+      roomId: row.roomId,
+      roomCode: row.room?.roomCode ?? '',
+      roomName: row.room?.name ?? '',
+      occupancyMode: row.occupancyMode || 'whole',
+      partLabel: row.partLabel || '',
+      status: row.status,
+      startDate: this.dateOnlyStr(row.startDate),
+      endDate: this.dateOnlyStr(row.endDate),
+    };
+  }
+
+  /** 按客户批量补齐在租／过往合约摘要 */
+  private async attachLeaseSummaries<
+    T extends { id: string; activeLeases?: CustomerLeaseSummaryDto[]; pastLeases?: CustomerLeaseSummaryDto[] },
+  >(
+    items: T[],
+    opts: { includePast: boolean },
+  ): Promise<T[]> {
+    if (!items.length) return items;
+    const customerIds = items.map((i) => i.id);
+    const occupying = [...OCCUPYING_CONTRACT_STATUSES];
+    const rows = await this.prisma.contract.findMany({
+      where: {
+        customerId: { in: customerIds },
+        ...(opts.includePast
+          ? { status: { not: '草稿' } }
+          : { status: { in: occupying } }),
+      },
+      select: {
+        id: true,
+        customerId: true,
+        contractCode: true,
+        status: true,
+        occupancyMode: true,
+        partLabel: true,
+        startDate: true,
+        endDate: true,
+        roomId: true,
+        room: { select: { roomCode: true, name: true } },
+      },
+      orderBy: [{ endDate: 'desc' }, { startDate: 'desc' }, { contractCode: 'desc' }],
+    });
+    const activeByCustomer = new Map<string, CustomerLeaseSummaryDto[]>();
+    const pastByCustomer = new Map<string, CustomerLeaseSummaryDto[]>();
+    const occupyingSet = new Set<string>(occupying);
+    for (const row of rows) {
+      const summary = this.toLeaseSummary(row);
+      if (occupyingSet.has(row.status)) {
+        const list = activeByCustomer.get(row.customerId) || [];
+        list.push(summary);
+        activeByCustomer.set(row.customerId, list);
+      } else if (opts.includePast) {
+        const list = pastByCustomer.get(row.customerId) || [];
+        list.push(summary);
+        pastByCustomer.set(row.customerId, list);
+      }
+    }
+    return items.map((item) => ({
+      ...item,
+      activeLeases: activeByCustomer.get(item.id) || [],
+      pastLeases: opts.includePast ? pastByCustomer.get(item.id) || [] : item.pastLeases || [],
+    }));
   }
 
   private buildListWhere(params: {
@@ -218,7 +314,6 @@ export class CustomersService {
           { name: { contains: keyword, mode: 'insensitive' } },
           { companyNameZh: { contains: keyword, mode: 'insensitive' } },
           { companyNameEn: { contains: keyword, mode: 'insensitive' } },
-          { rentedRooms: { contains: keyword, mode: 'insensitive' } },
           { status: { contains: keyword, mode: 'insensitive' } },
           { building: { name: { contains: keyword, mode: 'insensitive' } } },
           { accountManagerUser: { account: { contains: keyword, mode: 'insensitive' } } },
@@ -288,7 +383,10 @@ export class CustomersService {
     });
     if (!row) throw new NotFoundException(`Customer ${id} not found`);
     await this.access.assertCustomerId(row.id);
-    return toCustomerDto(row);
+    const [dto] = await this.attachLeaseSummaries([toCustomerDto(row)], {
+      includePast: false,
+    });
+    return dto;
   }
 
   /** 生成下一个客户编号：CSM + YY + 4 位序号 */
@@ -356,7 +454,6 @@ export class CustomersService {
             businessRegCopy: s(dto.businessRegCopy),
             remark: s(dto.remark),
             source: s(dto.source),
-            rentedRooms: s(dto.rentedRooms),
             buildingId,
             agreementTemplateId,
             createdById: actorId,
@@ -584,7 +681,6 @@ export class CustomersService {
             businessRegCopy: dto.businessRegCopy !== undefined ? s(dto.businessRegCopy) : undefined,
             remark: dto.remark !== undefined ? s(dto.remark) : undefined,
             source: dto.source !== undefined ? s(dto.source) : undefined,
-            rentedRooms: dto.rentedRooms !== undefined ? s(dto.rentedRooms) : undefined,
             buildingId,
             agreementTemplateId,
             primaryOccupantId: nextPrimaryId,

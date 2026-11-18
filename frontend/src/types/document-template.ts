@@ -19,4 +19,6 @@ export interface DocumentFieldDictItem {
   label: string
   loop?: boolean
   note?: string
+  /** 旧键／不推荐新模板使用 */
+  deprecated?: boolean
 }

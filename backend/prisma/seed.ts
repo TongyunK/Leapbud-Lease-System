@@ -741,6 +741,7 @@ async function seedRolesAndMenus(actorId: string) {
       path: 'finance-mgmt/invoice-service-details',
       icon: 'Tickets',
       sortOrder: 39,
+      active: true,
     },
     {
       id: 'menu_receivables',
@@ -831,7 +832,7 @@ async function seedRolesAndMenus(actorId: string) {
       id: 'menu_document_templates',
       parentId: 'menu_system',
       type: 'menu',
-      name: '單據模板',
+      name: '列印模板',
       nameKey: 'menu.documentTemplates',
       routeName: 'documentTemplates',
       path: 'system/document-templates',

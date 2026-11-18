@@ -58,6 +58,12 @@ export interface ContractRecord {
   bookingDepositReceiptId?: string | null
   /** 定金收据编号 */
   bookingDepositReceiptCode?: string | null
+  /** 续约来源合约 ID（本约为续约新开） */
+  renewedFromId?: string | null
+  renewedFromCode?: string
+  /** 续约目标合约 ID（本约已续约） */
+  renewedToId?: string | null
+  renewedToCode?: string
   electricityRate: number | null
   miscDeposit: number | null
   doorKeyQty: number

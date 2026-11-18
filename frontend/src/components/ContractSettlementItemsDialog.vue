@@ -6,6 +6,7 @@ import type {
   ContractSettlementRecord,
 } from '@/types/contract-settlement'
 import { useIsMobile } from '@/composables/useMediaQuery'
+import { useTableColWidth } from '@/composables/useTableColWidth'
 import { formatMoney } from '@/utils/format'
 import { formatSettlementItemDescParts } from '@/utils/settlementItemDesc'
 
@@ -28,7 +29,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
-const dialogWidth = computed(() => (isMobile.value ? '94%' : '780px'))
+const { colW, textColW, tableLayoutKey } = useTableColWidth()
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '820px'))
 
 function round2(n: number) {
   return Math.round(n * 100) / 100
@@ -90,6 +92,17 @@ const otherItems = computed(() =>
       ty !== 'REFUND_ALLOCATION'
     )
   }),
+)
+
+const visibleTotal = computed(() => sumAmount(visibleItems.value))
+const hasAnyGroup = computed(
+  () =>
+    deductionItems.value.length +
+      additionalItems.value.length +
+      voidReceivableItems.value.length +
+      refundAllocationItems.value.length +
+      otherItems.value.length >
+    0,
 )
 
 const deductionTotalForFormula = computed(() => {
@@ -171,48 +184,137 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
     destroy-on-close
     :z-index="zIndex"
   >
-    <div class="settlement-item-groups">
-      <div v-if="deductionItems.length" class="settlement-item-group">
-        <div class="settlement-item-group__head">
-          <h4>{{ t('contractSettlement.itemGroups.deduction') }}</h4>
-          <span class="settlement-item-group__sum">
-            {{ t('contractSettlement.itemGroups.subtotal') }}
-            {{ money(sumAmount(deductionItems)) }}
-          </span>
-        </div>
-        <el-table :data="deductionItems" border>
-          <el-table-column type="index" label="#" width="52" />
-          <el-table-column
-            :label="t('contractSettlement.fields.itemType')"
-            min-width="100"
-          >
-            <template #default="{ row }">{{ itemTypeLabel(row.itemType) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('common.description')" min-width="200">
-            <template #default="{ row }">{{ descText(row) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('common.amount')" width="110" align="right">
-            <template #default="{ row }">
-              <span class="settlement-amount">{{ money(row.amount) }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
+    <div class="settlement-items-shell">
+      <div v-if="record" class="settlement-items-meta">
+        <span class="settlement-items-meta__code">{{ record.settlementCode }}</span>
+        <span class="settlement-items-meta__sum">
+          {{ t('contractSettlement.itemsDialogTotal', { amount: money(visibleTotal) }) }}
+        </span>
       </div>
 
-      <div v-if="additionalItems.length" class="settlement-item-group">
-        <div class="settlement-item-group__head">
-          <h4>{{ t('contractSettlement.itemGroups.additional') }}</h4>
+      <div v-if="hasAnyGroup" class="settlement-item-groups">
+        <div v-if="deductionItems.length" class="settlement-item-group">
+          <div class="settlement-item-group__head">
+            <h4>{{ t('contractSettlement.itemGroups.deduction') }}</h4>
+            <span class="settlement-item-group__sum">
+              {{ t('contractSettlement.itemGroups.subtotal') }}
+              {{ money(sumAmount(deductionItems)) }}
+            </span>
+          </div>
+          <el-table
+            :key="`${tableLayoutKey}-deduction`"
+            :data="deductionItems"
+            border
+            class="settlement-items-table"
+          >
+            <el-table-column type="index" label="#" width="52" />
+            <el-table-column
+              :label="t('contractSettlement.fields.itemType')"
+              :min-width="colW(t('contractSettlement.fields.itemType'), { contentMin: 96 })"
+            >
+              <template #default="{ row }">{{ itemTypeLabel(row.itemType) }}</template>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.description')"
+              :min-width="textColW(t('common.description'), { kind: 'name' })"
+            >
+              <template #default="{ row }">{{ descText(row) }}</template>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.amount')"
+              :min-width="colW(t('common.amount'), { contentMin: 110 })"
+              align="right"
+            >
+              <template #default="{ row }">
+                <span class="settlement-amount">{{ money(row.amount) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
-        <el-table :data="additionalItems" border>
-          <el-table-column type="index" label="#" width="52" />
-          <el-table-column :label="t('common.description')" min-width="240">
-            <template #default="{ row }">
-              <div
-                v-for="p in [descParts(row)]"
-                :key="row.id"
-                class="settlement-item-desc"
-              >
-                <span>
+
+        <div v-if="additionalItems.length" class="settlement-item-group">
+          <div class="settlement-item-group__head">
+            <h4>{{ t('contractSettlement.itemGroups.additional') }}</h4>
+            <span class="settlement-item-group__sum">
+              {{ t('contractSettlement.itemGroups.subtotal') }}
+              {{ money(sumAmount(additionalItems)) }}
+            </span>
+          </div>
+          <el-table
+            :key="`${tableLayoutKey}-additional`"
+            :data="additionalItems"
+            border
+            class="settlement-items-table"
+          >
+            <el-table-column type="index" label="#" width="52" />
+            <el-table-column
+              :label="t('common.description')"
+              :min-width="textColW(t('common.description'), { kind: 'long' })"
+            >
+              <template #default="{ row }">
+                <div
+                  v-for="p in [descParts(row)]"
+                  :key="row.id"
+                  class="settlement-item-desc"
+                >
+                  <span>
+                    <template v-if="p.code && canOpenDescCode(row)">
+                      {{ p.text }}
+                      <button type="button" class="fk-link" @click="onOpenDescCode(row)">
+                        {{ p.code }}
+                      </button>
+                    </template>
+                    <template v-else>{{ descText(row) }}</template>
+                  </span>
+                  <span v-if="excessFormulaOf(row)" class="settlement-item-desc__formula">
+                    {{ excessFormulaOf(row) }}
+                  </span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.amount')"
+              :min-width="colW(t('common.amount'), { contentMin: 120 })"
+              align="right"
+            >
+              <template #default="{ row }">
+                <button
+                  v-if="row.receivableId"
+                  type="button"
+                  class="settlement-amount settlement-amount--strong settlement-amount--link"
+                  @click="onOpenReceivable(row)"
+                >
+                  {{ money(row.amount) }}
+                </button>
+                <span v-else class="settlement-amount settlement-amount--strong">
+                  {{ money(row.amount) }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div v-if="voidReceivableItems.length" class="settlement-item-group">
+          <div class="settlement-item-group__head">
+            <h4>{{ t('contractSettlement.itemGroups.voidReceivable') }}</h4>
+            <span class="settlement-item-group__sum">
+              {{ t('contractSettlement.itemGroups.subtotal') }}
+              {{ money(sumAmount(voidReceivableItems)) }}
+            </span>
+          </div>
+          <el-table
+            :key="`${tableLayoutKey}-void`"
+            :data="voidReceivableItems"
+            border
+            class="settlement-items-table"
+          >
+            <el-table-column type="index" label="#" width="52" />
+            <el-table-column
+              :label="t('common.description')"
+              :min-width="textColW(t('common.description'), { kind: 'name' })"
+            >
+              <template #default="{ row }">
+                <template v-for="p in [descParts(row)]" :key="row.id">
                   <template v-if="p.code && canOpenDescCode(row)">
                     {{ p.text }}
                     <button type="button" class="fk-link" @click="onOpenDescCode(row)">
@@ -220,121 +322,169 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
                     </button>
                   </template>
                   <template v-else>{{ descText(row) }}</template>
-                </span>
-                <span v-if="excessFormulaOf(row)" class="settlement-item-desc__formula">
-                  {{ excessFormulaOf(row) }}
-                </span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('common.amount')" width="120" align="right">
-            <template #default="{ row }">
-              <button
-                v-if="row.receivableId"
-                type="button"
-                class="settlement-amount settlement-amount--strong settlement-amount--link"
-                @click="onOpenReceivable(row)"
-              >
-                {{ money(row.amount) }}
-              </button>
-              <span v-else class="settlement-amount settlement-amount--strong">
-                {{ money(row.amount) }}
-              </span>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-
-      <div v-if="voidReceivableItems.length" class="settlement-item-group">
-        <div class="settlement-item-group__head">
-          <h4>{{ t('contractSettlement.itemGroups.voidReceivable') }}</h4>
-        </div>
-        <el-table :data="voidReceivableItems" border>
-          <el-table-column type="index" label="#" width="52" />
-          <el-table-column :label="t('common.description')" min-width="200">
-            <template #default="{ row }">
-              <template v-for="p in [descParts(row)]" :key="row.id">
-                <template v-if="p.code && canOpenDescCode(row)">
-                  {{ p.text }}
-                  <button type="button" class="fk-link" @click="onOpenDescCode(row)">
-                    {{ p.code }}
-                  </button>
                 </template>
-                <template v-else>{{ descText(row) }}</template>
               </template>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('common.amount')" width="120" align="right">
-            <template #default="{ row }">
-              <button
-                v-if="row.receivableId"
-                type="button"
-                class="settlement-amount settlement-amount--link"
-                @click="onOpenReceivable(row)"
-              >
-                {{ money(row.amount) }}
-              </button>
-              <span v-else class="settlement-amount">{{ money(row.amount) }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-
-      <div v-if="refundAllocationItems.length" class="settlement-item-group">
-        <div class="settlement-item-group__head">
-          <h4>{{ t('contractSettlement.itemGroups.refundAllocation') }}</h4>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.amount')"
+              :min-width="colW(t('common.amount'), { contentMin: 120 })"
+              align="right"
+            >
+              <template #default="{ row }">
+                <button
+                  v-if="row.receivableId"
+                  type="button"
+                  class="settlement-amount settlement-amount--link"
+                  @click="onOpenReceivable(row)"
+                >
+                  {{ money(row.amount) }}
+                </button>
+                <span v-else class="settlement-amount">{{ money(row.amount) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
-        <el-table :data="refundAllocationItems" border>
-          <el-table-column type="index" label="#" width="52" />
-          <el-table-column :label="t('common.description')" min-width="200">
-            <template #default="{ row }">{{ descText(row) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('common.amount')" width="120" align="right">
-            <template #default="{ row }">
-              <span class="settlement-amount settlement-amount--strong">
-                {{ money(row.amount) }}
-              </span>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
 
-      <div v-if="otherItems.length" class="settlement-item-group">
-        <div class="settlement-item-group__head">
-          <h4>{{ t('contractSettlement.itemGroups.other') }}</h4>
-        </div>
-        <el-table :data="otherItems" border>
-          <el-table-column type="index" label="#" width="52" />
-          <el-table-column
-            :label="t('contractSettlement.fields.itemType')"
-            min-width="100"
+        <div v-if="refundAllocationItems.length" class="settlement-item-group">
+          <div class="settlement-item-group__head">
+            <h4>{{ t('contractSettlement.itemGroups.refundAllocation') }}</h4>
+            <span class="settlement-item-group__sum">
+              {{ t('contractSettlement.itemGroups.subtotal') }}
+              {{ money(sumAmount(refundAllocationItems)) }}
+            </span>
+          </div>
+          <el-table
+            :key="`${tableLayoutKey}-refund`"
+            :data="refundAllocationItems"
+            border
+            class="settlement-items-table"
           >
-            <template #default="{ row }">{{ itemTypeLabel(row.itemType) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('common.description')" min-width="160">
-            <template #default="{ row }">{{ descText(row) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('common.amount')" width="120" align="right">
-            <template #default="{ row }">
-              <span class="settlement-amount">{{ money(row.amount) }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
+            <el-table-column type="index" label="#" width="52" />
+            <el-table-column
+              :label="t('common.description')"
+              :min-width="textColW(t('common.description'), { kind: 'name' })"
+            >
+              <template #default="{ row }">{{ descText(row) }}</template>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.amount')"
+              :min-width="colW(t('common.amount'), { contentMin: 120 })"
+              align="right"
+            >
+              <template #default="{ row }">
+                <span class="settlement-amount settlement-amount--strong">
+                  {{ money(row.amount) }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div v-if="otherItems.length" class="settlement-item-group">
+          <div class="settlement-item-group__head">
+            <h4>{{ t('contractSettlement.itemGroups.other') }}</h4>
+            <span class="settlement-item-group__sum">
+              {{ t('contractSettlement.itemGroups.subtotal') }}
+              {{ money(sumAmount(otherItems)) }}
+            </span>
+          </div>
+          <el-table
+            :key="`${tableLayoutKey}-other`"
+            :data="otherItems"
+            border
+            class="settlement-items-table"
+          >
+            <el-table-column type="index" label="#" width="52" />
+            <el-table-column
+              :label="t('contractSettlement.fields.itemType')"
+              :min-width="colW(t('contractSettlement.fields.itemType'), { contentMin: 96 })"
+            >
+              <template #default="{ row }">{{ itemTypeLabel(row.itemType) }}</template>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.description')"
+              :min-width="textColW(t('common.description'), { kind: 'name' })"
+            >
+              <template #default="{ row }">{{ descText(row) }}</template>
+            </el-table-column>
+            <el-table-column
+              :label="t('common.amount')"
+              :min-width="colW(t('common.amount'), { contentMin: 120 })"
+              align="right"
+            >
+              <template #default="{ row }">
+                <span class="settlement-amount">{{ money(row.amount) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
       </div>
+      <p v-else class="settlement-items-empty">
+        {{ t('contractSettlement.itemGroups.empty') }}
+      </p>
     </div>
-    <template #footer>
-      <el-button type="primary" class="lb-btn-primary" @click="visible = false">
-        {{ t('common.close') }}
-      </el-button>
-    </template>
   </el-dialog>
 </template>
 
 <style scoped>
+/* append-to-body 对齐列表表格字号断点 */
+.settlement-items-shell {
+  --lb-table-body: 0.82rem;
+  --lb-table-head: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  font-size: var(--lb-table-body);
+  color: #243029;
+}
+
+@media (max-width: 1279.98px) {
+  .settlement-items-shell {
+    --lb-table-body: 0.76rem;
+    --lb-table-head: 0.72rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  .settlement-items-shell {
+    --lb-table-body: 0.86rem;
+    --lb-table-head: 0.82rem;
+  }
+}
+
+@media (min-width: 1800px) {
+  .settlement-items-shell {
+    --lb-table-body: 0.9rem;
+    --lb-table-head: 0.86rem;
+  }
+}
+
+.settlement-items-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.settlement-items-meta__code {
+  font-size: var(--lb-table-body);
+  font-weight: 700;
+  color: var(--lb-ink, #1a1a1a);
+}
+
+.settlement-items-meta__sum {
+  font-size: var(--lb-table-body);
+  font-weight: 650;
+  color: var(--lb-muted, #666);
+  font-variant-numeric: tabular-nums;
+}
+
 .settlement-item-groups {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .settlement-item-group__head {
@@ -347,39 +497,53 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
 
 .settlement-item-group__head h4 {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 650;
+  font-size: var(--lb-table-body);
+  font-weight: 700;
   color: #2f3f36;
 }
 
 .settlement-item-group__sum {
   flex-shrink: 0;
-  font-size: 0.92rem;
+  font-size: var(--lb-table-head);
+  font-weight: 650;
   color: #5a6a60;
   font-variant-numeric: tabular-nums;
 }
 
-.settlement-item-group :deep(.el-table) {
-  --el-table-font-size: 0.92rem;
-  font-size: 0.92rem;
+.settlement-items-table.el-table {
+  --el-table-font-size: var(--lb-table-body);
+  font-size: var(--lb-table-body);
+  color: #243029;
 }
 
-.settlement-item-group :deep(.el-table th.el-table__cell) {
-  font-size: 0.88rem;
-}
-
-.settlement-item-group :deep(.el-table td.el-table__cell) {
-  font-size: 0.92rem;
-}
-
-.settlement-item-group :deep(.fk-link) {
+.settlement-items-table :deep(.el-table__cell) {
   font-size: inherit;
 }
 
-/** 金额：默认黑色常规；仅应加收／应退加粗 */
+.settlement-items-table :deep(.el-table__cell > .cell) {
+  font-size: inherit;
+  line-height: 1.4;
+}
+
+.settlement-items-table :deep(th.el-table__cell) {
+  background-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #5a6068);
+  font-size: var(--lb-table-head);
+  font-weight: 650;
+}
+
+.settlement-items-table :deep(th.el-table__cell > .cell) {
+  font-size: inherit;
+}
+
+.settlement-items-table :deep(.fk-link) {
+  font-size: inherit;
+}
+
 .settlement-amount {
-  color: #111;
-  font-weight: 400;
+  color: #243029;
+  font-weight: 650;
+  font-size: inherit;
   font-variant-numeric: tabular-nums;
 }
 
@@ -394,11 +558,12 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
   line-height: inherit;
   cursor: pointer;
   text-align: right;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .settlement-amount--strong {
-  color: #000;
-  font-weight: 600;
+  color: #111;
+  font-weight: 700;
 }
 
 .settlement-amount--link:hover {
@@ -413,8 +578,15 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
 }
 
 .settlement-item-desc__formula {
-  font-size: 0.86rem;
+  font-size: inherit;
   color: #6a7a70;
   font-variant-numeric: tabular-nums;
+}
+
+.settlement-items-empty {
+  margin: 18px 0 8px;
+  text-align: center;
+  color: var(--lb-muted, #666);
+  font-size: var(--lb-table-body);
 }
 </style>

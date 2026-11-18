@@ -1156,6 +1156,7 @@ export class ContractsService {
         id: true,
         name: true,
         roomCode: true,
+        buildingId: true,
         monthlyRent: true,
         subleaseMark: true,
         leaseCapability: true,
@@ -1303,9 +1304,46 @@ export class ContractsService {
   private async assertCustomer(customerId: string) {
     const c = await this.prisma.customer.findUnique({
       where: { id: customerId },
-      select: { id: true },
+      select: { id: true, buildingId: true },
     });
     if (!c) throw new BadRequestException('Invalid customerId');
+    return c;
+  }
+
+  /**
+   * 合约房间与客户所属大厦必须一致，禁止跨大厦签约。
+   * 客户未设所属大厦时放行（兼容旧数据），由 bindCustomerBuildingIfEmpty 在签约时补全。
+   */
+  private assertCustomerRoomSameBuilding(
+    customer: { buildingId: string | null },
+    room: { buildingId: string },
+  ) {
+    const custBid = customer.buildingId?.trim() || '';
+    if (!custBid) return;
+    if (custBid !== room.buildingId) {
+      throw new BadRequestException('客戶所屬大廈與房間不一致，不可跨大廈簽約');
+    }
+  }
+
+  /** 旧客户无所属大厦时，按签约房间补全（仅空值写入，不覆盖已有大厦） */
+  private async bindCustomerBuildingIfEmpty(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    buildingId: string,
+    actorId: string | null,
+  ) {
+    const bid = buildingId?.trim();
+    if (!bid) return;
+    await tx.customer.updateMany({
+      where: {
+        id: customerId,
+        OR: [{ buildingId: null }, { buildingId: '' }],
+      },
+      data: {
+        buildingId: bid,
+        ...(actorId ? { updatedById: actorId } : {}),
+      },
+    });
   }
 
   private async assertUser(userId: string | null) {
@@ -1628,7 +1666,8 @@ export class ContractsService {
     if (!customerId) throw new BadRequestException('customerId is required');
 
     const room = await this.assertRoom(roomId);
-    await this.assertCustomer(customerId);
+    const customer = await this.assertCustomer(customerId);
+    this.assertCustomerRoomSameBuilding(customer, room);
 
     const salesManagerId = nullId(dto.salesManagerId);
     await this.assertUser(salesManagerId);
@@ -1684,6 +1723,7 @@ export class ContractsService {
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
+        await this.bindCustomerBuildingIfEmpty(tx, customerId, room.buildingId, actorId);
         const created = await tx.contract.create({
           data: {
             contractCode,
@@ -1850,11 +1890,13 @@ export class ContractsService {
     }
 
     let customerId = existing.customerId;
+    let customer = await this.assertCustomer(customerId);
     if (dto.customerId !== undefined) {
       customerId = s(dto.customerId);
       if (!customerId) throw new BadRequestException('customerId is required');
-      await this.assertCustomer(customerId);
+      customer = await this.assertCustomer(customerId);
     }
+    this.assertCustomerRoomSameBuilding(customer, room);
 
     const salesManagerId =
       dto.salesManagerId !== undefined ? nullId(dto.salesManagerId) : undefined;
@@ -1946,6 +1988,7 @@ export class ContractsService {
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
+        await this.bindCustomerBuildingIfEmpty(tx, customerId, room.buildingId, actorId);
         await tx.contract.update({
           where: { id },
           data: {

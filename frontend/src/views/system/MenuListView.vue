@@ -7,6 +7,7 @@ import { ElMessage } from 'element-plus'
 import { Rank } from '@element-plus/icons-vue'
 import { fetchMenus, reorderMenusApi, updateMenuApi } from '@/api/menus'
 import { fetchRoleMenuMatrixApi, saveRoleMenuMatrixApi } from '@/api/roles'
+import { useMenuRoleAccessStore } from '@/stores/menuRoleAccess'
 import type { MenuRecord, MenuType } from '@/types/menu'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
@@ -244,6 +245,7 @@ async function saveMatrix() {
     ElMessage.success(t('role.menusUpdated'))
     await loadMatrix()
     void navStore.loadNav()
+    void useMenuRoleAccessStore().reload()
   } catch {
     /* interceptor */
   } finally {
@@ -506,7 +508,7 @@ async function toggleActive(row: MenuRecord) {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
   flex: 0 0 auto;
 }
@@ -523,14 +525,14 @@ async function toggleActive(row: MenuRecord) {
 .menu-matrix-fn {
   display: inline-block;
   line-height: 1.4;
-  color: #3a4a42;
+  color: var(--lb-ink, #1a1a1a);
   min-width: 0;
 }
 
 .menu-matrix-fn.is-dir {
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .menu-matrix-colhead {
@@ -544,22 +546,30 @@ async function toggleActive(row: MenuRecord) {
 .menu-matrix-colhead small {
   font-size: 11px;
   font-weight: 600;
-  color: #0f4a32;
-  background: #e8f3ec;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
   border-radius: 999px;
   padding: 2px 8px;
 }
 
 .menu-matrix-table :deep(.menu-matrix-row--dir > td.el-table__cell) {
-  background: linear-gradient(180deg, #f3f7f4 0%, #e8f0eb 100%) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) 100%
+  ) !important;
 }
 
 .menu-matrix-table :deep(.menu-matrix-row--dir:hover > td.el-table__cell) {
-  background: linear-gradient(180deg, #eaf3ee 0%, #dfece4 100%) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 7%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff) 100%
+  ) !important;
 }
 
 .menu-matrix-table :deep(.menu-matrix-row--dir .el-table__expand-icon) {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font-weight: 700;
 }
 
@@ -575,7 +585,7 @@ async function toggleActive(row: MenuRecord) {
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  border-color: #b7c7bd;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #c8c8c8);
   background: #fff;
   transition:
     background-color 0.15s ease,
@@ -600,9 +610,9 @@ async function toggleActive(row: MenuRecord) {
 
 .menu-matrix-check :deep(.el-checkbox__input.is-checked .el-checkbox__inner),
 .menu-matrix-check :deep(.el-checkbox__input.is-indeterminate .el-checkbox__inner) {
-  background-color: #0f4a32;
-  border-color: #0f4a32;
-  box-shadow: 0 0 0 3px rgba(15, 74, 50, 0.14);
+  background-color: var(--lb-brand, #0f4a32);
+  border-color: var(--lb-brand, #0f4a32);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
 }
 
 .menu-matrix-check :deep(.el-checkbox__input.is-indeterminate .el-checkbox__inner::before) {
@@ -616,12 +626,12 @@ async function toggleActive(row: MenuRecord) {
 }
 
 .menu-matrix-check :deep(.el-checkbox__inner:hover) {
-  border-color: #0f4a32;
+  border-color: var(--lb-brand, #0f4a32);
 }
 
 .menu-matrix-check :deep(.el-checkbox__input.is-focus .el-checkbox__inner) {
-  border-color: #0f4a32;
-  box-shadow: 0 0 0 3px rgba(15, 74, 50, 0.14);
+  border-color: var(--lb-brand, #0f4a32);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
 }
 
 </style>

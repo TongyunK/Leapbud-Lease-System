@@ -69,6 +69,10 @@ enum BookingDepositMovementType {
   top_up
   /// 没收／扣留（取消合约等；扣减余额，不退现金）
   forfeit
+  /// 续约转出（减余额；对端合约写 transfer_in）
+  transfer_out
+  /// 续约转入（仅流水；本金已计入新定金收据 amount）
+  transfer_in
 }
 
 /// 合约结算类型
@@ -259,6 +263,10 @@ model User {
   updatedContracts            Contract[]            @relation("ContractUpdatedBy")
   /// 作为销售经理：合约
   salesManagedContracts       Contract[]            @relation("ContractSalesManager")
+  /// 作为创建人：续约按金迁移
+  createdContractDepositTransfers ContractDepositTransfer[] @relation("ContractDepositTransferCreatedBy")
+  /// 作为更新人：续约按金迁移
+  updatedContractDepositTransfers ContractDepositTransfer[] @relation("ContractDepositTransferUpdatedBy")
   /// 作为创建人：合约配置
   createdContractConfigOptions ContractConfigOption[] @relation("ContractConfigOptionCreatedBy")
   /// 作为更新人：合约配置
@@ -729,8 +737,6 @@ model Customer {
   remark           String     @default("")
   /// 客户来源
   source           String     @default("")
-  /// 在租房间（文本，如 SP60；后续可挂 Room）
-  rentedRooms      String     @default("") @map("rented_rooms")
   /// 所属大厦 ID
   buildingId       String?    @map("building_id")
   /// 所属大厦
@@ -961,6 +967,16 @@ model Contract {
   bookingDepositReceiptId String? @unique @map("booking_deposit_receipt_id")
   /// 首张定金收据
   bookingDepositReceipt   Receipt? @relation("ContractBookingDepositReceipt", fields: [bookingDepositReceiptId], references: [id], onDelete: SetNull)
+  /// 续约来源合约 ID（本约为续约新开时指向旧约；每旧约至多续一次）
+  renewedFromId       String?   @unique @map("renewed_from_id")
+  /// 续约来源合约
+  renewedFrom         Contract? @relation("ContractRenewal", fields: [renewedFromId], references: [id], onDelete: Restrict)
+  /// 由本约续约产生的新约（至多一条）
+  renewedTo           Contract? @relation("ContractRenewal")
+  /// 作为迁出方：按金／定金迁移记录
+  depositTransfersOut ContractDepositTransfer[] @relation("DepositTransferFromContract")
+  /// 作为迁入方：按金／定金迁移记录
+  depositTransfersIn  ContractDepositTransfer[] @relation("DepositTransferToContract")
   /// 创建人用户 ID
   createdById         String?   @map("created_by")
   /// 创建人用户
@@ -984,6 +1000,57 @@ model Contract {
   @@index([createdById])
   @@index([updatedById])
   @@map("contracts")
+}
+
+/// 续约按金／定金迁移（不伪造资金流水；退租时认迁入按金）
+model ContractDepositTransfer {
+  /// 主键
+  id                       String   @id @default(cuid())
+  /// 迁出合约 ID（旧约）
+  fromContractId           String   @map("from_contract_id")
+  /// 迁出合约
+  fromContract             Contract @relation("DepositTransferFromContract", fields: [fromContractId], references: [id], onDelete: Restrict)
+  /// 迁入合约 ID（新约）
+  toContractId             String   @map("to_contract_id")
+  /// 迁入合约
+  toContract               Contract @relation("DepositTransferToContract", fields: [toContractId], references: [id], onDelete: Restrict)
+  /// 迁移日期
+  transferDate             DateTime @map("transfer_date") @db.Date
+  /// 已收按金迁入合计（房间+杂项+钥匙+借出物品）
+  roomDepositTransferred   Decimal  @default(0) @map("room_deposit_transferred") @db.Decimal(14, 2)
+  /// 房间按金部分
+  roomDepositAmount        Decimal  @default(0) @map("room_deposit_amount") @db.Decimal(14, 2)
+  /// 杂项按金部分
+  miscDepositAmount        Decimal  @default(0) @map("misc_deposit_amount") @db.Decimal(14, 2)
+  /// 房门匙按金部分
+  doorKeyDepositAmount     Decimal  @default(0) @map("door_key_deposit_amount") @db.Decimal(14, 2)
+  /// 信箱匙按金部分
+  mailboxKeyDepositAmount  Decimal  @default(0) @map("mailbox_key_deposit_amount") @db.Decimal(14, 2)
+  /// 借出物品按金部分
+  loanItemsDepositAmount   Decimal  @default(0) @map("loan_items_deposit_amount") @db.Decimal(14, 2)
+  /// 定金可用余额迁入
+  bookingDepositTransferred Decimal @default(0) @map("booking_deposit_transferred") @db.Decimal(14, 2)
+  /// 备注
+  remark                   String   @default("")
+  /// 创建人用户 ID
+  createdById              String?  @map("created_by")
+  /// 创建人用户
+  createdByUser            User?    @relation("ContractDepositTransferCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById              String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser            User?    @relation("ContractDepositTransferUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt                DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@index([fromContractId])
+  @@index([toContractId])
+  @@index([transferDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("contract_deposit_transfers")
 }
 
 /// 合约配置字典：合约期类型 / 租赁方式 / 钥匙按金单价
@@ -1573,10 +1640,14 @@ model BookingDepositMovement {
   contractId                String                     @map("contract_id")
   /// 所属合约
   contract                  Contract                   @relation("BookingDepositMovementBelongsToContract", fields: [contractId], references: [id], onDelete: Cascade)
-  /// 动账类型：apply=抵扣应收，refund=退还，top_up=加收入账，forfeit=没收／扣留
+  /// 动账类型：apply=抵扣应收，refund=退还，top_up=加收入账，forfeit=没收／扣留，transfer_out/in=续约迁移
   type                      BookingDepositMovementType
-  /// 动账金额（恒为正；方向由 type 决定；top_up 不扣减余额）
+  /// 动账金额（恒为正；方向由 type 决定；top_up／transfer_in 不扣减余额）
   amount                    Decimal                    @db.Decimal(14, 2)
+  /// 续约对端合约 ID（transfer_out／transfer_in）
+  relatedContractId         String?                    @map("related_contract_id")
+  /// 迁移批次号（同一续约的 out/in 共用）
+  transferGroupId           String?                    @map("transfer_group_id")
   /// 动账日期
   movementDate              DateTime                   @map("movement_date") @db.Date
   /// 抵扣关联应收 ID（仅 apply）
@@ -1616,6 +1687,8 @@ model BookingDepositMovement {
   @@index([receivableId])
   @@index([depositRefundId])
   @@index([refundOrderId])
+  @@index([relatedContractId])
+  @@index([transferGroupId])
   @@index([movementDate])
   @@index([createdById])
   @@index([updatedById])

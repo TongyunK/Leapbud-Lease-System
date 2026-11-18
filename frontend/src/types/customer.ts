@@ -12,6 +12,20 @@ export interface OccupantContactFields {
   remark: string
 }
 
+/** 客户在租／过往合约摘要（由占用中合约推导） */
+export interface CustomerLeaseSummary {
+  contractId: string
+  contractCode: string
+  roomId: string
+  roomCode: string
+  roomName: string
+  occupancyMode: string
+  partLabel: string
+  status: string
+  startDate: string
+  endDate: string
+}
+
 export interface CustomerRecord {
   id: string
   customerCode: string
@@ -26,7 +40,6 @@ export interface CustomerRecord {
   businessRegCopy: string
   remark: string
   source: string
-  rentedRooms: string
   buildingId: string | null
   buildingName: string
   /** 协议打印模板覆盖（空则用所属大厦默认协议模板） */
@@ -46,6 +59,10 @@ export interface CustomerRecord {
   receiptCount?: number
   terminationCount?: number
   depositRefundCount?: number
+  /** 占用中合约 → 目前在租房间／合约 */
+  activeLeases?: CustomerLeaseSummary[]
+  /** 过往合约（详情接口返回；列表可为空） */
+  pastLeases?: CustomerLeaseSummary[]
   createdBy: string
   updatedBy: string
   createdAt: string

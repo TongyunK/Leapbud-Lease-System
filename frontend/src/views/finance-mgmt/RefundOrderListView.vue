@@ -37,6 +37,11 @@ import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CountListPill from '@/components/CountListPill.vue'
 import RefundOrderDetailDrawer from '@/components/RefundOrderDetailDrawer.vue'
+import RefundOrderItemsDialog from '@/components/RefundOrderItemsDialog.vue'
+import {
+  OVERLAY_ABOVE_FEATURE_MENU_Z,
+  useOverlayStackZ,
+} from '@/composables/useOverlayStackZ'
 import ContractSettlementDetailDrawer from '@/components/ContractSettlementDetailDrawer.vue'
 import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
 import RelatedEntityDrawers from '@/components/RelatedEntityDrawers.vue'
@@ -84,6 +89,10 @@ const {
 const keyword = ref('')
 const drawerVisible = ref(false)
 const current = ref<RefundOrderRecord | null>(null)
+const itemsDialogVisible = ref(false)
+const itemsDialogRecord = ref<RefundOrderRecord | null>(null)
+const itemsDialogZ = ref<number | undefined>(undefined)
+const { allocZ, raiseFloor } = useOverlayStackZ()
 const settlementDrawer = ref(false)
 const settlementRecord = ref<ContractSettlementRecord | null>(null)
 const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(null)
@@ -487,9 +496,26 @@ async function submitPay() {
   }
 }
 
-function openItemsSide(row: RefundOrderRecord) {
+async function openItemsSide(row: RefundOrderRecord) {
   if (!(row.itemCount ?? row.items?.length ?? 0)) return
-  void openDetail(row)
+  itemsDialogZ.value = allocZ(OVERLAY_ABOVE_FEATURE_MENU_Z)
+  try {
+    const { data } = await fetchRefundOrder(row.id)
+    itemsDialogRecord.value = data
+  } catch {
+    itemsDialogRecord.value = row
+  }
+  itemsDialogVisible.value = true
+}
+
+function onItemsDialogOpenReceivable(id: string) {
+  if (itemsDialogZ.value != null) raiseFloor(itemsDialogZ.value)
+  relationDrawers.value?.openReceivableSide(id, { zIndex: itemsDialogZ.value })
+}
+
+function onItemsDialogOpenReceipt(id: string) {
+  if (itemsDialogZ.value != null) raiseFloor(itemsDialogZ.value)
+  relationDrawers.value?.openReceiptSide(id, { zIndex: itemsDialogZ.value })
 }
 
 function openAttachmentsSide(row: RefundOrderRecord) {
@@ -1138,6 +1164,13 @@ onMounted(() => {
       </template>
     </TablePagination>
 
+    <RefundOrderItemsDialog
+      v-model="itemsDialogVisible"
+      :record="itemsDialogRecord"
+      :z-index="itemsDialogZ"
+      @open-receivable="onItemsDialogOpenReceivable"
+      @open-receipt="onItemsDialogOpenReceipt"
+    />
     <RefundOrderDetailDrawer
       v-model="drawerVisible"
       :record="current"

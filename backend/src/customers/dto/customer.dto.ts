@@ -125,11 +125,6 @@ export class CreateCustomerDto {
   @IsString()
   source?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  rentedRooms?: string;
-
   @ApiProperty({ description: '所属大厦 ID（必填）' })
   @IsString()
   @MinLength(1)
@@ -211,11 +206,6 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsString()
   source?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  rentedRooms?: string;
 
   @ApiPropertyOptional({ description: '所属大厦 ID；传 null/空 表示未关联' })
   @IsOptional()

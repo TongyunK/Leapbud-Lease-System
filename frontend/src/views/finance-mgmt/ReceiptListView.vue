@@ -58,6 +58,10 @@ import { useBuildingScopeStore } from '@/stores/buildingScope'
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { useImportProgress } from '@/composables/useImportProgress'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import {
+  formatBookingDepositChangeLog,
+  isStructuredBookingDepositChangeLog,
+} from '@/utils/bookingDepositChangeLog'
 import ActionDetailButton from '@/components/ActionDetailButton.vue'
 import { ACTION_COL_ICON, measureActionColWidth } from '@/composables/useActionColWidth'
 import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
@@ -447,8 +451,34 @@ const remarkFilterOptions = computed(() =>
   uniqLabelOptions(list.value.map((r) => r.remark)),
 )
 const changeLogFilterOptions = computed(() =>
-  uniqLabelOptions(list.value.map((r) => r.changeLog)),
+  uniqLabelOptions(list.value.map((r) => r.changeLog)).map((o) => ({
+    ...o,
+    label: formatReceiptChangeLogCell(o.value) || o.value,
+  })),
 )
+
+function formatReceiptChangeLog(raw?: string | null) {
+  const text = (raw || '').trim()
+  if (!text) return ''
+  return formatBookingDepositChangeLog(text, (key, values) => t(key, values))
+}
+
+/** 列表列单行省略：多行用分号拼成一行 */
+function formatReceiptChangeLogCell(raw?: string | null) {
+  const full = formatReceiptChangeLog(raw)
+  if (!full) return ''
+  return full
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('；')
+}
+
+const formChangeLogStructured = computed(() =>
+  isStructuredBookingDepositChangeLog(form.changeLog),
+)
+
+const formChangeLogDisplay = computed(() => formatReceiptChangeLog(form.changeLog))
 const createdByFilterOptions = computed(() =>
   uniqLabelOptions(list.value.map((r) => r.createdBy)),
 )
@@ -1215,6 +1245,10 @@ async function openEdit(row: ReceiptRecord) {
 }
 
 function payloadFromForm(): ReceiptWritePayload {
+  // 结构化 #bd|… 由系统维护，编辑时不回写，避免覆盖机器格式
+  const changeLogPayload = formChangeLogStructured.value
+    ? undefined
+    : form.changeLog.trim() || undefined
   // 多摊收据：不可改金额／应收／收款方式（与后端校验一致），只允许改备注等
   if (isMultiAllocationEdit.value) {
     return {
@@ -1224,7 +1258,7 @@ function payloadFromForm(): ReceiptWritePayload {
       contractId: form.contractId.trim() || null,
       paymentDate: form.paymentDate || undefined,
       remark: form.remark.trim() || undefined,
-      changeLog: form.changeLog.trim() || undefined,
+      changeLog: changeLogPayload,
     }
   }
   return {
@@ -1238,7 +1272,7 @@ function payloadFromForm(): ReceiptWritePayload {
     paymentMethod: form.paymentMethod || undefined,
     amount: form.amount == null ? undefined : Number(form.amount) || 0,
     remark: form.remark.trim() || undefined,
-    changeLog: form.changeLog.trim() || undefined,
+    changeLog: changeLogPayload,
   }
 }
 
@@ -1947,7 +1981,11 @@ async function onImportFile(ev: Event) {
                 @update:sort-order="(v) => setSort('changeLog', v)"
               />
             </template>
-            <template #default="{ row }">{{ row.changeLog || '—' }}</template>
+            <template #default="{ row }">
+              <span class="change-log-cell">
+                {{ formatReceiptChangeLogCell(row.changeLog) || '—' }}
+              </span>
+            </template>
           </el-table-column>
           <el-table-column :min-width="auditUserColWidth" show-overflow-tooltip>
             <template #header>
@@ -2341,7 +2379,15 @@ async function onImportFile(ev: Event) {
             <el-input v-model="form.remark" type="textarea" :rows="2" />
           </el-form-item>
           <el-form-item :label="t('receipt.fields.changeLog')" class="span-2">
-            <el-input v-model="form.changeLog" type="textarea" :rows="2" />
+            <template v-if="formChangeLogStructured">
+              <el-input
+                :model-value="formChangeLogDisplay"
+                type="textarea"
+                :rows="Math.min(6, Math.max(2, formChangeLogDisplay.split('\n').length))"
+                disabled
+              />
+            </template>
+            <el-input v-else v-model="form.changeLog" type="textarea" :rows="2" />
           </el-form-item>
         </div>
       </el-form>
@@ -2559,5 +2605,12 @@ async function onImportFile(ev: Event) {
 
 .receipt-form-att__input {
   display: none;
+}
+
+.change-log-cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

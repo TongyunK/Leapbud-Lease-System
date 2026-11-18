@@ -100,7 +100,7 @@ function contractToRoomStatus(raw?: string | null): RoomStatus {
   const s = (raw || '').trim()
   if (!s) return 'idle'
   if (s === '退租中') return 'terminating'
-  if (s === '租賃中' || s === '已續約') return 'leased'
+  if (s === '租賃中') return 'leased'
   if (s === '簽約中' || s === '已簽約' || s === '交吉中') return 'signing'
   return 'leased'
 }

@@ -214,6 +214,135 @@ export function openContractOrderApi(id: string, attachment: string) {
   return request.post<ContractRecord>(`/contracts/${id}/open-order`, { attachment })
 }
 
+/** 续约预览 */
+export type ContractRenewalPreview = {
+  renewable: boolean
+  blockReason: string
+  source: {
+    id: string
+    contractCode: string
+    status: string
+    customerId: string
+    customerCode: string
+    customerName: string
+    roomId: string
+    roomCode: string
+    roomName: string
+    occupancyMode: string
+    partLabel: string
+    leaseType: string
+    paymentCycle: string
+    electricityRate: number | null
+    monthlyRent: number | null
+    startDate: string
+    endDate: string
+    doorKeyQty: number
+    mailboxKeyQty: number
+    roomDeposit: number
+    miscDeposit: number
+    doorKeyDeposit: number
+    mailboxKeyDeposit: number
+    loanItemsDeposit: number
+    loanItemCount: number
+    loanItems: Array<{
+      description: string
+      quantity: number
+      unitAmount: number
+      subtotal: number
+      remark: string
+      sortOrder: number
+    }>
+    roomNameText: string
+    periods: Array<{
+      dateType: string
+      dateUnit: string
+      dateValue: number
+      startDate: string
+      endDate: string
+      sortOrder: number
+    }>
+  }
+  transfer: {
+    roomDepositTransferred: number
+    bookingDepositTransferred: number
+    loanItemsMigrated: number
+    loanItemsDeposit: number
+    noDepositAdjust: boolean
+  }
+  outstandingRent: number
+  hint: string
+}
+
+export type RenewContractPayload = {
+  monthlyRent: number
+  startDate: string
+  endDate: string
+  paymentCycle?: string
+  electricityRate?: number | null
+  doorKeyQty?: number
+  mailboxKeyQty?: number
+  periods?: Array<{
+    dateType: string
+    dateUnit: string
+    dateValue: number
+    startDate: string
+    endDate: string
+    sortOrder?: number
+  }>
+  /** 新约借出物品（可改数量）；不改旧约与按金发票 */
+  loanItems?: Array<{
+    description: string
+    quantity: number
+    unitAmount: number
+    subtotal?: number
+    remark?: string
+    sortOrder?: number
+  }>
+  remark?: string
+}
+
+export type RenewContractResult = {
+  contract: ContractRecord
+  transfer: {
+    roomDepositTransferred: number
+    bookingDepositTransferred: number
+  }
+  sourceContractId: string
+  sourceContractCode: string
+}
+
+export type ContractDepositTransferRecord = {
+  id: string
+  fromContractId: string
+  fromContractCode: string
+  toContractId: string
+  toContractCode: string
+  transferDate: string
+  roomDepositTransferred: number
+  bookingDepositTransferred: number
+  remark: string
+  direction: 'in' | 'out'
+}
+
+export function fetchContractRenewalPreviewApi(
+  id: string,
+  opts?: { silentError?: boolean },
+) {
+  return request.get<ContractRenewalPreview>(`/contracts/${id}/renewal-preview`, opts)
+}
+
+export function renewContractApi(
+  id: string,
+  payload: RenewContractPayload,
+  opts?: { silentError?: boolean },
+) {
+  return request.post<RenewContractResult>(`/contracts/${id}/renew`, payload, opts)
+}
+
+export function fetchContractDepositTransfersApi(id: string) {
+  return request.get<ContractDepositTransferRecord[]>(`/contracts/${id}/deposit-transfers`)
+}
+
 /** 签约中取消合约：定金结算方式 */
 export type CancelBookingDepositAction = 'refund_all' | 'partial' | 'defer'
 /** 签约中取消合约：已收发票现金处理 */

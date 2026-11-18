@@ -157,7 +157,7 @@ export async function fetchReceiptAttachmentBlob(receiptId: string, attachmentId
 /** 定金动账 */
 export type BookingDepositMovement = {
   id: string
-  type: 'apply' | 'refund' | 'top_up' | 'forfeit'
+  type: 'apply' | 'refund' | 'top_up' | 'forfeit' | 'transfer_out' | 'transfer_in'
   amount: number
   movementDate: string
   receivableId: string | null
@@ -166,6 +166,8 @@ export type BookingDepositMovement = {
   offsetReceiptId: string | null
   offsetReceiptCode: string
   depositRefundId: string | null
+  relatedContractId?: string | null
+  relatedContractCode?: string
   remark: string
   createdBy: string
   createdAt: string

@@ -41,6 +41,9 @@ export type ContractWithRelations = Contract & {
   /** 合约借出物品 */
   loanItems?: ContractLoanItem[];
   bookingDepositReceipt?: { id: string; receiptCode: string } | null;
+  renewedFromId?: string | null;
+  renewedFrom?: { id: string; contractCode: string } | null;
+  renewedTo?: { id: string; contractCode: string } | null;
   /** 退租结算（每合约至多一单；列表／详情用编号直链） */
   settlements?: Array<{ id: string; settlementCode: string }>;
   _count?: {
@@ -95,6 +98,8 @@ export const contractInclude = {
   salesManagerUser: { select: auditUserSelect },
   requirement: { select: { id: true, requirementCode: true } },
   bookingDepositReceipt: { select: { id: true, receiptCode: true } },
+  renewedFrom: { select: { id: true, contractCode: true } },
+  renewedTo: { select: { id: true, contractCode: true } },
   periods: {
     orderBy: [
       { sortOrder: 'asc' },
@@ -198,6 +203,10 @@ export function toContractDto(row: ContractWithRelations) {
     paymentVoucher: row.paymentVoucher || '',
     bookingDepositReceiptId: row.bookingDepositReceiptId ?? null,
     bookingDepositReceiptCode: row.bookingDepositReceipt?.receiptCode ?? '',
+    renewedFromId: row.renewedFromId ?? null,
+    renewedFromCode: row.renewedFrom?.contractCode ?? '',
+    renewedToId: row.renewedTo?.id ?? null,
+    renewedToCode: row.renewedTo?.contractCode ?? '',
     electricityRate: decimalToNumber(row.electricityRate),
     miscDeposit: decimalToNumber(row.miscDeposit),
     doorKeyQty: row.doorKeyQty,

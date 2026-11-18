@@ -70,7 +70,7 @@ export type BookingDepositAccountDto = {
 
 export type BookingDepositMovementDto = {
   id: string
-  type: 'apply' | 'refund' | 'top_up' | 'forfeit'
+  type: 'apply' | 'refund' | 'top_up' | 'forfeit' | 'transfer_out' | 'transfer_in'
   amount: number
   movementDate: string
   receivableId: string | null
@@ -80,6 +80,10 @@ export type BookingDepositMovementDto = {
   offsetReceiptId: string | null
   offsetReceiptCode: string
   depositRefundId: string | null
+  /** 续约对端合约 ID（transfer_out／transfer_in） */
+  relatedContractId: string | null
+  /** 续约对端合约编号 */
+  relatedContractCode: string
   remark: string
   createdBy: string
   createdAt: string
@@ -122,6 +126,7 @@ export class BookingDepositService {
       invoiceId: string | null
       offsetReceiptId: string | null
       depositRefundId: string | null
+      relatedContractId?: string | null
       remark: string
       createdAt: Date
       offsetReceipt?: { receiptCode: string } | null
@@ -129,6 +134,7 @@ export class BookingDepositService {
       createdByUser?: AuditUserRef | null
     },
     invoiceCode = '',
+    relatedContractCode = '',
   ): BookingDepositMovementDto & {
     bookingDepositReceiptId?: string
     bookingDepositReceiptCode?: string
@@ -144,6 +150,8 @@ export class BookingDepositService {
       offsetReceiptId: row.offsetReceiptId,
       offsetReceiptCode: row.offsetReceipt?.receiptCode ?? '',
       depositRefundId: row.depositRefundId,
+      relatedContractId: row.relatedContractId ?? null,
+      relatedContractCode: relatedContractCode || '',
       remark: row.remark,
       createdBy: auditActorLabel(row.createdByUser),
       createdAt: row.createdAt.toISOString(),
@@ -152,7 +160,7 @@ export class BookingDepositService {
     }
   }
 
-  /** 批量补齐动账关联发票编号 */
+  /** 批量补齐动账关联发票编号／续约对端合约编号 */
   private async mapMovementsWithInvoiceCodes<
     T extends {
       id: string
@@ -163,6 +171,7 @@ export class BookingDepositService {
       invoiceId: string | null
       offsetReceiptId: string | null
       depositRefundId: string | null
+      relatedContractId?: string | null
       remark: string
       createdAt: Date
       offsetReceipt?: { receiptCode: string } | null
@@ -181,8 +190,27 @@ export class BookingDepositService {
       })
       for (const inv of invoices) codeById.set(inv.id, inv.invoiceCode ?? '')
     }
+    const relatedIds = [
+      ...new Set(
+        rows
+          .map((r) => r.relatedContractId)
+          .filter((x): x is string => !!x),
+      ),
+    ]
+    const relatedCodeById = new Map<string, string>()
+    if (relatedIds.length) {
+      const contracts = await this.prisma.contract.findMany({
+        where: { id: { in: relatedIds } },
+        select: { id: true, contractCode: true },
+      })
+      for (const c of contracts) relatedCodeById.set(c.id, c.contractCode ?? '')
+    }
     return rows.map((r) =>
-      this.toMovementDto(r, (r.invoiceId && codeById.get(r.invoiceId)) || ''),
+      this.toMovementDto(
+        r,
+        (r.invoiceId && codeById.get(r.invoiceId)) || '',
+        (r.relatedContractId && relatedCodeById.get(r.relatedContractId)) || '',
+      ),
     )
   }
 
@@ -209,6 +237,43 @@ export class BookingDepositService {
       where: { id: receiptId },
       data: { changeLog: next },
     })
+  }
+
+  /**
+   * 各定金收据实时可用余额（本金 − apply/refund/forfeit；不含 top_up，
+   * 因加收已计入收据 amount）。
+   */
+  private async listReceiptLiveBalances(
+    tx: Prisma.TransactionClient | PrismaClient,
+    receipts: Array<{ id: string; amount: number }>,
+  ): Promise<Array<{ id: string; balance: number }>> {
+    if (!receipts.length) return []
+    const ids = receipts.map((r) => r.id)
+    const rows = await tx.bookingDepositMovement.groupBy({
+      by: ['bookingDepositReceiptId', 'type'],
+      where: {
+        bookingDepositReceiptId: { in: ids },
+        type: {
+          in: [
+            BookingDepositMovementType.apply,
+            BookingDepositMovementType.refund,
+            BookingDepositMovementType.forfeit,
+            BookingDepositMovementType.transfer_out,
+          ],
+        },
+      },
+      _sum: { amount: true },
+    })
+    const usedById = new Map<string, number>()
+    for (const r of rows) {
+      const id = r.bookingDepositReceiptId
+      const amt = Number(r._sum.amount?.toString() ?? 0)
+      usedById.set(id, round2((usedById.get(id) ?? 0) + (Number.isFinite(amt) ? amt : 0)))
+    }
+    return receipts.map((r) => ({
+      id: r.id,
+      balance: round2(Math.max(0, r.amount - (usedById.get(r.id) ?? 0))),
+    }))
   }
 
   /** 按合约 / 应收 / 发票列出定金抵扣动账（供详情 / 关联收据展示） */
@@ -407,7 +472,8 @@ export class BookingDepositService {
       if (r.type === BookingDepositMovementType.apply) applied += amt
       else if (r.type === BookingDepositMovementType.refund) refunded += amt
       else if (r.type === BookingDepositMovementType.forfeit) forfeited += amt
-      // top_up 仅流水展示，本金已计入各收据 amount
+      else if (r.type === BookingDepositMovementType.transfer_out) refunded += amt
+      // top_up／transfer_in 仅流水展示，本金已计入各收据 amount
     }
     applied = round2(applied)
     refunded = round2(refunded)
@@ -561,20 +627,19 @@ export class BookingDepositService {
     const paymentDateStr = this.dateOnly(paymentDate)
 
     await this.prisma.$transaction(async (tx) => {
-      let liveBalance = account.balance
-      if (applyTotal > 0.009 && account.receiptId) {
-        // 事务内再锁余额（简化：重算）
-        const moved = await tx.bookingDepositMovement.aggregate({
-          where: { bookingDepositReceiptId: account.receiptId },
-          _sum: { amount: true },
-        })
-        const principalRow = await tx.receipt.findUnique({
-          where: { id: account.receiptId },
-          select: { amount: true },
-        })
-        const principal = Number(principalRow?.amount.toString() ?? 0)
-        const used = Number(moved._sum.amount?.toString() ?? 0)
-        liveBalance = round2(Math.max(0, principal - used))
+      // 按全部定金收据实时余额抵扣（勿把 top_up 当已用；可跨多张收据 FIFO）
+      const receiptBalances =
+        applyTotal > 0.009
+          ? await this.listReceiptLiveBalances(
+              tx,
+              account.receipts.map((r) => ({ id: r.id, amount: r.amount })),
+            )
+          : []
+      const liveBalance = round2(receiptBalances.reduce((sum, r) => sum + r.balance, 0))
+      if (applyTotal > 0.009) {
+        if (!receiptBalances.length) {
+          throw new BadRequestException('该合约尚无定金收据，无法抵扣')
+        }
         if (applyTotal > liveBalance + 0.009) {
           throw new BadRequestException(
             `定金余额已变化（可用 ${liveBalance.toFixed(2)}），请刷新后重试`,
@@ -584,33 +649,42 @@ export class BookingDepositService {
 
       for (const plan of plans) {
         if (plan.depositPart > 0) {
-          if (!account.receiptId) {
-            throw new BadRequestException('该合约尚无定金收据，无法抵扣')
+          let depositLeft = plan.depositPart
+          for (const rb of receiptBalances) {
+            if (depositLeft <= 0.009) break
+            const take = round2(Math.min(rb.balance, depositLeft))
+            if (take <= 0.009) continue
+            // 只写动账，不再另开「定金抵扣」发票收据
+            const mov = await tx.bookingDepositMovement.create({
+              data: {
+                bookingDepositReceiptId: rb.id,
+                contractId,
+                type: BookingDepositMovementType.apply,
+                amount: dec(take),
+                movementDate: paymentDate,
+                receivableId: plan.receivableId,
+                invoiceId: plan.invoiceId,
+                remark: remark || '定金抵扣',
+                createdById: actorId || null,
+                updatedById: actorId || null,
+              },
+              select: { id: true },
+            })
+            movementIds.push(mov.id)
+            rb.balance = round2(rb.balance - take)
+            depositLeft = round2(depositLeft - take)
+            // 结构化行，前端按语言渲染：#bd|apply|date|amount|invoiceCode
+            await this.appendDepositChangeLog(
+              tx,
+              rb.id,
+              `#bd|apply|${paymentDateStr}|${round2(take).toFixed(2)}|${plan.invoiceCode || ''}`,
+            )
           }
-          // 只写动账，不再另开「定金抵扣」发票收据
-          const mov = await tx.bookingDepositMovement.create({
-            data: {
-              bookingDepositReceiptId: account.receiptId,
-              contractId,
-              type: BookingDepositMovementType.apply,
-              amount: dec(plan.depositPart),
-              movementDate: paymentDate,
-              receivableId: plan.receivableId,
-              invoiceId: plan.invoiceId,
-              remark: remark || '定金抵扣',
-              createdById: actorId || null,
-              updatedById: actorId || null,
-            },
-            select: { id: true },
-          })
-          movementIds.push(mov.id)
-          liveBalance = round2(liveBalance - plan.depositPart)
-          // 结构化行，前端按语言渲染：#bd|apply|date|amount|invoiceCode
-          await this.appendDepositChangeLog(
-            tx,
-            account.receiptId,
-            `#bd|apply|${paymentDateStr}|${round2(plan.depositPart).toFixed(2)}|${plan.invoiceCode || ''}`,
-          )
+          if (depositLeft > 0.009) {
+            throw new BadRequestException(
+              `定金余额已变化（尚缺 ${depositLeft.toFixed(2)}），请刷新后重试`,
+            )
+          }
         }
       }
 
@@ -1108,6 +1182,15 @@ export class BookingDepositService {
     }
 
     const dateLabel = this.dateOnly(input.movementDate)
+    const invoiceId = s(input.invoiceId) || null
+    let invoiceCode = ''
+    if (invoiceId) {
+      const inv = await db.invoice.findUnique({
+        where: { id: invoiceId },
+        select: { invoiceCode: true },
+      })
+      invoiceCode = s(inv?.invoiceCode)
+    }
     const mov = await db.bookingDepositMovement.create({
       data: {
         bookingDepositReceiptId: account.receiptId,
@@ -1116,7 +1199,7 @@ export class BookingDepositService {
         amount: dec(amount),
         movementDate: input.movementDate,
         receivableId: null,
-        invoiceId: s(input.invoiceId) || null,
+        invoiceId,
         remark: s(input.remark) || '退租超出按金金额赔偿定金抵扣',
         createdById: actorId || null,
         updatedById: actorId || null,
@@ -1126,7 +1209,7 @@ export class BookingDepositService {
     await this.appendDepositChangeLog(
       db,
       account.receiptId,
-      `#bd|apply_vacate_excess|${dateLabel}|${amount.toFixed(2)}|${s(input.invoiceId) || ''}`,
+      `#bd|apply_vacate_excess|${dateLabel}|${amount.toFixed(2)}|${invoiceCode}`,
     )
     return mov.id
   }

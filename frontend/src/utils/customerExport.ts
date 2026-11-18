@@ -23,7 +23,6 @@ export const CUSTOMER_IO_FIELD_KEYS = [
   'addressProofCopy',
   'remark',
   'source',
-  'rentedRooms',
   'buildingName',
   'createdBy',
   'createdAt',
@@ -79,7 +78,6 @@ const HEADER_ALIASES: Record<CustomerIoFieldKey, string[]> = {
   addressProofCopy: ['住址証明副本', '地址證明副本', '住址证明副本', '地址证明副本'],
   remark: ['備注', '備註', '备注'],
   source: ['客戶來源', '來源', '客户来源', '来源'],
-  rentedRooms: ['在租房間', '租用房間', '在租房间', '租用房间'],
   buildingName: ['所屬大廈', '大廈', '所属大厦', '大厦'],
   createdBy: ['創建人', '创建人'],
   createdAt: ['創建時間', '创建时间', 'Created At'],
@@ -115,7 +113,6 @@ export function customerToIoRow(
     [h('addressProofCopy')]: o?.addressProofCopy || '',
     [h('remark')]: c.remark || '',
     [h('source')]: c.source || '',
-    [h('rentedRooms')]: c.rentedRooms || '',
     [h('buildingName')]: c.buildingName || '',
     [h('createdBy')]: c.createdBy || '',
     [h('createdAt')]: c.createdAt || '',
@@ -148,7 +145,6 @@ export function customerIoTemplateExampleRow(t: Translate): Record<string, strin
     [h('addressProofCopy')]: '',
     [h('remark')]: '',
     [h('source')]: '',
-    [h('rentedRooms')]: '',
     [h('buildingName')]: '',
     [h('createdBy')]: '',
     [h('createdAt')]: '',
@@ -194,7 +190,6 @@ export type CustomerIoPayload = {
   businessRegCopy: string
   remark: string
   source: string
-  rentedRooms: string
   buildingName: string
   occupant: {
     name: string
@@ -231,7 +226,6 @@ export function rowToCustomerIoPayload(
     businessRegCopy: pickCustomerIoValue(row, 'businessRegCopy', t),
     remark: pickCustomerIoValue(row, 'remark', t),
     source: pickCustomerIoValue(row, 'source', t),
-    rentedRooms: pickCustomerIoValue(row, 'rentedRooms', t),
     buildingName: pickCustomerIoValue(row, 'buildingName', t),
     occupant: occupantName
       ? {

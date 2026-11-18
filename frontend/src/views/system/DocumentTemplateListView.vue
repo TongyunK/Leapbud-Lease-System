@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('documentTemplates')
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Document, Plus, QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
+import {
+  Check,
+  CopyDocument,
+  Download,
+  Plus,
+  QuestionFilled,
+  Reading,
+  Search,
+  UploadFilled,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   batchDeleteDocumentTemplatesApi,
@@ -40,7 +49,8 @@ import { formatDateTime } from '@/utils/format'
 const { t, locale } = useI18n()
 const isMobile = useIsMobile()
 const { actionColW } = useActionColWidth()
-const { colW, textColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
+const { colW, textColW, codeColW, statusColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } =
+  useTableColWidth()
 
 const TEMPLATE_TYPES: DocumentTemplateType[] = ['agreement', 'invoice', 'receipt']
 
@@ -55,7 +65,114 @@ const fileCleared = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const fieldGuideLoading = ref(false)
 const fieldGuideType = ref<DocumentTemplateType>('agreement')
+const fieldGuideKeyword = ref('')
 const fieldDict = ref<DocumentFieldDictItem[]>([])
+const fieldGuideTableRef = ref<{ doLayout?: () => void } | null>(null)
+const fieldGuideTableWrapRef = ref<HTMLElement | null>(null)
+const fieldGuideTableHeight = ref(480)
+let fieldGuideTableRo: ResizeObserver | null = null
+
+const filteredFieldDict = computed(() => {
+  const q = fieldGuideKeyword.value.trim().toLowerCase()
+  const rows = fieldDict.value || []
+  if (!q) return rows
+  return rows.filter((r) => {
+    const key = String(r.key || '').toLowerCase()
+    const label = String(r.label || '').toLowerCase()
+    const note = String(r.note || '').toLowerCase()
+    return key.includes(q) || label.includes(q) || note.includes(q)
+  })
+})
+
+/** 按当前字典最长 `{key}` 测宽，并预留复制按钮、「舊」标签与代码胶囊内边距 */
+const fieldGuideKeyColWidth = computed(() => {
+  const samples = (fieldDict.value || []).map((r) => `{${r.key}}`)
+  const base = codeColW(t('documentTemplate.fieldGuide.key'), { samples })
+  const badgeExtra = (fieldDict.value || []).some((r) => r.deprecated) ? 44 : 12
+  // 复制按钮 22 + gap + 胶囊留白
+  return Math.max(base + badgeExtra + 50, 220)
+})
+
+const copiedFieldKey = ref('')
+let copiedFieldKeyTimer: ReturnType<typeof setTimeout> | null = null
+
+async function copyFieldKey(key: string) {
+  const text = `{${key}}`
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.setAttribute('readonly', '')
+      ta.style.position = 'fixed'
+      ta.style.left = '-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+  } catch {
+    await ElMessageBox.alert(t('documentTemplate.fieldGuide.copyFailed'), t('common.tip'), {
+      type: 'error',
+    })
+    return
+  }
+  copiedFieldKey.value = key
+  if (copiedFieldKeyTimer) clearTimeout(copiedFieldKeyTimer)
+  copiedFieldKeyTimer = setTimeout(() => {
+    if (copiedFieldKey.value === key) copiedFieldKey.value = ''
+    copiedFieldKeyTimer = null
+  }, 1400)
+}
+
+const fieldGuideLoopColWidth = computed(() =>
+  statusColW(
+    t('documentTemplate.fieldGuide.loop'),
+    [t('documentTemplate.fieldGuide.loopYes'), t('documentTemplate.fieldGuide.loopNo')],
+    { interactive: false },
+  ),
+)
+
+function measureFieldGuideTableHeight() {
+  const el = fieldGuideTableWrapRef.value
+  if (!el) return
+  const h = Math.max(200, Math.floor(el.getBoundingClientRect().height))
+  if (h !== fieldGuideTableHeight.value) fieldGuideTableHeight.value = h
+  void nextTick(() => fieldGuideTableRef.value?.doLayout?.())
+}
+
+function bindFieldGuideTableObserver() {
+  fieldGuideTableRo?.disconnect()
+  fieldGuideTableRo = null
+  const el = fieldGuideTableWrapRef.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  fieldGuideTableRo = new ResizeObserver(() => measureFieldGuideTableHeight())
+  fieldGuideTableRo.observe(el)
+  measureFieldGuideTableHeight()
+}
+
+watch(fieldGuideVisible, async (open) => {
+  if (!open) {
+    fieldGuideTableRo?.disconnect()
+    fieldGuideTableRo = null
+    return
+  }
+  await nextTick()
+  bindFieldGuideTableObserver()
+  // 进入／退出内容区全屏时 class 变化也会触发 ResizeObserver
+  window.setTimeout(measureFieldGuideTableHeight, 80)
+  window.setTimeout(measureFieldGuideTableHeight, 220)
+})
+
+onBeforeUnmount(() => {
+  fieldGuideTableRo?.disconnect()
+  fieldGuideTableRo = null
+  if (copiedFieldKeyTimer) {
+    clearTimeout(copiedFieldKeyTimer)
+    copiedFieldKeyTimer = null
+  }
+})
 
 const {
   filters,
@@ -151,7 +268,7 @@ const rowActionWidth = computed(() =>
 )
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '560px'))
-const fieldGuideWidth = computed(() => (isMobile.value ? '96%' : '720px'))
+const fieldGuideWidth = computed(() => (isMobile.value ? '96%' : '860px'))
 
 const form = reactive({
   name: '',
@@ -352,8 +469,13 @@ async function onDownload(row: DocumentTemplateRecord) {
 
 async function openFieldGuide() {
   fieldGuideType.value = (filterType.value || 'agreement') as DocumentTemplateType
+  fieldGuideKeyword.value = ''
   fieldGuideVisible.value = true
   await loadFieldGuide()
+}
+
+function fieldGuideRowClass({ row }: { row: DocumentFieldDictItem }) {
+  return row.deprecated ? 'field-guide-row--deprecated' : ''
 }
 
 async function onDownloadSample() {
@@ -464,12 +586,14 @@ function onClearFilters() {
           />
         </el-select>
         <ClearTableFiltersButton :count="clearFilterCount" @clear="onClearFilters" />
-        <el-button @click="onDownloadSample">
-          {{ sampleDownloadLabel }}
-        </el-button>
-        <el-button :icon="Document" @click="openFieldGuide">
-          {{ t('documentTemplate.actions.fieldGuide') }}
-        </el-button>
+        <button type="button" class="doc-tool-btn" @click="onDownloadSample">
+          <el-icon :size="15"><Download /></el-icon>
+          <span>{{ sampleDownloadLabel }}</span>
+        </button>
+        <button type="button" class="doc-tool-btn doc-tool-btn--guide" @click="openFieldGuide">
+          <el-icon :size="15"><Reading /></el-icon>
+          <span>{{ t('documentTemplate.actions.fieldGuide') }}</span>
+        </button>
         <el-button v-if="perms.create" v-admin-glow="perms.codes.create" type="primary" :icon="Plus" class="lb-btn-primary" @click="openCreate">
           {{ t('documentTemplate.create') }}
         </el-button>
@@ -843,6 +967,7 @@ function onClearFilters() {
 
     <el-dialog
       v-model="fieldGuideVisible"
+      class="lb-dialog field-guide-dialog"
       :width="fieldGuideWidth"
       destroy-on-close
     >
@@ -854,51 +979,137 @@ function onClearFilters() {
           </el-tooltip>
         </span>
       </template>
-      <div class="field-guide-toolbar">
-        <el-select v-model="fieldGuideType" style="width: 220px">
-          <el-option
-            v-for="o in typeFilterOptions"
-            :key="o.value"
-            :label="o.label"
-            :value="o.value"
+
+      <div class="field-guide-shell">
+        <div class="field-guide-banner">
+          {{ t('documentTemplate.fieldGuideHint') }}
+        </div>
+
+        <div class="field-guide-toolbar">
+          <div class="field-guide-toolbar__type">
+            <span class="field-guide-toolbar__label">{{ t('documentTemplate.fieldGuide.typeLabel') }}</span>
+            <div class="field-guide-type-chips" role="radiogroup" :aria-label="t('documentTemplate.fieldGuide.typeLabel')">
+              <button
+                v-for="o in typeFilterOptions"
+                :key="o.value"
+                type="button"
+                class="field-guide-type-chip"
+                :class="{ 'is-active': fieldGuideType === o.value }"
+                role="radio"
+                :aria-checked="fieldGuideType === o.value"
+                @click="fieldGuideType = o.value"
+              >
+                {{ o.label }}
+              </button>
+            </div>
+          </div>
+          <el-input
+            v-model="fieldGuideKeyword"
+            clearable
+            class="field-guide-search"
+            :prefix-icon="Search"
+            :placeholder="t('documentTemplate.fieldGuide.searchPlaceholder')"
           />
-        </el-select>
-      </div>
-      <el-table
-        v-loading="fieldGuideLoading"
-        :data="fieldDict"
-        stripe
-        border
-        max-height="480"
-        style="width: 100%"
-      >
+          <span class="field-guide-count">
+            {{ t('documentTemplate.fieldGuide.count', { n: filteredFieldDict.length }) }}
+          </span>
+        </div>
+
+        <div ref="fieldGuideTableWrapRef" class="field-guide-table-wrap">
+          <el-table
+            ref="fieldGuideTableRef"
+            v-loading="fieldGuideLoading"
+            :data="filteredFieldDict"
+            :row-class-name="fieldGuideRowClass"
+            :height="fieldGuideTableHeight"
+            stripe
+            border
+            style="width: 100%"
+            class="field-guide-table"
+            empty-text=" "
+          >
         <el-table-column
           prop="key"
           :label="t('documentTemplate.fieldGuide.key')"
-          :min-width="colW(t('documentTemplate.fieldGuide.key'), { contentMin: 160 })"
-        />
+          :width="fieldGuideKeyColWidth"
+          class-name="col-code"
+          label-class-name="col-code"
+        >
+          <template #default="{ row }">
+            <div class="field-guide-key">
+              <code class="field-guide-key__code">{{ '{' + row.key + '}' }}</code>
+              <el-tooltip
+                :content="
+                  copiedFieldKey === row.key
+                    ? t('documentTemplate.fieldGuide.copied')
+                    : t('documentTemplate.fieldGuide.copyTip')
+                "
+                placement="top"
+                :hide-after="copiedFieldKey === row.key ? 900 : 0"
+              >
+                <button
+                  type="button"
+                  class="field-guide-key__copy"
+                  :class="{ 'is-copied': copiedFieldKey === row.key }"
+                  :aria-label="t('documentTemplate.fieldGuide.copyTip')"
+                  @click.stop="copyFieldKey(row.key)"
+                >
+                  <el-icon :size="13">
+                    <Check v-if="copiedFieldKey === row.key" />
+                    <CopyDocument v-else />
+                  </el-icon>
+                </button>
+              </el-tooltip>
+              <el-tooltip
+                v-if="row.deprecated"
+                :content="t('documentTemplate.fieldGuide.deprecatedTip')"
+                placement="top"
+              >
+                <span class="field-guide-tag field-guide-tag--deprecated">
+                  {{ t('documentTemplate.fieldGuide.deprecated') }}
+                </span>
+              </el-tooltip>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="label"
           :label="t('documentTemplate.fieldGuide.label')"
-          :min-width="textColW(t('documentTemplate.fieldGuide.label'), { kind: 'name' })"
+          :min-width="colW(t('documentTemplate.fieldGuide.label'), { contentMin: 140 })"
         />
         <el-table-column
           :label="t('documentTemplate.fieldGuide.loop')"
-          :min-width="colW(t('documentTemplate.fieldGuide.loop'), { contentMin: 80 })"
+          :width="fieldGuideLoopColWidth"
+          align="center"
         >
           <template #default="{ row }">
-            {{ row.loop ? t('common.yes') : t('common.no') }}
+            <span
+              class="field-guide-tag"
+              :class="row.loop ? 'field-guide-tag--loop' : 'field-guide-tag--single'"
+            >
+              {{
+                row.loop
+                  ? t('documentTemplate.fieldGuide.loopYes')
+                  : t('documentTemplate.fieldGuide.loopNo')
+              }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column
           prop="note"
           :label="t('documentTemplate.fieldGuide.note')"
-          :min-width="textColW(t('documentTemplate.fieldGuide.note'), { kind: 'long' })"
-          show-overflow-tooltip
+          :min-width="textColW(t('documentTemplate.fieldGuide.note'), { kind: 'long', contentMin: 320 })"
         >
-          <template #default="{ row }">{{ row.note || '—' }}</template>
+          <template #default="{ row }">
+            <span class="field-guide-note">{{ row.note || '—' }}</span>
+          </template>
         </el-table-column>
-      </el-table>
+            <template #empty>
+              <div class="field-guide-empty">{{ t('documentTemplate.fieldGuide.empty') }}</div>
+            </template>
+          </el-table>
+        </div>
+      </div>
     </el-dialog>
 
     <BatchProgressDialog
@@ -919,6 +1130,83 @@ function onClearFilters() {
 .head-filter {
   width: 140px;
 }
+
+.doc-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #d5d5d5);
+  border-radius: 8px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #fff) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, transparent);
+  color: var(--lb-brand, #0f4a32);
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.doc-tool-btn:hover {
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 42%, #c8c8c8);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 7%, #fff) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 4px 10px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
+  color: var(--lb-brand-dark, #0c3d29);
+  transform: translateY(-0.5px);
+}
+
+.doc-tool-btn:active {
+  transform: none;
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
+}
+
+.doc-tool-btn--guide {
+  border-color: color-mix(in srgb, #4f7fa3 28%, #d5d5d5);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #4f7fa3 10%, #fff) 0%,
+    color-mix(in srgb, #4f7fa3 3%, #fff) 100%
+  );
+  color: #3f6a8a;
+}
+
+.doc-tool-btn--guide:hover {
+  border-color: color-mix(in srgb, #4f7fa3 48%, #c8c8c8);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #4f7fa3 16%, #fff) 0%,
+    color-mix(in srgb, #4f7fa3 8%, #fff) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 4px 10px color-mix(in srgb, #4f7fa3 14%, transparent);
+  color: #335872;
+}
+
+.doc-tool-btn .el-icon {
+  flex-shrink: 0;
+}
+
 .template-file-input {
   display: none;
 }
@@ -1053,11 +1341,251 @@ function onClearFilters() {
   vertical-align: middle;
   flex-shrink: 0;
 }
+.field-guide-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.field-guide-banner {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 55%, #444);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
 .field-guide-toolbar {
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px 12px;
+  margin-bottom: 0;
+}
+
+.field-guide-table-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  height: min(480px, 55vh);
+  min-height: 280px;
+  min-width: 0;
+}
+.field-guide-toolbar__type {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.field-guide-toolbar__label {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--lb-muted, #666);
+}
+.field-guide-type-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.field-guide-type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #d8d8d8);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, transparent);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 42%, #555);
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+.field-guide-type-chip:hover {
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 36%, #c8c8c8);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 7%, #fff);
+  color: var(--lb-brand, #0f4a32);
+  transform: translateY(-0.5px);
+}
+.field-guide-type-chip.is-active {
+  border-color: var(--lb-brand, #0f4a32);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 92%, #fff) 0%,
+    var(--lb-brand, #0f4a32) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 4px 10px color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, transparent);
+  color: #fff;
+}
+.field-guide-type-chip.is-active:hover {
+  border-color: var(--lb-brand-dark, #0c3d29);
+  background: var(--lb-brand-dark, #0c3d29);
+  color: #fff;
+  transform: none;
+}
+.field-guide-search {
+  width: min(100%, 240px);
+}
+.field-guide-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--lb-muted, #666);
+}
+.field-guide-key {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.field-guide-key__code {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #f4f4f4);
+  color: var(--lb-brand-dark, #0c3d29);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: inherit;
+  font-weight: 650;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.field-guide-key__copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #ddd);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 55%, #666);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.field-guide-key__copy:hover {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #ccc);
+  color: var(--lb-brand-dark, #0c3d29);
+}
+.field-guide-key__copy.is-copied {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #fff);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 32%, #ccc);
+  color: var(--lb-brand, #0f4a32);
+}
+.field-guide-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.92em;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+.field-guide-tag--deprecated {
+  background: color-mix(in srgb, #c9843a 16%, #fff);
+  color: #9a6418;
+  border: 1px solid color-mix(in srgb, #c9843a 28%, #e8e0d4);
+}
+.field-guide-tag--loop {
+  background: color-mix(in srgb, #4f7fa3 14%, #fff);
+  color: #355f7d;
+  border: 1px solid color-mix(in srgb, #4f7fa3 26%, #d9e2ea);
+}
+.field-guide-tag--single {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 70%, #555);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #ddd);
+}
+.field-guide-note {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  color: #243029;
+  font-size: inherit;
+}
+.field-guide-empty {
+  padding: 28px 12px;
+  color: var(--lb-muted, #666);
+  font-size: var(--lb-table-body, 0.82rem);
+}
+.field-guide-table.el-table {
+  --el-table-header-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  --el-table-header-text-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #5a6068);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 3.5%, #fff);
+  --el-table-border-color: var(--lb-table-border, #ebebeb);
+  font-size: var(--lb-table-body, 0.82rem);
+  color: #243029;
+}
+.field-guide-table :deep(th.el-table__cell) {
+  background-color: var(--el-table-header-bg-color);
+  color: var(--el-table-header-text-color);
+  font-size: var(--lb-table-head, 0.78rem);
+  font-weight: 650;
+}
+.field-guide-table :deep(.field-guide-row--deprecated > td.el-table__cell) {
+  background: color-mix(in srgb, #c9843a 5%, #fff) !important;
+}
+.field-guide-table :deep(.el-table__cell) {
+  vertical-align: top;
+  font-size: inherit;
+}
+</style>
+
+<style>
+/* 内容区全屏：表格吃满弹窗下方剩余高度 */
+.el-dialog.field-guide-dialog.lb-dialog--content-fs .el-dialog__body {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  min-height: 0 !important;
+}
+
+.el-dialog.field-guide-dialog.lb-dialog--content-fs .el-dialog__body {
+  padding-bottom: 14px !important;
+}
+
+.el-dialog.field-guide-dialog.lb-dialog--content-fs .field-guide-shell {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  padding-bottom: 4px;
+}
+
+.el-dialog.field-guide-dialog.lb-dialog--content-fs .field-guide-table-wrap {
+  flex: 1 1 auto;
+  height: 0 !important;
+  min-height: 200px;
+  max-height: none;
+  margin-bottom: 2px;
 }
 </style>

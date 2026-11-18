@@ -15,7 +15,7 @@ import {
   updateCustomerApi,
 } from '@/api/customers'
 import type { CustomerWritePayload, CustomerListQuery } from '@/api/customers'
-import type { CustomerRecord, OccupantRecord } from '@/types/customer'
+import type { CustomerLeaseSummary, CustomerRecord, OccupantRecord } from '@/types/customer'
 import type { CustomerRequirementRecord } from '@/types/customer-requirement'
 import { CUSTOMER_STATUSES } from '@/types/customer'
 import { useIsMobile } from '@/composables/useMediaQuery'
@@ -74,10 +74,8 @@ import { fetchBuildings } from '@/api/buildings'
 import { fetchUsers } from '@/api/users'
 import { fetchCustomerSources } from '@/api/customer-sources'
 import { fetchOccupants, fetchOccupant, createOccupantApi } from '@/api/occupants'
-import { fetchRooms } from '@/api/rooms'
 import type { BuildingRecord } from '@/types/building'
 import type { UserRecord } from '@/types/user'
-import type { RoomRecord } from '@/types/room'
 import type { CustomerSourceOption } from '@/types/customer-source'
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
@@ -121,9 +119,6 @@ const relationDrawers = ref<InstanceType<typeof RelatedEntityDrawers> | null>(nu
 const buildings = ref<BuildingRecord[]>([])
 const users = ref<UserRecord[]>([])
 const sourceOptions = ref<CustomerSourceOption[]>([])
-const rooms = ref<RoomRecord[]>([])
-/** 表单内租用房间多选（存 roomCode，序列化进 rentedRooms） */
-const rentedRoomCodes = ref<string[]>([])
 /** 新建：是否选用过往使用者 */
 const useExistingOccupant = ref(false)
 const linkOccupantId = ref('')
@@ -330,7 +325,6 @@ const emptyForm = () => ({
   businessRegCopy: '',
   remark: '',
   source: '',
-  rentedRooms: '',
   buildingId: '' as string,
   agreementTemplateId: '' as string,
 })
@@ -426,48 +420,20 @@ watch(useExistingOccupant, (yes) => {
 })
 
 async function loadOptions() {
-  const [buildingsRes, usersRes, sourcesRes, roomsRes] = await Promise.all([
+  const [buildingsRes, usersRes, sourcesRes] = await Promise.all([
     fetchBuildings({ activeOnly: false }),
     fetchUsers(),
     fetchCustomerSources({ activeOnly: true }),
-    fetchRooms(),
     loadNameContactFilterOptions(),
   ])
   buildings.value = buildingsRes.data.items
   users.value = usersRes.data
   sourceOptions.value = sourcesRes.data
-  rooms.value = roomsRes.data.items
 }
 
 onMounted(() => {
   void loadList()
   void loadOptions()
-})
-
-function parseRentedRoomCodes(raw?: string | null): string[] {
-  if (!raw?.trim()) return []
-  return raw
-    .split(/[,，、;；|/]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
-function roomOptionLabel(r: RoomRecord) {
-  return r.name?.trim() ? `${r.roomCode} · ${r.name}` : r.roomCode
-}
-
-const roomSelectOptions = computed(() => {
-  const bid = form.buildingId.trim()
-  const base = bid ? rooms.value.filter((r) => r.buildingId === bid) : rooms.value
-  const byCode = new Map(base.map((r) => [r.roomCode, r]))
-  // 保留已选但不在当前大厦筛选内的历史编号
-  for (const code of rentedRoomCodes.value) {
-    if (byCode.has(code)) continue
-    const hit = rooms.value.find((r) => r.roomCode === code)
-    if (hit) byCode.set(code, hit)
-    else byCode.set(code, { id: code, roomCode: code, name: code } as RoomRecord)
-  }
-  return [...byCode.values()].sort((a, b) => a.roomCode.localeCompare(b.roomCode))
 })
 
 function applyOccupantToForm(
@@ -514,7 +480,6 @@ async function openCreate() {
       : ''
   form.accountManagerId = userStore.user?.id?.trim() || ''
   Object.assign(occupantForm, emptyOccupantForm())
-  rentedRoomCodes.value = []
   useExistingOccupant.value = false
   linkOccupantId.value = ''
   primaryOccupantId.value = ''
@@ -547,11 +512,9 @@ async function openEdit(row: CustomerRecord) {
       businessRegCopy: data.businessRegCopy || '',
       remark: data.remark || '',
       source: data.source || '',
-      rentedRooms: data.rentedRooms || '',
       buildingId: data.buildingId || '',
       agreementTemplateId: data.agreementTemplateId || '',
     })
-    rentedRoomCodes.value = parseRentedRoomCodes(data.rentedRooms)
     useExistingOccupant.value = false
     linkOccupantId.value = ''
     await loadCustomerOccupants(data.id)
@@ -616,7 +579,6 @@ function payloadFromForm(opts?: { includeOccupant?: boolean }) {
     businessRegCopy: form.businessRegCopy.trim(),
     remark: form.remark.trim(),
     source: form.source.trim(),
-    rentedRooms: rentedRoomCodes.value.join('、'),
     buildingId: form.buildingId.trim() || null,
     agreementTemplateId: form.agreementTemplateId.trim() || null,
     ...(includeOccupant ? { occupant: buildOccupantPayload() } : {}),
@@ -732,6 +694,14 @@ function openContractsSide(row: CustomerRecord) {
   if (!row.contractCount) return
   relatedListCustomer.value = row
   relatedContractsDrawer.value = true
+}
+
+function activeLeaseRoomLabel(row: CustomerLeaseSummary) {
+  const code = (row.roomCode || '').trim() || '—'
+  if (row.occupancyMode === 'part' && row.partLabel?.trim()) {
+    return `${code}${row.partLabel.trim()}`
+  }
+  return code
 }
 function openInvoicesSide(row: CustomerRecord) {
   if (!row.invoiceCount) return
@@ -993,7 +963,6 @@ async function onImportFile(ev: Event) {
         businessRegCopy: parsed.businessRegCopy,
         remark: parsed.remark,
         source: parsed.source,
-        rentedRooms: parsed.rentedRooms,
         buildingId: resolveBuildingId(parsed.buildingName),
         ...(parsed.occupant ? { occupant: parsed.occupant } : {}),
       })
@@ -1323,6 +1292,31 @@ async function onImportFile(ev: Event) {
             </template>
           </el-table-column>
           <el-table-column
+            :min-width="textColW(t('customer.fields.activeRooms'), { kind: 'name' })"
+            show-overflow-tooltip
+          >
+            <template #header>
+              <TableColumnHeader :label="t('customer.fields.activeRooms')" />
+            </template>
+            <template #default="{ row }">
+              <template v-if="row.activeLeases?.length">
+                <span class="active-lease-rooms">
+                  <template v-for="(lease, idx) in row.activeLeases" :key="lease.contractId">
+                    <button
+                      type="button"
+                      class="fk-link"
+                      @click.stop="relationDrawers?.openRoomSide(lease.roomId, 'ltr')"
+                    >
+                      {{ activeLeaseRoomLabel(lease) }}
+                    </button>
+                    <span v-if="idx < row.activeLeases.length - 1">、</span>
+                  </template>
+                </span>
+              </template>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
+          <el-table-column
             :min-width="colW(t('customer.fields.contractCount'), { interactive: true, contentMin: 80 })"
             align="center"
           >
@@ -1527,6 +1521,8 @@ async function onImportFile(ev: Event) {
       @open-deposit-refunds="openDepositRefundsSide"
       @open-building="openBuildingSide"
       @open-occupant="openOccupantSide"
+      @open-room="(id) => relationDrawers?.openRoomSide(id, 'ltr')"
+      @open-contract="(id) => relationDrawers?.openContractSide(id)"
     />
     <RelatedOccupantsDrawer
       v-model="relatedOccupantsListDrawer"
@@ -1710,25 +1706,6 @@ async function onImportFile(ev: Event) {
             </el-form-item>
             <el-form-item :label="t('customer.fields.remark')" class="span-2">
               <el-input v-model="form.remark" type="textarea" :rows="2" />
-            </el-form-item>
-            <el-form-item :label="t('customer.fields.rentedRooms')" class="span-2">
-              <el-select
-                v-model="rentedRoomCodes"
-                multiple
-                filterable
-                clearable
-                collapse-tags
-                collapse-tags-tooltip
-                style="width: 100%"
-                :placeholder="t('common.pleaseSelect')"
-              >
-                <el-option
-                  v-for="r in roomSelectOptions"
-                  :key="r.roomCode"
-                  :label="roomOptionLabel(r)"
-                  :value="r.roomCode"
-                />
-              </el-select>
             </el-form-item>
           </div>
         </section>

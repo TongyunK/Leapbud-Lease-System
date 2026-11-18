@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { CustomerRecord } from '@/types/customer'
+import type { CustomerLeaseSummary, CustomerRecord } from '@/types/customer'
 import {
   fetchCustomerPastOccupants,
   type CustomerPastOccupant,
@@ -13,7 +13,7 @@ import AttachmentLink from '@/components/AttachmentLink.vue'
 import DrawerDetailHeader from '@/components/DrawerDetailHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import CountListPill from '@/components/CountListPill.vue'
-import { customerStatusTone } from '@/constants/statusBadges'
+import { contractStatusTone, customerStatusTone } from '@/constants/statusBadges'
 
 const visible = defineModel<boolean>({ default: false })
 
@@ -45,6 +45,8 @@ const emit = defineEmits<{
   openDepositRefunds: [customer: CustomerRecord]
   openBuilding: [buildingId: string]
   openOccupant: [occupantId: string]
+  openRoom: [roomId: string]
+  openContract: [contractId: string]
 }>()
 
 const { t } = useI18n()
@@ -55,6 +57,7 @@ const drawerSize = computed(() => props.size || (isMobile.value ? '100%' : '560p
 const pastListSize = computed(() => (isMobile.value ? '100%' : '420px'))
 
 const primary = computed(() => props.customer?.primaryOccupant ?? null)
+const activeLeases = computed(() => props.customer?.activeLeases ?? [])
 const pastOccupants = ref<CustomerPastOccupant[]>([])
 const pastLoading = ref(false)
 const pastListVisible = ref(false)
@@ -84,8 +87,27 @@ function statusLabel(status: string) {
   return t(`customer.status.${status}`, status)
 }
 
+function contractStatusLabel(status: string) {
+  return t(`contract.status.${status}`, status)
+}
+
 function dash(v?: string | null) {
   return v?.trim() ? v : '—'
+}
+
+/** 在租房间展示：整租 roomCode；分租 roomCode+份位 */
+function leaseRoomLabel(row: CustomerLeaseSummary) {
+  const code = (row.roomCode || '').trim() || '—'
+  if (row.occupancyMode === 'part' && row.partLabel?.trim()) {
+    return `${code}${row.partLabel.trim()}`
+  }
+  return code
+}
+
+function leasePeriodLabel(row: CustomerLeaseSummary) {
+  const a = row.startDate?.trim() || '—'
+  const b = row.endDate?.trim() || '—'
+  return `${a} → ${b}`
 }
 
 function periodLabel(startedAt: string, endedAt: string) {
@@ -182,6 +204,52 @@ function emitIfCount(
             </dd>
           </div>
         </dl>
+      </section>
+
+      <section class="detail-section">
+        <h3>{{ t('customer.sections.lease') }}</h3>
+        <div class="lease-block">
+          <div class="lease-block__title">{{ t('customer.fields.activeRooms') }}</div>
+          <div v-if="activeLeases.length" class="lease-chip-list">
+            <button
+              v-for="row in activeLeases"
+              :key="`room-${row.contractId}`"
+              type="button"
+              class="lease-chip"
+              @click="emit('openRoom', row.roomId)"
+            >
+              {{ leaseRoomLabel(row) }}
+            </button>
+          </div>
+          <p v-else class="lease-empty">{{ t('customer.activeLeaseEmpty') }}</p>
+        </div>
+        <div class="lease-block">
+          <div class="lease-block__title">{{ t('customer.fields.activeContracts') }}</div>
+          <ul v-if="activeLeases.length" class="lease-list">
+            <li v-for="row in activeLeases" :key="`active-${row.contractId}`">
+              <div class="lease-list__main">
+                <button
+                  type="button"
+                  class="fk-link"
+                  @click="emit('openContract', row.contractId)"
+                >
+                  {{ row.contractCode || '—' }}
+                </button>
+                <StatusBadge
+                  :tone="contractStatusTone(row.status)"
+                  :label="contractStatusLabel(row.status)"
+                />
+              </div>
+              <div class="lease-list__meta">
+                <button type="button" class="fk-link" @click="emit('openRoom', row.roomId)">
+                  {{ leaseRoomLabel(row) }}
+                </button>
+                <span>{{ leasePeriodLabel(row) }}</span>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="lease-empty">{{ t('customer.activeLeaseEmpty') }}</p>
+        </div>
       </section>
 
       <section class="detail-section">
@@ -288,10 +356,6 @@ function emitIfCount(
           <div class="full">
             <dt>{{ t('customer.fields.remark') }}</dt>
             <dd>{{ dash(customer.remark) }}</dd>
-          </div>
-          <div class="full">
-            <dt>{{ t('customer.fields.rentedRooms') }}</dt>
-            <dd>{{ dash(customer.rentedRooms) }}</dd>
           </div>
         </dl>
       </section>
@@ -428,6 +492,79 @@ function emitIfCount(
 
 .past-meta {
   font-size: 0.78rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.lease-block + .lease-block {
+  margin-top: 14px;
+}
+
+.lease-block__title {
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #2a3a32;
+}
+
+.lease-empty {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--lb-muted, #6a7a70);
+}
+
+.lease-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lease-chip {
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #d8e0db);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  color: var(--lb-brand, #0f4a32);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.lease-chip:hover {
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #fff);
+}
+
+.lease-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lease-list li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f6f8f7;
+  border: 1px solid #e6ebe8;
+}
+
+.lease-list__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lease-list__meta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
   color: var(--lb-muted, #6a7a70);
 }
 </style>

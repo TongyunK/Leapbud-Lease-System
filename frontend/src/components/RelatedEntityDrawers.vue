@@ -868,6 +868,8 @@ defineExpose({
     @open-deposit-refunds="openDepositRefundsSideFromCustomer"
     @open-building="(id) => openBuildingSide(id, { zIndex: zCustomer })"
     @open-occupant="(id) => openOccupantSide(id, 'ltr', { zIndex: zCustomer })"
+    @open-room="(id) => openRoomSide(id, 'ltr', { zIndex: zCustomer })"
+    @open-contract="(id) => openContractSide(id, { zIndex: zCustomer })"
   />
   <RelatedOccupantsDrawer
     v-model="relatedOccupantsListDrawer"
@@ -947,6 +949,7 @@ defineExpose({
     @open-room="(id) => openRoomSide(id, 'ltr', { zIndex: zContract })"
     @open-building="(id) => openBuildingSide(id, { zIndex: zContract })"
     @open-requirement="(id) => openRequirementSide(id, { zIndex: zContract })"
+    @open-contract="(id) => openContractSide(id, { zIndex: zContract })"
     @open-invoices="openInvoicesList"
     @open-receivables="openReceivablesList"
     @open-receipts="openReceiptsList"

@@ -1,12 +1,11 @@
 import { RoomLeaseCapability, RoomStatus } from '@prisma/client';
 
-/** 占用房间份位的合约状态（非草稿/已结束） */
+/** 占用房间份位的合约状态（非草稿/已结束；已續約不占房，占用已交新约） */
 export const OCCUPYING_CONTRACT_STATUSES = [
   '簽約中',
   '已簽約',
   '交吉中',
   '租賃中',
-  '已續約',
   '退租中',
 ] as const;
 
@@ -266,7 +265,15 @@ export function buildRoomOccupancy(
       wholeContractCode: whole.contractCode,
       wholeCustomerName: whole.customerName,
       wholeStatus: whole.status,
-      slots: labels.map((label) => ({ label, occupied: true })),
+      // 份位一并挂上整租合约，编辑时前端才能识别「本合约占用」而非他人已租
+      slots: labels.map((label) => ({
+        label,
+        occupied: true,
+        contractId: whole.id,
+        contractCode: whole.contractCode,
+        customerName: whole.customerName,
+        status: whole.status,
+      })),
     };
   }
 

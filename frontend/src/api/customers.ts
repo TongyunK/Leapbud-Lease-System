@@ -29,7 +29,6 @@ export type CustomerWritePayload = {
   businessRegCopy?: string
   remark?: string
   source?: string
-  rentedRooms?: string
   buildingId?: string | null
   agreementTemplateId?: string | null
   linkOccupantId?: string
@@ -43,6 +42,8 @@ export type CustomerListQuery = {
   status?: string
   statuses?: string[]
   accountManagers?: string[]
+  /** 按所属大厦收窄（写入 query，供大厦上下文／列表过滤） */
+  buildingId?: string
   buildingNames?: string[]
   names?: string[]
   primaryContacts?: string[]
@@ -63,6 +64,7 @@ export function fetchCustomers(params?: CustomerListQuery) {
   if (params?.status) query.status = params.status
   if (params?.statuses?.length) query.statuses = params.statuses.join(',')
   if (params?.accountManagers?.length) query.accountManagers = params.accountManagers.join(',')
+  if (params?.buildingId) query.buildingId = params.buildingId
   if (params?.buildingNames?.length) query.buildingNames = params.buildingNames.join(',')
   if (params?.names?.length) query.names = params.names.join(',')
   if (params?.primaryContacts?.length) query.primaryContacts = params.primaryContacts.join(',')

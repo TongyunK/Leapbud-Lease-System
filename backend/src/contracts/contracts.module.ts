@@ -6,9 +6,11 @@ import { ReceiptsModule } from '../receipts/receipts.module';
 import { InvoicesModule } from '../invoices/invoices.module';
 import { SystemSettingsModule } from '../system-settings/system-settings.module';
 import { ContractSettlementsModule } from '../contract-settlements/contract-settlements.module';
+import { NumberingRulesModule } from '../numbering-rules/numbering-rules.module';
 import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
 import { ContractCancelService } from './contract-cancel.service';
+import { ContractRenewalService } from './contract-renewal.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 
@@ -21,9 +23,16 @@ import { RolesGuard } from '../auth/roles.guard';
     InvoicesModule,
     SystemSettingsModule,
     ContractSettlementsModule,
+    NumberingRulesModule,
   ],
   controllers: [ContractsController],
-  providers: [ContractsService, ContractCancelService, JwtAuthGuard, RolesGuard],
-  exports: [ContractsService, ContractCancelService],
+  providers: [
+    ContractsService,
+    ContractCancelService,
+    ContractRenewalService,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
+  exports: [ContractsService, ContractCancelService, ContractRenewalService],
 })
 export class ContractsModule {}

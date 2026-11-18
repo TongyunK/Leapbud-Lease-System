@@ -96,9 +96,12 @@ export class InvoiceAutoService {
     contractId: string,
     actorId?: string | null,
     tx?: Prisma.TransactionClient,
+    opts?: { skipDeposit?: boolean },
   ): Promise<{ depositInvoiceId: string | null; rentInvoiceId: string | null }> {
     const db = tx ?? this.prisma
-    const depositInvoiceId = await this.ensureDepositInvoice(contractId, actorId, db)
+    const depositInvoiceId = opts?.skipDeposit
+      ? null
+      : await this.ensureDepositInvoice(contractId, actorId, db)
     const rentInvoiceId = await this.ensureFirstRentInvoice(contractId, actorId, db)
     return { depositInvoiceId, rentInvoiceId }
   }

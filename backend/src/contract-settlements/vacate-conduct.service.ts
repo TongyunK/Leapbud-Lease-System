@@ -39,7 +39,8 @@ import {
 import { dateOnlyStr, round2 } from './settlement-code.util'
 import { BOOKING_OFFSET_EXCESS_REMARK } from './settlement-item.constants'
 
-const TERMINABLE_STATUSES = new Set(['租賃中', '退租中', '已續約'])
+/** 已續約不可退租（按金已迁出）；仅租賃中／退租中可办 */
+const TERMINABLE_STATUSES = new Set(['租賃中', '退租中'])
 
 /**
  * 退租类型默认规则：
@@ -271,6 +272,25 @@ export class VacateConductService {
         loanItems.reduce((sum, f) => sum + Number(f.subtotal?.toString() ?? 0), 0),
     )
 
+    // 续约按金迁移：迁入加计、迁出扣减（不伪造收款流水）
+    const [transferInAgg, transferOutAgg] = await Promise.all([
+      this.prisma.contractDepositTransfer.aggregate({
+        where: { toContractId: id },
+        _sum: { roomDepositTransferred: true },
+      }),
+      this.prisma.contractDepositTransfer.aggregate({
+        where: { fromContractId: id },
+        _sum: { roomDepositTransferred: true },
+      }),
+    ])
+    const transferIn = round2(
+      Number(transferInAgg._sum.roomDepositTransferred?.toString() ?? 0),
+    )
+    const transferOut = round2(
+      Number(transferOutAgg._sum.roomDepositTransferred?.toString() ?? 0),
+    )
+    depositPaid = round2(Math.max(0, depositPaid + transferIn - transferOut))
+
     const booking = await this.bookingDeposit.getAccountByContractId(id)
     const endDate = dateOnlyStr(contract.endDate)
     const today = dateOnlyStr(new Date())
@@ -347,7 +367,7 @@ export class VacateConductService {
     const preview = await this.previewConduct(contractId)
     if (!preview.contract.terminable) {
       throw new BadRequestException(
-        `当前合约状态「${preview.contract.status}」不可办理退租（需租賃中／退租中／已續約）`,
+        `当前合约状态「${preview.contract.status}」不可办理退租（需租賃中／退租中）`,
       )
     }
     if (preview.existingSettlement) {

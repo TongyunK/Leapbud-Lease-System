@@ -26,6 +26,10 @@ import {
   fetchBookingDepositByContractApi,
   type BookingDepositAccount,
 } from '@/api/receipts'
+import {
+  fetchContractDepositTransfersApi,
+  type ContractDepositTransferRecord,
+} from '@/api/contracts'
 import { fetchContractChangeLogs } from '@/api/contract-settlements'
 import type { ContractChangeLogRecord } from '@/types/contract-settlement'
 
@@ -53,6 +57,7 @@ const emit = defineEmits<{
   openRoom: [roomId: string]
   openBuilding: [buildingId: string]
   openRequirement: [requirementId: string]
+  openContract: [contractId: string]
   openInvoices: [contract: ContractRecord]
   openReceivables: [contract: ContractRecord]
   openReceipts: [contract: ContractRecord]
@@ -71,6 +76,8 @@ const depositAccount = ref<BookingDepositAccount | null>(null)
 const depositAccountLoading = ref(false)
 const changeLogs = ref<ContractChangeLogRecord[]>([])
 const changeLogsLoading = ref(false)
+const depositTransfers = ref<ContractDepositTransferRecord[]>([])
+const depositTransfersLoading = ref(false)
 const appliesDialogVisible = ref(false)
 
 async function reloadDepositAccount() {
@@ -107,6 +114,29 @@ async function reloadChangeLogs() {
   }
 }
 
+async function reloadDepositTransfers() {
+  const id = props.contract?.id
+  if (!id) {
+    depositTransfers.value = []
+    return
+  }
+  depositTransfersLoading.value = true
+  try {
+    const { data } = await fetchContractDepositTransfersApi(id)
+    depositTransfers.value = data ?? []
+  } catch {
+    depositTransfers.value = []
+  } finally {
+    depositTransfersLoading.value = false
+  }
+}
+
+const hasRenewalChain = computed(
+  () =>
+    Boolean(props.contract?.renewedFromId || props.contract?.renewedToId) ||
+    depositTransfers.value.length > 0,
+)
+
 function occupancyLabel(row: ContractRecord) {
   return formatContractOccupancyLabel(row, {
     whole: t('contract.occupancyWhole'),
@@ -127,9 +157,10 @@ watch(
     if (!open || !id) {
       depositAccount.value = null
       changeLogs.value = []
+      depositTransfers.value = []
       return
     }
-    await Promise.all([reloadDepositAccount(), reloadChangeLogs()])
+    await Promise.all([reloadDepositAccount(), reloadChangeLogs(), reloadDepositTransfers()])
   },
 )
 
@@ -398,6 +429,77 @@ function emitIfCount(
             <dd>{{ dash(contract.remark) }}</dd>
           </div>
         </dl>
+      </section>
+
+      <section v-if="hasRenewalChain" class="detail-section" v-loading="depositTransfersLoading">
+        <h3>{{ t('contract.sections.renewal') }}</h3>
+        <dl class="detail-grid two">
+          <div v-if="contract.renewedFromId">
+            <dt>{{ t('contract.fields.renewedFrom') }}</dt>
+            <dd>
+              <button
+                type="button"
+                class="fk-link"
+                @click="emit('openContract', contract.renewedFromId!)"
+              >
+                {{ contract.renewedFromCode || contract.renewedFromId }}
+              </button>
+            </dd>
+          </div>
+          <div v-if="contract.renewedToId">
+            <dt>{{ t('contract.fields.renewedTo') }}</dt>
+            <dd>
+              <button
+                type="button"
+                class="fk-link"
+                @click="emit('openContract', contract.renewedToId!)"
+              >
+                {{ contract.renewedToCode || contract.renewedToId }}
+              </button>
+            </dd>
+          </div>
+        </dl>
+        <div v-if="depositTransfers.length" class="period-list" style="margin-top: 10px">
+          <div
+            v-for="tr in depositTransfers"
+            :key="tr.id"
+            class="period-list__item"
+          >
+            <strong>
+              {{
+                tr.direction === 'in'
+                  ? t('contract.fields.transferDirectionIn')
+                  : t('contract.fields.transferDirectionOut')
+              }}
+            </strong>
+            <span>{{ tr.transferDate }}</span>
+            <span>
+              <button
+                type="button"
+                class="fk-link"
+                @click="emit('openContract', tr.fromContractId)"
+              >
+                {{ tr.fromContractCode }}
+              </button>
+              →
+              <button
+                type="button"
+                class="fk-link"
+                @click="emit('openContract', tr.toContractId)"
+              >
+                {{ tr.toContractCode }}
+              </button>
+            </span>
+            <span>
+              {{ t('contract.fields.transferRoomDeposit') }}
+              {{ money(tr.roomDepositTransferred) }}
+            </span>
+            <span>
+              {{ t('contract.fields.transferBookingDeposit') }}
+              {{ money(tr.bookingDepositTransferred) }}
+            </span>
+          </div>
+        </div>
       </section>
 
       <section v-if="contract.periods?.length" class="detail-section">

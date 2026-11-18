@@ -13,11 +13,17 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { receiptKindTone } from '@/constants/statusBadges'
 import { formatMoney } from '@/utils/format'
 import { formatBookingDepositChangeLog } from '@/utils/bookingDepositChangeLog'
+import {
+  splitTextByLinkCodes,
+  type TextLinkPart,
+  type TextLinkTarget,
+} from '@/utils/textLinkSplit'
 import { previewReceiptPdfApi, prefetchReceiptPdfApi } from '@/api/document-templates'
 import {
   fetchBookingDepositByReceiptApi,
   refundBookingDepositApi,
   type BookingDepositAccount,
+  type BookingDepositMovement,
 } from '@/api/receipts'
 
 const visible = defineModel<boolean>({ default: false })
@@ -100,10 +106,49 @@ function money(v: number | null | undefined) {
   return v == null ? '—' : formatMoney(v)
 }
 
-const changeLogDisplay = computed(() => {
+/** 动账／修改记录中可点击的业务编号 → 详情目标 */
+const detailLinkMap = computed(() => {
+  const map = new Map<string, TextLinkTarget>()
+  const put = (code?: string | null, link?: TextLinkTarget | null) => {
+    const c = (code || '').trim()
+    if (!c || !link?.id) return
+    if (!map.has(c)) map.set(c, link)
+  }
+  const row = props.record
+  if (row?.contractCode && row.contractId) {
+    put(row.contractCode, { kind: 'contract', id: row.contractId })
+  }
+  if (row?.invoiceCode && row.invoiceId) {
+    put(row.invoiceCode, { kind: 'invoice', id: row.invoiceId })
+  }
+  for (const m of account.value?.movements || []) {
+    if (m.invoiceCode?.trim() && m.invoiceId) {
+      put(m.invoiceCode, { kind: 'invoice', id: m.invoiceId })
+    }
+    if (m.relatedContractCode?.trim() && m.relatedContractId) {
+      put(m.relatedContractCode, { kind: 'contract', id: m.relatedContractId })
+    }
+  }
+  return map
+})
+
+const changeLogLinkedLines = computed((): TextLinkPart[][] => {
   const raw = props.record?.changeLog
-  if (!raw?.trim()) return '—'
-  return formatBookingDepositChangeLog(raw, (key, values) => t(key, values)) || '—'
+  if (!raw?.trim()) return [[{ text: '—' }]]
+  const invoiceCodeById = new Map<string, string>()
+  for (const m of account.value?.movements || []) {
+    const id = (m.invoiceId || '').trim()
+    const code = (m.invoiceCode || '').trim()
+    if (id && code) invoiceCodeById.set(id, code)
+  }
+  const formatted =
+    formatBookingDepositChangeLog(raw, (key, values) => t(key, values), {
+      invoiceCodeById,
+    }) || '—'
+  return formatted
+    .split(/\r?\n/)
+    .map((line) => splitTextByLinkCodes(line, detailLinkMap.value))
+    .filter((parts) => parts.some((p) => p.text.trim()))
 })
 
 function kindLabel(kind?: string | null) {
@@ -116,15 +161,53 @@ function movementTypeLabel(type: string) {
   if (type === 'apply') return t('receipt.bookingDeposit.typeApply')
   if (type === 'top_up') return t('receipt.bookingDeposit.typeTopUp')
   if (type === 'forfeit') return t('receipt.bookingDeposit.typeForfeit')
+  if (type === 'transfer_out') return t('receipt.bookingDeposit.typeTransferOut')
+  if (type === 'transfer_in') return t('receipt.bookingDeposit.typeTransferIn')
   return t('receipt.bookingDeposit.typeRefund')
 }
 
-/** 默认「定金抵扣」备注与类型标题重复，有发票编号时不再展示 */
-function movementRemarkVisible(remark?: string | null, invoiceCode?: string | null) {
-  const text = (remark || '').trim()
+/** 默认备注与类型／对端合约重复时不再展示 */
+function movementRemarkVisible(
+  m: {
+    remark?: string | null
+    invoiceCode?: string | null
+    relatedContractCode?: string | null
+    type?: string
+  },
+) {
+  const text = (m.remark || '').trim()
   if (!text) return false
-  if (invoiceCode?.trim() && (text === '定金抵扣' || text === 'Booking deposit apply')) return false
+  if (m.invoiceCode?.trim() && (text === '定金抵扣' || text === 'Booking deposit apply')) {
+    return false
+  }
+  if (
+    (m.type === 'transfer_out' || m.type === 'transfer_in') &&
+    (m.relatedContractCode?.trim() ||
+      text.startsWith('續約定金轉出') ||
+      text.startsWith('續約定金遷入') ||
+      /^Renewal deposit (transfer out|transfer in)/i.test(text))
+  ) {
+    return false
+  }
   return true
+}
+
+function movementRemarkParts(m: BookingDepositMovement): TextLinkPart[] {
+  return splitTextByLinkCodes((m.remark || '').trim(), detailLinkMap.value)
+}
+
+function onDetailLink(link: TextLinkTarget) {
+  if (link.kind === 'invoice') emit('openInvoice', link.id)
+  else if (link.kind === 'contract') emit('openContract', link.id)
+  else if (link.kind === 'receivable') emit('openReceivable', link.id)
+}
+
+function onMovementTargetClick(m: BookingDepositMovement) {
+  if (m.invoiceId) {
+    emit('openInvoice', m.invoiceId)
+    return
+  }
+  if (m.receivableId) emit('openReceivable', m.receivableId)
 }
 
 function todayYmd() {
@@ -438,13 +521,43 @@ async function submitRefund() {
             </div>
             <div class="booking-dep-mov__meta">
               <span>{{ m.movementDate || '—' }}</span>
-              <template v-if="m.invoiceCode?.trim()">
+              <template v-if="m.type === 'transfer_out' || m.type === 'transfer_in'">
                 <span>· </span>
                 <button
-                  v-if="m.receivableId"
+                  v-if="m.relatedContractId"
                   type="button"
                   class="fk-link booking-dep-mov__target"
-                  @click="emit('openReceivable', m.receivableId)"
+                  @click="emit('openContract', m.relatedContractId)"
+                >
+                  {{
+                    m.type === 'transfer_out'
+                      ? t('receipt.bookingDeposit.movementTransferTo', {
+                          contract: m.relatedContractCode || '—',
+                        })
+                      : t('receipt.bookingDeposit.movementTransferFrom', {
+                          contract: m.relatedContractCode || '—',
+                        })
+                  }}
+                </button>
+                <span v-else>
+                  {{
+                    m.type === 'transfer_out'
+                      ? t('receipt.bookingDeposit.movementTransferTo', {
+                          contract: m.relatedContractCode || '—',
+                        })
+                      : t('receipt.bookingDeposit.movementTransferFrom', {
+                          contract: m.relatedContractCode || '—',
+                        })
+                  }}
+                </span>
+              </template>
+              <template v-else-if="m.invoiceCode?.trim()">
+                <span>· </span>
+                <button
+                  v-if="m.invoiceId || m.receivableId"
+                  type="button"
+                  class="fk-link booking-dep-mov__target"
+                  @click="onMovementTargetClick(m)"
                 >
                   {{ t('receipt.bookingDeposit.movementTarget', { invoice: m.invoiceCode }) }}
                 </button>
@@ -453,7 +566,20 @@ async function submitRefund() {
                 </span>
               </template>
               <span v-else-if="m.offsetReceiptCode">· {{ m.offsetReceiptCode }}</span>
-              <span v-if="movementRemarkVisible(m.remark, m.invoiceCode)">· {{ m.remark }}</span>
+              <template v-if="movementRemarkVisible(m)">
+                <span>· </span>
+                <template v-for="(part, pi) in movementRemarkParts(m)" :key="pi">
+                  <button
+                    v-if="part.link"
+                    type="button"
+                    class="fk-link booking-dep-mov__target"
+                    @click="onDetailLink(part.link)"
+                  >
+                    {{ part.text }}
+                  </button>
+                  <span v-else>{{ part.text }}</span>
+                </template>
+              </template>
             </div>
           </div>
         </div>
@@ -489,9 +615,27 @@ async function submitRefund() {
             <dt>{{ t('receipt.fields.remark') }}</dt>
             <dd>{{ dash(record.remark) }}</dd>
           </div>
-          <div v-if="!isBookingDeposit" class="detail-span-2">
+          <div v-if="record.changeLog?.trim()" class="detail-span-2">
             <dt>{{ t('receipt.fields.changeLog') }}</dt>
-            <dd class="change-log-text">{{ changeLogDisplay }}</dd>
+            <dd class="change-log-text">
+              <div
+                v-for="(line, li) in changeLogLinkedLines"
+                :key="li"
+                class="change-log-line"
+              >
+                <template v-for="(part, pi) in line" :key="pi">
+                  <button
+                    v-if="part.link"
+                    type="button"
+                    class="fk-link"
+                    @click="onDetailLink(part.link)"
+                  >
+                    {{ part.text }}
+                  </button>
+                  <span v-else>{{ part.text }}</span>
+                </template>
+              </div>
+            </dd>
           </div>
         </dl>
       </section>
@@ -613,18 +757,19 @@ async function submitRefund() {
 
 .booking-dep-mov-title {
   margin: 14px 0 8px;
-  font-size: 0.86rem;
-  color: #3d4f45;
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: #2a3a32;
 }
 
 .booking-dep-mov-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .booking-dep-mov {
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 8px;
   background: #f4f7f5;
   border: 1px solid #e4ebe6;
@@ -633,14 +778,26 @@ async function submitRefund() {
 .booking-dep-mov__main {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
   font-weight: 650;
+  font-size: 0.95rem;
+}
+
+.booking-dep-mov__type {
+  color: #1a2a22;
+}
+
+.booking-dep-mov__amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .booking-dep-mov__meta {
-  margin-top: 4px;
-  font-size: 0.78rem;
-  color: #6a7a70;
+  margin-top: 6px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: #3a4a42;
 }
 
 .booking-dep-mov__target {
@@ -656,7 +813,10 @@ async function submitRefund() {
 }
 
 .change-log-text {
-  white-space: pre-line;
   word-break: break-word;
+}
+
+.change-log-line + .change-log-line {
+  margin-top: 4px;
 }
 </style>

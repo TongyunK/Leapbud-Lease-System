@@ -103,6 +103,15 @@ async function alertBox(msg: string, type: 'warning' | 'error' | 'success' | 'in
   }
 }
 
+function apiErrorMessage(e: unknown, fallback: string) {
+  const err = e as { response?: { data?: { message?: string | string[] } }; message?: string }
+  const msg = err?.response?.data?.message
+  if (Array.isArray(msg) && msg[0]) return String(msg[0])
+  if (typeof msg === 'string' && msg.trim()) return msg
+  if (err?.message?.trim()) return err.message
+  return fallback
+}
+
 function measureTableHeight() {
   const el = tableWrapRef.value
   if (!el) return
@@ -509,9 +518,7 @@ async function submitCollect() {
     await loadRows()
     emit('collected')
   } catch (e) {
-    const msg =
-      e instanceof Error && e.message ? e.message : t('contract.receivePaymentFailed')
-    await alertBox(msg, 'error')
+    await alertBox(apiErrorMessage(e, t('contract.receivePaymentFailed')), 'error')
   } finally {
     submitting.value = false
   }

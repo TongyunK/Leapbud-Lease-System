@@ -99,6 +99,7 @@ import RefundOrderDetailDrawer from '@/components/RefundOrderDetailDrawer.vue'
 import RelatedCashFlowsDrawer from '@/components/RelatedCashFlowsDrawer.vue'
 import CashFlowDetailDrawer from '@/components/CashFlowDetailDrawer.vue'
 import ContractCancelDialog from '@/components/ContractCancelDialog.vue'
+import ContractRenewDialog from '@/components/ContractRenewDialog.vue'
 import ContractSettlementRefundDialog from '@/components/ContractSettlementRefundDialog.vue'
 import { fetchContractSettlements } from '@/api/contract-settlements'
 import { fetchRefundOrder } from '@/api/refund-orders'
@@ -255,7 +256,12 @@ const settlementRefundZIndex = ref<number | undefined>(undefined)
 
 function canTerminateContract(row: ContractRecord) {
   const st = (row.status || '').trim()
-  return st === '租賃中' || st === '退租中' || st === '已續約'
+  return st === '租賃中' || st === '退租中'
+}
+
+function canRenewContract(row: ContractRecord | null | undefined) {
+  if (!row || !perms.create) return false
+  return (row.status || '').trim() === '租賃中' && !row.renewedToId
 }
 
 /** 已退租（或已有终止结算）时可查看退租结算详情 */
@@ -551,8 +557,23 @@ function onSettlementRefundDone() {
   if (vacateDetailVisible.value) endDetailRefreshKey.value += 1
 }
 
-function onRenewContractPlaceholder() {
-  ElMessage.info(t('contract.featureComingSoon'))
+const renewVisible = ref(false)
+const renewContract = ref<ContractRecord | null>(null)
+
+function openRenewContract(row: ContractRecord) {
+  if (!canRenewContract(row)) {
+    void ElMessageBox.alert(t('contract.renewOnlyLeased'), t('contract.renewTitle'), {
+      type: 'warning',
+      confirmButtonText: t('common.confirm'),
+    })
+    return
+  }
+  renewContract.value = row
+  renewVisible.value = true
+}
+
+function onRenewContractDone() {
+  void loadList()
 }
 
 /** 整页共用「更多」菜单状态（须早于 messageBoxOpts / 各操作，供 MessageBox 抬层判断） */
@@ -1909,17 +1930,40 @@ const selectedRoom = computed(() =>
   roomSelectOptions.value.find((r) => r.id === form.roomId.trim()) || null,
 )
 
+const selectedCustomer = computed(() =>
+  customerSelectOptions.value.find((c) => c.id === form.customerId.trim()) || null,
+)
+
+/** 表单收窄用大厦：优先已选房间，其次已选客户，再次顶栏选中大厦 */
+function contractFormScopeBuildingId(): string {
+  const fromRoom = String(selectedRoom.value?.buildingId || '').trim()
+  if (fromRoom) return fromRoom
+  const fromCustomer = String(selectedCustomer.value?.buildingId || '').trim()
+  if (fromCustomer) return fromCustomer
+  return String(buildingScope.selectedId || '').trim()
+}
+
+/** 双方都有所属大厦且不一致 → 跨大厦冲突；任一方未设大厦不视为冲突（兼容旧客户） */
+function buildingConflict(roomBid?: string | null, custBid?: string | null) {
+  const r = String(roomBid || '').trim()
+  const c = String(custBid || '').trim()
+  return !!r && !!c && r !== c
+}
+
 const roomPartOptions = computed(() => {
   const room = selectedRoom.value
   if (!room) return [] as { label: string; value: string; disabled: boolean }[]
   if (room.leaseCapability !== 'flexible') return []
   const labels = room.splitLabels?.length ? room.splitLabels : ['A', 'B']
-  // 编辑中：本合约占用的份位不算「已被他人租用」，换 A→B 后 A 仍可选
+  // 编辑中：本合约占用（含本合约整租占满的份位）不算「已被他人租用」
   const selfId = editing.value?.id
+  const selfOwnsWhole = !!(selfId && room.occupancy?.wholeContractId === selfId)
   const occupied = new Set(
-    (room.occupancy?.slots || [])
-      .filter((s) => s.occupied && (!selfId || s.contractId !== selfId))
-      .map((s) => s.label),
+    selfOwnsWhole
+      ? []
+      : (room.occupancy?.slots || [])
+          .filter((s) => s.occupied && (!selfId || s.contractId !== selfId))
+          .map((s) => s.label),
   )
   return labels.map((label) => ({
     label,
@@ -1932,6 +1976,8 @@ const canWholeLease = computed(() => {
   const room = selectedRoom.value
   if (!room) return true
   const selfId = editing.value?.id
+  // 本合约已是该房整租占用：允许保持／改回整租（旧数据份位可能未带 contractId）
+  if (selfId && room.occupancy?.wholeContractId === selfId) return true
   const wholeByOther =
     !!room.occupancy?.wholeOccupied &&
     (!selfId || room.occupancy?.wholeContractId !== selfId)
@@ -2012,10 +2058,16 @@ function roomPickBadge(r: RoomRecord): { tone: StatusTone; label: string } {
 
 function buildRoomSelectQuery(page: number) {
   const mode = roomPickMode.value
+  // 顶栏已选大厦时拦截器会注入；全部大厦且已选客户时按客户所属大厦收窄
+  const scopeBid =
+    String(buildingScope.selectedId || '').trim() ||
+    String(selectedCustomer.value?.buildingId || '').trim() ||
+    undefined
   const base = {
     keyword: roomSelectKeyword.value || undefined,
     page,
     pageSize: SELECT_PAGE_SIZE,
+    ...(scopeBid ? { buildingId: scopeBid } : {}),
   }
   // 只列可租：闲置 / 分租尚有空位；顶栏再按整租·分租收窄
   if (mode === 'whole') {
@@ -2177,14 +2229,22 @@ async function loadCustomersPage(reset: boolean) {
   const page = reset ? 1 : customerSelectPage.value
   const scrollEl = customerSelectScrollEl
   const prevTop = scrollEl?.scrollTop ?? 0
+  // 顶栏选中大厦，或全部大厦下已选房间：把 buildingId 交给后端大厦上下文收窄
+  const bid = contractFormScopeBuildingId()
   try {
     const { data } = await fetchCustomers({
       keyword: customerSelectKeyword.value || undefined,
       page,
       pageSize: SELECT_PAGE_SIZE,
+      ...(bid ? { buildingId: bid } : {}),
     })
-    const bid = buildingScope.selectedId
-    const pageItems = bid ? data.items.filter((c) => c.buildingId === bid) : data.items
+    // 仅排除「已明确属于其他大厦」的客户；无所属大厦的旧客户保留可选
+    const pageItems = bid
+      ? data.items.filter((c) => {
+          const cb = String(c.buildingId || '').trim()
+          return !cb || cb === bid
+        })
+      : data.items
     if (reset) {
       customerSelectOptions.value = keepSelectedInOptions(
         pageItems,
@@ -2198,7 +2258,7 @@ async function loadCustomersPage(reset: boolean) {
     customerSelectPage.value = page + 1
     customerSelectHasMore.value = data.items.length >= SELECT_PAGE_SIZE
     if (bid && customerSelectHasMore.value && pageItems.length === 0) {
-      // 本頁全被濾掉但後端還有資料 → 自動續拉，避免滾動空白
+      if (reset) customerSelectLoading.value = false
       customerSelectLoadingMore.value = false
       await loadCustomersPage(false)
       return
@@ -2415,12 +2475,32 @@ function firstFreePartLabel(room: RoomRecord) {
 }
 
 function onRoomSelectChange(roomId: string) {
-  const room = roomSelectOptions.value.find((r) => r.id === roomId)
+  const rid = String(roomId || '').trim()
+  if (!rid) {
+    form.roomNameText = ''
+    form.occupancyMode = 'whole'
+    form.partLabel = ''
+    form.subleaseMark = ''
+    syncLeaseTypeFromOccupancy()
+    return
+  }
+  const room = roomSelectOptions.value.find((r) => r.id === rid)
   if (!room) return
   // 房間名稱文本：旧系统 PDF 快照；新系统以房间外键为准，表单不再手填
   form.roomNameText = room.name || ''
   if (form.monthlyRent == null) form.monthlyRent = room.monthlyRent ?? null
   syncRoomDepositFromRent()
+  // 换房间后若客户已设所属大厦且与房间不一致：清空，避免跨大厦签约
+  const cust = selectedCustomer.value
+  if (cust && buildingConflict(room.buildingId, cust.buildingId)) {
+    form.customerId = ''
+    form.requirementId = ''
+    void ElMessageBox.alert(
+      t('contract.customerBuildingMismatch'),
+      t('contract.create'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
+  }
   if (room.leaseCapability === 'whole_only' || room.leaseCapability === 'part_only') {
     form.occupancyMode = 'whole'
     form.partLabel = ''
@@ -2443,6 +2523,22 @@ function onRoomSelectChange(roomId: string) {
     form.subleaseMark = ''
   }
   syncLeaseTypeFromOccupancy()
+}
+
+function onCustomerSelectChange(customerId: string) {
+  const cid = String(customerId || '').trim()
+  if (!cid) return
+  const cust = customerSelectOptions.value.find((c) => c.id === cid)
+  const room = selectedRoom.value
+  if (cust && room && buildingConflict(room.buildingId, cust.buildingId)) {
+    form.customerId = ''
+    form.requirementId = ''
+    void ElMessageBox.alert(
+      t('contract.customerBuildingMismatch'),
+      t('contract.create'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
+  }
 }
 
 watch(
@@ -3450,15 +3546,35 @@ function payloadFromForm(issueNow = false) {
 
 async function saveForm(mode: 'save' | 'issue' = 'save') {
   if (!form.roomId.trim()) {
-    ElMessage.warning(t('contract.roomRequired'))
+    await ElMessageBox.alert(
+      t('contract.roomRequired'),
+      mode === 'issue' ? t('contract.issueNow') : editing.value ? t('common.edit') : t('contract.create'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
     return
   }
   if (!form.customerId.trim()) {
-    ElMessage.warning(t('contract.customerRequired'))
+    await ElMessageBox.alert(
+      t('contract.customerRequired'),
+      mode === 'issue' ? t('contract.issueNow') : editing.value ? t('common.edit') : t('contract.create'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
+    return
+  }
+  if (buildingConflict(selectedRoom.value?.buildingId, selectedCustomer.value?.buildingId)) {
+    await ElMessageBox.alert(
+      t('contract.customerBuildingMismatch'),
+      mode === 'issue' ? t('contract.issueNow') : editing.value ? t('common.edit') : t('contract.create'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
     return
   }
   if (form.occupancyMode === 'part' && !form.partLabel.trim()) {
-    ElMessage.warning(t('contract.partLabelRequired'))
+    await ElMessageBox.alert(
+      t('contract.partLabelRequired'),
+      mode === 'issue' ? t('contract.issueNow') : editing.value ? t('common.edit') : t('contract.create'),
+      messageBoxOpts({ type: 'warning', confirmButtonText: t('common.confirm') }),
+    )
     return
   }
   // 新增时若已收定金>0：收款方式、定金凭证必填
@@ -3784,7 +3900,10 @@ function onContractMorePick(cmd: string) {
     return
   }
   if (cmd === 'renew') {
-    onRenewContractPlaceholder()
+    if (!canRenewContract(row)) return
+    pinContractMoreForFeatureUi()
+    openRenewContract(row)
+    pinContractMoreForFeatureUi()
     return
   }
   if (cmd === 'end') {
@@ -4971,9 +5090,15 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               {{ t('receipt.bookingDeposit.topUpAction') }}
             </button>
             <button
+              v-if="perms.create"
+              v-admin-glow="perms.codes.create"
               type="button"
               class="action-pill action-pill--key"
               role="menuitem"
+              :disabled="!canRenewContract(contractMoreRow)"
+              :title="
+                canRenewContract(contractMoreRow) ? undefined : t('contract.renewOnlyLeased')
+              "
               @click="onContractMorePick('renew')"
             >
               {{ t('contract.renew') }}
@@ -5179,6 +5304,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
       @open-settlement="(id, opts) => relationDrawers?.openSettlementSide(id, opts)"
       @open-refund-order="openRefundOrderFromCancel"
     />
+    <ContractRenewDialog
+      v-model="renewVisible"
+      :contract="renewContract"
+      :z-index="contractMoreVisible ? FEATURE_DIALOG_ABOVE_MORE_Z : undefined"
+      @done="onRenewContractDone"
+      @open-room="(id, opts) => openRoomSide(id, 'ltr', opts)"
+      @open-customer="(id, opts) => openCustomerSide(id, 'ltr', opts)"
+    />
 
     <RelatedInvoicesDrawer
       v-model="relatedInvoicesDrawerVisible"
@@ -5322,6 +5455,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </el-form-item>
             <el-form-item :label="t('contract.fields.roomCode')" required>
               <SelectWithViewAction
+                clearable
                 :disabled="!form.roomId"
                 @view="openRoomSide(form.roomId, 'ltr')"
               >
@@ -5330,6 +5464,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   filterable
                   remote
                   reserve-keyword
+                  clearable
+                  value-on-clear=""
                   style="width: 100%"
                   popper-class="contract-room-select-popper"
                   :popper-style="formFieldPopperStyle"
@@ -5383,6 +5519,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </el-form-item>
             <el-form-item :label="t('contract.fields.customerName')" required>
               <SelectWithViewAction
+                clearable
                 :disabled="!form.customerId"
                 @view="openCustomerSide(form.customerId, 'ltr')"
               >
@@ -5391,6 +5528,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   filterable
                   remote
                   reserve-keyword
+                  clearable
+                  value-on-clear=""
                   fit-input-width
                   style="width: 100%"
                   popper-class="contract-customer-select-popper"
@@ -5399,6 +5538,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   :remote-method="searchCustomersRemote"
                   :loading="customerSelectLoading"
                   @visible-change="onCustomerSelectVisible"
+                  @change="onCustomerSelectChange"
                 >
                   <el-option
                     v-for="c in customerSelectOptions"
@@ -5411,6 +5551,15 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       {{ customerOptionLabel(c) }}
                     </span>
                   </el-option>
+                  <template #empty>
+                    <div class="contract-select-empty">
+                      {{
+                        customerSelectLoading
+                          ? t('common.loading')
+                          : t('contract.customerSelectEmpty')
+                      }}
+                    </div>
+                  </template>
                 </el-select>
               </SelectWithViewAction>
             </el-form-item>
@@ -5419,11 +5568,22 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                 v-model="form.salesManagerId"
                 filterable
                 clearable
+                value-on-clear=""
+                fit-input-width
                 style="width: 100%"
+                popper-class="contract-sales-manager-select-popper"
                 :popper-style="formFieldPopperStyle"
                 :placeholder="t('contract.fields.salesManager')"
               >
-                <el-option v-for="u in users" :key="u.id" :label="userLabel(u)" :value="u.id" />
+                <el-option
+                  v-for="u in users"
+                  :key="u.id"
+                  :label="userLabel(u)"
+                  :value="u.id"
+                  :title="userLabel(u)"
+                >
+                  <span class="select-option-ellipsis" :title="userLabel(u)">{{ userLabel(u) }}</span>
+                </el-option>
               </el-select>
             </el-form-item>
             <el-form-item :label="t('contract.fields.requirementCode')">
@@ -5437,7 +5597,9 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   filterable
                   clearable
                   value-on-clear=""
+                  fit-input-width
                   style="width: 100%"
+                  popper-class="contract-requirement-select-popper"
                   :popper-style="formFieldPopperStyle"
                   :disabled="!form.customerId"
                   :placeholder="t('contract.fields.requirementCode')"
@@ -5447,7 +5609,12 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                     :key="req.id"
                     :label="req.requirementCode"
                     :value="req.id"
-                  />
+                    :title="req.requirementCode"
+                  >
+                    <span class="select-option-ellipsis" :title="req.requirementCode">
+                      {{ req.requirementCode }}
+                    </span>
+                  </el-option>
                 </el-select>
               </SelectWithViewAction>
             </el-form-item>
@@ -5490,10 +5657,16 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                     selectedRoom?.leaseCapability === 'part_only'
                   "
                 >
-                  <el-radio-button value="whole" :disabled="!canWholeLease">
+                  <el-radio-button
+                    value="whole"
+                    :disabled="!canWholeLease && form.occupancyMode !== 'whole'"
+                  >
                     {{ t('contract.occupancyWhole') }}
                   </el-radio-button>
-                  <el-radio-button value="part" :disabled="!canPartLease">
+                  <el-radio-button
+                    value="part"
+                    :disabled="!canPartLease && form.occupancyMode !== 'part'"
+                  >
                     {{ t('contract.occupancyPart') }}
                   </el-radio-button>
                 </el-radio-group>
@@ -5654,6 +5827,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   <div class="period-table__cell period-table__cell--type" role="cell">
                     <el-select
                       v-model="p.dateType"
+                      clearable
+                      value-on-clear=""
                       style="width: 100%"
                       :popper-style="formFieldPopperStyle"
                     >
@@ -5668,6 +5843,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   <div class="period-table__cell period-table__cell--unit" role="cell">
                     <el-select
                       v-model="p.dateUnit"
+                      clearable
+                      value-on-clear=""
                       style="width: 100%"
                       :popper-style="formFieldPopperStyle"
                       @change="onPeriodDurationChange(p, index)"
@@ -5907,6 +6084,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               <el-select
                 v-model="form.paymentCycle"
                 filterable
+                clearable
+                value-on-clear=""
                 style="width: 100%"
                 :popper-style="formFieldPopperStyle"
               >
@@ -6553,6 +6732,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.contract-select-empty {
+  padding: 10px 12px;
+  color: var(--lb-muted, #666);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .period-section-head {

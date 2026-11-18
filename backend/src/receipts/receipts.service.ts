@@ -232,12 +232,54 @@ export class ReceiptsService {
       }),
     ])
 
+    const items = await this.enrichChangeLogInvoiceCodes(rows.map(toReceiptDto))
     return {
-      items: rows.map(toReceiptDto),
+      items,
       total,
       page: pageSize == null ? 1 : page,
       pageSize: pageSize == null ? total : pageSize,
     }
+  }
+
+  /** 旧版 apply_vacate_excess 曾写入发票 ID，列表／详情展示时换成编号 */
+  private async enrichChangeLogInvoiceCodes<
+    T extends { changeLog?: string | null },
+  >(items: T[]): Promise<T[]> {
+    const idRe = /^c[a-z0-9]{20,}$/i
+    const ids = new Set<string>()
+    for (const item of items) {
+      for (const line of String(item.changeLog || '').split(/\r?\n/)) {
+        const parts = line.trim().split('|')
+        if (parts[1] !== 'apply_vacate_excess') continue
+        const ref = (parts[4] || '').trim()
+        if (ref && idRe.test(ref)) ids.add(ref)
+      }
+    }
+    if (!ids.size) return items
+    const invoices = await this.prisma.invoice.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, invoiceCode: true },
+    })
+    const codeById = new Map(
+      invoices.map((inv) => [inv.id, (inv.invoiceCode || '').trim()] as const),
+    )
+    return items.map((item) => {
+      const raw = String(item.changeLog || '')
+      if (!raw.trim()) return item
+      const next = raw
+        .split(/\r?\n/)
+        .map((line) => {
+          const parts = line.split('|')
+          if ((parts[1] || '').trim() !== 'apply_vacate_excess') return line
+          const ref = (parts[4] || '').trim()
+          const code = ref ? codeById.get(ref) : ''
+          if (!code) return line
+          parts[4] = code
+          return parts.join('|')
+        })
+        .join('\n')
+      return next === raw ? item : { ...item, changeLog: next }
+    })
   }
 
   private buildListWhere(params: {
@@ -437,7 +479,8 @@ export class ReceiptsService {
     })
     if (!row) throw new NotFoundException('Receipt not found')
     await this.access.assertCustomerId(row.customerId)
-    return toReceiptDto(row)
+    const [dto] = await this.enrichChangeLogInvoiceCodes([toReceiptDto(row)])
+    return dto
   }
 
   private async resolveReceivable(dto: {

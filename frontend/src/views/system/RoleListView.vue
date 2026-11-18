@@ -307,15 +307,33 @@ function collectMenuIds(nodes: MenuRecord[]): string[] {
   return ids
 }
 
+/** 目录节点 ID：回填勾选时勿把目录当「全选」写入，交给树按子节点自动半选／全选 */
+function collectDirectoryIds(nodes: MenuRecord[], out = new Set<string>()): Set<string> {
+  for (const n of nodes) {
+    if (n.type === 'directory' || (n.children?.length ?? 0) > 0) out.add(n.id)
+    if (n.children?.length) collectDirectoryIds(n.children, out)
+  }
+  return out
+}
+
 const menusSelectedCount = computed(() => {
   const all = new Set(collectMenuIds(menuTree.value))
   return checkedMenuIds.value.filter((id) => all.has(id)).length
 })
 
+function syncCheckedMenuIdsFromTree() {
+  const tree = menuTreeRef.value
+  if (!tree) return
+  const checked = tree.getCheckedKeys(false) as string[]
+  const half = tree.getHalfCheckedKeys() as string[]
+  // 半选目录也要写入，侧栏才能带上祖先目录
+  checkedMenuIds.value = [...new Set([...checked, ...half])]
+}
+
 function selectAllMenus() {
   const ids = collectMenuIds(menuTree.value)
   menuTreeRef.value?.setCheckedKeys(ids)
-  checkedMenuIds.value = ids
+  syncCheckedMenuIdsFromTree()
 }
 
 function clearAllMenus() {
@@ -334,9 +352,13 @@ async function openMenus(row: RoleRecord) {
       fetchRoleMenusApi(row.id),
     ])
     menuTree.value = menusRes.data ?? []
-    checkedMenuIds.value = roleMenusRes.data.menuIds ?? []
+    const savedIds = roleMenusRes.data.menuIds ?? []
+    const dirIds = collectDirectoryIds(menuTree.value)
+    // 只回填叶子／菜单项，避免目录 ID 触发「全选下属」
+    checkedMenuIds.value = savedIds.filter((id) => !dirIds.has(id))
     await nextTick()
     menuTreeRef.value?.setCheckedKeys(checkedMenuIds.value)
+    syncCheckedMenuIdsFromTree()
   } catch {
     /* interceptor */
   } finally {
@@ -345,17 +367,13 @@ async function openMenus(row: RoleRecord) {
 }
 
 function onMenusCheck() {
-  const tree = menuTreeRef.value
-  if (!tree) return
-  const checked = tree.getCheckedKeys(false) as string[]
-  const half = tree.getHalfCheckedKeys() as string[]
-  checkedMenuIds.value = [...new Set([...checked, ...half])]
+  syncCheckedMenuIdsFromTree()
 }
 
 async function saveMenus() {
   const row = menusTarget.value
   if (!row) return
-  onMenusCheck()
+  syncCheckedMenuIdsFromTree()
   menusSaving.value = true
   try {
     await assignRoleMenusApi(row.id, checkedMenuIds.value)
@@ -591,6 +609,7 @@ async function savePermissions() {
           <el-table-column
             prop="sortOrder"
             :min-width="colW(t('role.fields.sortOrder'), { interactive: true, contentMin: 100 })"
+            align="center"
           >
             <template #header>
               <TableColumnHeader
@@ -854,8 +873,8 @@ async function savePermissions() {
             node-key="id"
             show-checkbox
             default-expand-all
+            :check-strictly="false"
             :props="{ label: 'name', children: 'children' }"
-            :default-checked-keys="checkedMenuIds"
             @check="onMenusCheck"
           >
             <template #default="{ data }">
@@ -1070,9 +1089,9 @@ async function savePermissions() {
 
 .perms-module {
   border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e6e6e6);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fafafa;
-  padding: 10px 12px 8px;
+  padding: 8px 10px 6px;
 }
 
 .perms-module-head {
@@ -1080,11 +1099,11 @@ async function savePermissions() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
 
 .perms-module-name {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: var(--lb-brand, #0f4a32);
 }
@@ -1092,7 +1111,7 @@ async function savePermissions() {
 .perms-checks {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .perms-checks :deep(.perms-check) {
@@ -1101,7 +1120,7 @@ async function savePermissions() {
   --el-checkbox-input-border-color-hover: var(--lb-brand, #0f4a32);
   margin-right: 0;
   height: auto;
-  padding: 5px 10px 5px 8px;
+  padding: 3px 8px 3px 6px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e0e0e0);
   background: #fff;
@@ -1125,11 +1144,30 @@ async function savePermissions() {
 }
 
 .perms-checks :deep(.perms-check .el-checkbox__label) {
-  padding-left: 6px;
+  padding-left: 5px;
   color: var(--lb-muted, #666);
-  font-size: 0.8rem;
+  /* 略小于表格正文一档，芯片更紧凑 */
+  font-size: 0.82rem;
   font-weight: 600;
   line-height: 1.2;
+}
+
+@media (max-width: 1279.98px) {
+  .perms-checks :deep(.perms-check .el-checkbox__label) {
+    font-size: 0.76rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  .perms-checks :deep(.perms-check .el-checkbox__label) {
+    font-size: 0.86rem;
+  }
+}
+
+@media (min-width: 1800px) {
+  .perms-checks :deep(.perms-check .el-checkbox__label) {
+    font-size: 0.9rem;
+  }
 }
 
 .perms-checks :deep(.perms-check.is-on .el-checkbox__label),
@@ -1139,16 +1177,16 @@ async function savePermissions() {
 }
 
 .perms-checks :deep(.perms-check .el-checkbox__inner) {
-  width: 16px;
-  height: 16px;
-  border-radius: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #c8c8c8);
 }
 
 .perms-checks :deep(.perms-check .el-checkbox__inner::after) {
   box-sizing: content-box;
-  width: 4px;
-  height: 8px;
+  width: 3px;
+  height: 7px;
   left: 50%;
   top: 46%;
   border-width: 1.5px;
@@ -1166,7 +1204,7 @@ async function savePermissions() {
 .perms-checks :deep(.perms-check.is-on .el-checkbox__inner) {
   background-color: var(--lb-brand, #0f4a32);
   border-color: var(--lb-brand, #0f4a32);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent);
 }
 
 .perms-checks :deep(.perms-check.is-disabled) {
@@ -1329,10 +1367,6 @@ async function savePermissions() {
   }
 
   .perms-module-name {
-    font-size: 0.9rem;
-  }
-
-  .perms-checks :deep(.perms-check .el-checkbox__label) {
     font-size: 0.86rem;
   }
 
