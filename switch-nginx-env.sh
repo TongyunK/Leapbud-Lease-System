@@ -69,21 +69,40 @@ rollback_nginx_conf() {
     fi
 }
 
+resolve_ssl_dir() {
+    # shellcheck disable=SC1091
+    [ -f .env ] && set -a && . ./.env && set +a
+    local candidates=(
+        "${SSL_HOST_PATH:-}"
+        "/home/proj_deploy/Documents/acme-edge/ssl"
+        "docker/nginx/ssl"
+    )
+    local dir
+    for dir in "${candidates[@]}"; do
+        [ -n "$dir" ] || continue
+        if [ -f "$dir/cert.pem" ] && [ -f "$dir/key.pem" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    echo ""
+}
+
 apply_nginx_env_conf() {
     local env="$1"
-    local cert="docker/nginx/ssl/cert.pem"
-    local key="docker/nginx/ssl/key.pem"
     local http_conf="docker/nginx/nginx.${env}.conf"
     local https_conf="docker/nginx/nginx.${env}.https.conf"
+    local ssl_dir
+    ssl_dir="$(resolve_ssl_dir)"
 
     if [ ! -f "$http_conf" ]; then
         log_error "缺少 $http_conf"
         exit 1
     fi
 
-    if [ -f "$cert" ] && [ -f "$key" ] && [ -f "$https_conf" ]; then
+    if [ -n "$ssl_dir" ] && [ -f "$https_conf" ]; then
         cp "$https_conf" docker/nginx/nginx.conf
-        log_info "已应用 ${env} 配置（HTTP + HTTPS）"
+        log_info "已应用 ${env} 配置（HTTP + HTTPS；证书目录: $ssl_dir）"
     else
         cp "$http_conf" docker/nginx/nginx.conf
         log_warning "未找到 SSL 证书，使用仅 HTTP 配置（入口 http://服务器:3400）"

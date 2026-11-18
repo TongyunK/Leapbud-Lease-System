@@ -296,8 +296,6 @@ export default {
     permissionsSuperAdminHint: '超級管理員默認擁有全部功能權限，無需單獨配置。',
     permissionsAdminLockedHint:
       '管理員的功能權限須由超級管理員配置。您僅可為其他角色分配自身已有的功能權限。',
-    permissionsAdminEditableHint:
-      '管理員不默認擁有全部權限，請在此勾選後保存。管理員僅可為其他角色分配自身已有的功能權限。',
     permissionsAssignScopeHint: '僅可分配您自身已有的功能權限；未擁有的項目不會出現在目錄中。',
     permissionsModuleSelect: '本組全選',
     matrix: '菜單權限',

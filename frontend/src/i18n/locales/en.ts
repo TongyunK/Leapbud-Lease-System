@@ -295,8 +295,6 @@ export default {
     permissionsSuperAdminHint: 'Super Admin always has all action permissions; no configuration needed.',
     permissionsAdminLockedHint:
       'Admin permissions must be configured by Super Admin. You may only grant other roles permissions you already have.',
-    permissionsAdminEditableHint:
-      'Admin does not have all permissions by default—select and save here. Admins may only grant other roles permissions they already have.',
     permissionsAssignScopeHint:
       'You can only assign permissions you already have; items you lack do not appear in this catalog.',
     permissionsModuleSelect: 'Select module',

@@ -75,16 +75,36 @@ start_base_services() {
     log_success "PostgreSQL、Adminer 已启动 — Adminer: http://localhost:3401"
 }
 
+# 解析可用 SSL 目录：.env SSL_HOST_PATH → 共用 ACME → 本仓库开发自签名
+resolve_ssl_dir() {
+    # shellcheck disable=SC1091
+    [ -f .env ] && set -a && . ./.env && set +a
+    local candidates=(
+        "${SSL_HOST_PATH:-}"
+        "/home/proj_deploy/Documents/acme-edge/ssl"
+        "docker/nginx/ssl"
+    )
+    local dir
+    for dir in "${candidates[@]}"; do
+        [ -n "$dir" ] || continue
+        if [ -f "$dir/cert.pem" ] && [ -f "$dir/key.pem" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    echo ""
+}
+
 apply_nginx_env_conf() {
     local env="$1"
-    local cert="docker/nginx/ssl/cert.pem"
-    local key="docker/nginx/ssl/key.pem"
-    if [ -f "$cert" ] && [ -f "$key" ] && [ -f "docker/nginx/nginx.${env}.https.conf" ]; then
+    local ssl_dir
+    ssl_dir="$(resolve_ssl_dir)"
+    if [ -n "$ssl_dir" ] && [ -f "docker/nginx/nginx.${env}.https.conf" ]; then
         cp "docker/nginx/nginx.${env}.https.conf" docker/nginx/nginx.conf
-        log_info "已应用 ${env} 配置（HTTP + HTTPS）"
+        log_info "已应用 ${env} 配置（HTTP + HTTPS；证书目录: $ssl_dir）"
     else
         cp "docker/nginx/nginx.${env}.conf" docker/nginx/nginx.conf
-        log_warning "未找到 SSL 证书，使用仅 HTTP 配置"
+        log_warning "未找到 SSL 证书，使用仅 HTTP 配置（入口 http://服务器:3400）"
     fi
 }
 
@@ -137,21 +157,23 @@ down_green() {
 }
 
 init_ssl_certs() {
-    local cert="docker/nginx/ssl/cert.pem"
-    local key="docker/nginx/ssl/key.pem"
-    if [ -f "$cert" ] && [ -f "$key" ]; then
-        log_success "SSL 证书已就绪"
+    local ssl_dir
+    ssl_dir="$(resolve_ssl_dir)"
+    if [ -n "$ssl_dir" ]; then
+        log_success "SSL 证书已就绪（$ssl_dir）"
         return
     fi
+    # 生产应挂载共用 ACME 目录；仅本机开发才生成自签名到 docker/nginx/ssl
     if ! command -v openssl >/dev/null 2>&1; then
-        log_warning "未找到证书且本机无 openssl，见 docker/nginx/ssl/README.md"
+        log_warning "未找到证书且本机无 openssl，见 docker/nginx/ssl/README.md / docs/HTTPS-其他项目.md"
         return
     fi
-    log_info "生成开发用自签名 SSL 证书 ..."
+    log_info "未找到共用 ACME 证书，生成开发用自签名到 docker/nginx/ssl ..."
+    mkdir -p docker/nginx/ssl
     (cd docker/nginx/ssl && openssl genrsa -out key.pem 2048 && \
         openssl req -new -x509 -key key.pem -out cert.pem -days 365 -subj "/CN=localhost")
-    if [ -f "$cert" ] && [ -f "$key" ]; then
-        log_success "自签名证书已生成"
+    if [ -f docker/nginx/ssl/cert.pem ] && [ -f docker/nginx/ssl/key.pem ]; then
+        log_success "自签名证书已生成（开发用；生产请设 SSL_HOST_PATH 指向 acme-edge/ssl）"
     else
         log_warning "证书生成失败，HTTPS 可能不可用"
     fi
@@ -160,9 +182,7 @@ init_ssl_certs() {
 start_nginx() {
     log_info "启动 Nginx 入口 (HTTP 3400 / HTTPS 3443) ..."
     init_ssl_certs
-    if [ ! -f docker/nginx/nginx.conf ]; then
-        apply_nginx_env_conf blue
-    fi
+    apply_nginx_env_conf blue
     $COMPOSE_CMD -f docker-compose.nginx.yml up -d
     log_success "Nginx 已启动 — HTTP: http://localhost:3400  HTTPS: https://localhost:3443"
 }

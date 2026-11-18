@@ -921,10 +921,7 @@ async function savePermissions() {
         <p v-else-if="permsIsAdminRole && !userStore.isSuperAdmin" class="perms-admin-hint">
           {{ t('role.permissionsAdminLockedHint') }}
         </p>
-        <p v-else-if="permsIsAdminRole && userStore.isSuperAdmin" class="perms-admin-hint">
-          {{ t('role.permissionsAdminEditableHint') }}
-        </p>
-        <p v-else-if="!userStore.isSuperAdmin && !permsReadOnly" class="perms-admin-hint">
+        <p v-else-if="!permsIsAdminRole && !userStore.isSuperAdmin && !permsReadOnly" class="perms-admin-hint">
           {{ t('role.permissionsAssignScopeHint') }}
         </p>
         <div class="perms-search">

@@ -87,14 +87,38 @@ function Deploy-Green {
     Write-Warn "确认无问题后可清理蓝环境: .\deploy.ps1 down-blue"
 }
 
+function Resolve-SslDir {
+    $candidates = @()
+    if (Test-Path .env) {
+        $line = Get-Content .env -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match '^\s*SSL_HOST_PATH\s*=' } |
+            Select-Object -First 1
+        if ($line -match '^\s*SSL_HOST_PATH\s*=\s*(.+)\s*$') {
+            $candidates += $Matches[1].Trim().Trim('"').Trim("'")
+        }
+    }
+    if ($env:SSL_HOST_PATH) { $candidates += $env:SSL_HOST_PATH }
+    $candidates += @(
+        "/home/proj_deploy/Documents/acme-edge/ssl",
+        "docker/nginx/ssl",
+        "docker\nginx\ssl"
+    )
+    foreach ($dir in $candidates) {
+        if (-not $dir) { continue }
+        $cert = Join-Path $dir "cert.pem"
+        $key = Join-Path $dir "key.pem"
+        if ((Test-Path $cert) -and (Test-Path $key)) { return $dir }
+    }
+    return $null
+}
+
 function Apply-NginxEnvConf {
     param([ValidateSet("blue", "green")][string]$Env)
-    $cert = "docker\nginx\ssl\cert.pem"
-    $key = "docker\nginx\ssl\key.pem"
+    $sslDir = Resolve-SslDir
     $httpsConf = "docker\nginx\nginx.$Env.https.conf"
-    if ((Test-Path $cert) -and (Test-Path $key) -and (Test-Path $httpsConf)) {
+    if ($sslDir -and (Test-Path $httpsConf)) {
         Copy-Item -Path $httpsConf -Destination "docker\nginx\nginx.conf" -Force
-        Write-Info "已应用 $Env 配置（HTTP + HTTPS）"
+        Write-Info "已应用 $Env 配置（HTTP + HTTPS；证书目录: $sslDir）"
     } else {
         Copy-Item -Path "docker\nginx\nginx.$Env.conf" -Destination "docker\nginx\nginx.conf" -Force
         Write-Warn "未找到 SSL 证书，使用仅 HTTP 配置"
@@ -130,24 +154,26 @@ function Stop-Green {
 }
 
 function Initialize-SslCerts {
+    $resolved = Resolve-SslDir
+    if ($resolved) {
+        Write-Success "SSL 证书已就绪（$resolved）"
+        return
+    }
     $sslDir = "docker\nginx\ssl"
-    $cert = Join-Path $sslDir "cert.pem"
-    $key = Join-Path $sslDir "key.pem"
-    if ((Test-Path $cert) -and (Test-Path $key)) {
-        Write-Success "SSL 证书已就绪"
-        return
-    }
     if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
-        Write-Warn "未找到证书且本机无 openssl，请先按 docker\nginx\ssl\README.md 生成 cert.pem / key.pem"
+        Write-Warn "未找到证书且本机无 openssl，见 docker\nginx\ssl\README.md / docs\HTTPS-其他项目.md"
         return
     }
-    Write-Info "生成开发用自签名 SSL 证书 ..."
+    Write-Info "未找到共用 ACME 证书，生成开发用自签名到 docker\nginx\ssl ..."
+    New-Item -ItemType Directory -Force -Path $sslDir | Out-Null
     Push-Location $sslDir
     openssl genrsa -out key.pem 2048 2>$null
     openssl req -new -x509 -key key.pem -out cert.pem -days 365 -subj "/CN=localhost" 2>$null
     Pop-Location
+    $cert = Join-Path $sslDir "cert.pem"
+    $key = Join-Path $sslDir "key.pem"
     if ((Test-Path $cert) -and (Test-Path $key)) {
-        Write-Success "自签名证书已生成"
+        Write-Success "自签名证书已生成（开发用；生产请设 SSL_HOST_PATH 指向 acme-edge/ssl）"
     } else {
         Write-Warn "证书生成失败，HTTPS 可能不可用"
     }
@@ -156,9 +182,7 @@ function Initialize-SslCerts {
 function Start-Nginx {
     Write-Info "启动 Nginx 入口 (HTTP 3400 / HTTPS 3443) ..."
     Initialize-SslCerts
-    if (-not (Test-Path "docker\nginx\nginx.conf")) {
-        Apply-NginxEnvConf -Env blue
-    }
+    Apply-NginxEnvConf -Env blue
     & $COMPOSE_CMD -f docker-compose.nginx.yml up -d
     if ($LASTEXITCODE -ne 0) { Write-Err "Nginx 启动失败"; exit 1 }
     Write-Success "Nginx 已启动 — HTTP: http://localhost:3400  HTTPS: https://localhost:3443"
