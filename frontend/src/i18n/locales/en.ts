@@ -284,6 +284,8 @@ export default {
     menusSelectAll: 'Select all',
     menusClear: 'Clear',
     menusUpdated: 'Menu access updated',
+    menusUpdatedWithRevoke:
+      'Menu access updated. Action permissions for closed menu pages were cleared; re-enable them under Actions if needed.',
     permissions: 'Actions',
     permissionsTitle: 'Action permissions — {name}',
     permissionsSearchPlaceholder: 'Search modules or actions',

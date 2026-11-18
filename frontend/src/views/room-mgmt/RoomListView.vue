@@ -2020,13 +2020,13 @@ async function saveForm() {
             <h3>{{ t('room.sections.pricing') }}</h3>
           </div>
           <el-form-item :label="t('room.fields.monthlyRent')" required>
-            <el-input-number v-model="form.monthlyRent" :min="0" :precision="2" :step="0.01" style="width: 100%" />
+            <el-input-number v-model="form.monthlyRent" :min="0" :precision="2" :step="1" style="width: 100%" />
           </el-form-item>
           <el-form-item :label="t('room.fields.dailyRent')">
-            <el-input-number v-model="form.dailyRent" :min="0" :precision="2" :step="0.01" style="width: 100%" />
+            <el-input-number v-model="form.dailyRent" :min="0" :precision="2" :step="1" style="width: 100%" />
           </el-form-item>
           <el-form-item :label="t('room.fields.hourlyRent')">
-            <el-input-number v-model="form.hourlyRent" :min="0" :precision="2" :step="0.01" style="width: 100%" />
+            <el-input-number v-model="form.hourlyRent" :min="0" :precision="2" :step="1" style="width: 100%" />
           </el-form-item>
 
           <div class="form-section">
@@ -2037,7 +2037,7 @@ async function saveForm() {
               v-model="form.sizeSqft"
               :min="0"
               :precision="2"
-              :step="0.01"
+              :step="1"
               style="width: 100%"
             />
             <p v-if="matchedSizeOption" class="form-section-hint room-size-match-hint">
@@ -2333,6 +2333,7 @@ async function saveForm() {
             v-model="batchEditForm.monthlyRent"
             :min="0"
             :precision="2"
+            :step="1"
             :disabled="!batchEditEnable.monthlyRent"
             controls-position="right"
             style="width: 100%"
@@ -2347,6 +2348,7 @@ async function saveForm() {
             v-model="batchEditForm.dailyRent"
             :min="0"
             :precision="2"
+            :step="1"
             :disabled="!batchEditEnable.dailyRent"
             controls-position="right"
             style="width: 100%"
@@ -2361,6 +2363,7 @@ async function saveForm() {
             v-model="batchEditForm.hourlyRent"
             :min="0"
             :precision="2"
+            :step="1"
             :disabled="!batchEditEnable.hourlyRent"
             controls-position="right"
             style="width: 100%"
@@ -2375,6 +2378,7 @@ async function saveForm() {
             v-model="batchEditForm.sizeSqft"
             :min="0"
             :precision="2"
+            :step="1"
             :disabled="!batchEditEnable.sizeSqft"
             controls-position="right"
             style="width: 100%"

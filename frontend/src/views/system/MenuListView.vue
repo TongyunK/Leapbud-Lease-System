@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('menus')
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Rank } from '@element-plus/icons-vue'
 import { fetchMenus, reorderMenusApi, updateMenuApi } from '@/api/menus'
 import { fetchRoleMenuMatrixApi, saveRoleMenuMatrixApi } from '@/api/roles'
@@ -242,12 +242,12 @@ async function saveMatrix() {
       menuIds: [...(matrixChecked.value[role.id] || [])],
     }))
     await saveRoleMenuMatrixApi(grants)
-    ElMessage.success(t('role.menusUpdated'))
+    await ElMessageBox.alert(t('role.menusUpdatedWithRevoke'), t('common.tip'), { type: 'success' })
     await loadMatrix()
     void navStore.loadNav()
     void useMenuRoleAccessStore().reload()
   } catch {
-    /* interceptor */
+    /* interceptor / dismiss */
   } finally {
     saving.value = false
   }

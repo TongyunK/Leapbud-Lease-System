@@ -10,10 +10,15 @@ import { AssignRoleMenusDto, CreateRoleDto, SaveRoleMenuMatrixDto, UpdateRoleDto
 import { roleAuditInclude, toRoleDto } from './role.mapper';
 import { buildMenuTree, menuAuditInclude } from '../menus/menu.mapper';
 import { runBatchRemove } from '../common/batch-delete';
+import { permissionModuleForMenuRoute } from '../permissions/permission.catalog';
+import { PermissionsService } from '../permissions/permissions.service';
 
 @Injectable()
 export class RolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly permissionsService: PermissionsService,
+  ) {}
 
   async findAll(params: { keyword?: string; activeOnly?: boolean }) {
     const where: Prisma.RoleWhereInput = {};
@@ -140,22 +145,35 @@ export class RolesService {
       }
     }
 
-    await this.prisma.$transaction([
-      this.prisma.roleMenu.deleteMany({ where: { roleId: id } }),
-      ...(menuIds.length
-        ? [
-            this.prisma.roleMenu.createMany({
-              data: menuIds.map((menuId) => ({ roleId: id, menuId })),
-            }),
-          ]
-        : []),
-      this.prisma.role.update({
-        where: { id },
-        data: actor ? { updatedById: actor } : {},
-      }),
-    ]);
+    const previousMenuIds = (
+      await this.prisma.roleMenu.findMany({
+        where: { roleId: id },
+        select: { menuId: true },
+      })
+    ).map((r) => r.menuId);
 
-    return this.getMenuIds(id);
+    const revokedModules = await this.prisma.$transaction(async (tx) => {
+      await tx.roleMenu.deleteMany({ where: { roleId: id } });
+      if (menuIds.length) {
+        await tx.roleMenu.createMany({
+          data: menuIds.map((menuId) => ({ roleId: id, menuId })),
+        });
+      }
+      if (actor) {
+        await tx.role.update({
+          where: { id },
+          data: { updatedById: actor },
+        });
+      }
+      return this.revokeButtonPermsForRemovedMenus(tx, id, previousMenuIds, menuIds);
+    });
+
+    if (revokedModules.length) {
+      this.permissionsService.invalidateCache(existing.code);
+    }
+
+    const result = await this.getMenuIds(id);
+    return { ...result, revokedModules };
   }
 
   /** 菜单 × 角色 权限矩阵 */
@@ -204,6 +222,20 @@ export class RolesService {
       }
     }
 
+    const previousByRole = new Map<string, string[]>();
+    if (roleIds.length) {
+      const prevLinks = await this.prisma.roleMenu.findMany({
+        where: { roleId: { in: roleIds } },
+        select: { roleId: true, menuId: true },
+      });
+      for (const link of prevLinks) {
+        const list = previousByRole.get(link.roleId);
+        if (list) list.push(link.menuId);
+        else previousByRole.set(link.roleId, [link.menuId]);
+      }
+    }
+
+    const rolesNeedingCacheClear = new Set<string>();
     await this.prisma.$transaction(async (tx) => {
       for (const g of grants) {
         const menuIds = [...new Set((g.menuIds || []).map((x) => x.trim()).filter(Boolean))];
@@ -219,9 +251,72 @@ export class RolesService {
             data: { updatedById: actor },
           });
         }
+        const revoked = await this.revokeButtonPermsForRemovedMenus(
+          tx,
+          g.roleId,
+          previousByRole.get(g.roleId) || [],
+          menuIds,
+        );
+        if (revoked.length) rolesNeedingCacheClear.add(g.roleId);
       }
     });
 
+    if (rolesNeedingCacheClear.size) {
+      const roles = await this.prisma.role.findMany({
+        where: { id: { in: [...rolesNeedingCacheClear] } },
+        select: { code: true },
+      });
+      for (const r of roles) this.permissionsService.invalidateCache(r.code);
+    }
+
     return this.getMenuMatrix();
+  }
+
+  /**
+   * 关掉的菜单页：自动收回该页对应模块的全部功能按钮权限。
+   * 仍保留的菜单若映射到同一模块则不收回；用户可之后在功能权限里自行再勾选。
+   */
+  private async revokeButtonPermsForRemovedMenus(
+    tx: Prisma.TransactionClient,
+    roleId: string,
+    previousMenuIds: string[],
+    nextMenuIds: string[],
+  ): Promise<string[]> {
+    const prev = new Set(previousMenuIds);
+    const next = new Set(nextMenuIds);
+    const removedIds = [...prev].filter((id) => !next.has(id));
+    if (!removedIds.length) return [];
+
+    const [removedMenus, keptMenus] = await Promise.all([
+      tx.menu.findMany({
+        where: { id: { in: removedIds }, type: 'menu' },
+        select: { routeName: true },
+      }),
+      next.size
+        ? tx.menu.findMany({
+            where: { id: { in: [...next] }, type: 'menu' },
+            select: { routeName: true },
+          })
+        : Promise.resolve([] as Array<{ routeName: string }>),
+    ]);
+
+    const modules = new Set<string>();
+    for (const m of removedMenus) {
+      const mod = permissionModuleForMenuRoute(m.routeName);
+      if (mod) modules.add(mod);
+    }
+    for (const m of keptMenus) {
+      const mod = permissionModuleForMenuRoute(m.routeName);
+      if (mod) modules.delete(mod);
+    }
+    if (!modules.size) return [];
+
+    await tx.rolePermission.deleteMany({
+      where: {
+        roleId,
+        permission: { module: { in: [...modules] } },
+      },
+    });
+    return [...modules].sort();
   }
 }

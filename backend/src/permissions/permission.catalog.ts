@@ -125,3 +125,28 @@ export const PERMISSION_CATALOG: PermissionDef[] = PERMISSION_MODULES.flatMap(bu
 export const DEFAULT_USER_PERMISSION_CODES: string[] = PERMISSION_MODULES.filter(
   (m) => m.defaultGrant !== false,
 ).flatMap((m) => [`${m.module}:create`, `${m.module}:update`]);
+
+/**
+ * 菜单 routeName → 功能权限 module 覆盖（默认 routeName 即 module）。
+ * 例：自动编号菜单 routeName=autoNumbering，权限模块为 numberingRules。
+ */
+export const MENU_ROUTE_PERMISSION_MODULE_OVERRIDES: Record<string, string> = {
+  autoNumbering: 'numberingRules',
+};
+
+/**
+ * 无独立菜单的功能模块：插在指定菜单模块之后（顺序与侧栏业务入口一致）。
+ */
+export const ORPHAN_PERMISSION_MODULES_AFTER: Record<string, string[]> = {
+  contracts: ['contractSettlements', 'refundOrders', 'cashFlows'],
+};
+
+const PERMISSION_MODULE_SET = new Set(PERMISSION_MODULES.map((m) => m.module));
+
+/** 由菜单 routeName 解析对应功能权限模块；无对应模块时返回 null */
+export function permissionModuleForMenuRoute(routeName: string): string | null {
+  const key = (routeName || '').trim();
+  if (!key) return null;
+  const mapped = MENU_ROUTE_PERMISSION_MODULE_OVERRIDES[key] ?? key;
+  return PERMISSION_MODULE_SET.has(mapped) ? mapped : null;
+}

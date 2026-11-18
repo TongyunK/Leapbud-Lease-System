@@ -47,7 +47,9 @@ export function fetchRoleMenusApi(id: string) {
 }
 
 export function assignRoleMenusApi(id: string, menuIds: string[]) {
-  return request.put<{ menuIds: string[] }>(`/roles/${id}/menus`, { menuIds })
+  return request.put<{ menuIds: string[]; revokedModules?: string[] }>(`/roles/${id}/menus`, {
+    menuIds,
+  })
 }
 
 export type RoleMenuMatrix = {

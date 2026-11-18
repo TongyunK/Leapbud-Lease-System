@@ -9,8 +9,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { isSuperAdminRole } from '../common/actor-role';
 import {
   DEFAULT_USER_PERMISSION_CODES,
+  ORPHAN_PERMISSION_MODULES_AFTER,
   PERMISSION_CATALOG,
   PERMISSION_MODULES,
+  permissionModuleForMenuRoute,
 } from './permission.catalog';
 
 @Injectable()
@@ -148,10 +150,10 @@ export class PermissionsService implements OnModuleInit {
   }
 
   /**
-   * 权限目录（按模块分组）。
+   * 权限目录（按模块分组；模块顺序对齐侧栏菜单树，无菜单模块跟在关联入口后）。
    * @param allowedCodes 若传入，仅返回这些码（空模块省略）；用于管理员视角：只看到自身已有权限
    */
-  catalogGrouped(allowedCodes?: string[] | null) {
+  async catalogGrouped(allowedCodes?: string[] | null) {
     const allow = allowedCodes ? new Set(allowedCodes) : null;
     const byModule = new Map<
       string,
@@ -169,7 +171,67 @@ export class PermissionsService implements OnModuleInit {
       const g = byModule.get(p.module);
       if (g) g.items.push(p);
     }
-    return [...byModule.values()].filter((g) => g.items.length > 0);
+    const order = await this.loadPermissionModuleOrderByMenus();
+    const fallback = new Map(PERMISSION_MODULES.map((m, i) => [m.module, i]));
+    return [...byModule.values()]
+      .filter((g) => g.items.length > 0)
+      .sort((a, b) => {
+        const ia = order.get(a.module) ?? Number.MAX_SAFE_INTEGER;
+        const ib = order.get(b.module) ?? Number.MAX_SAFE_INTEGER;
+        if (ia !== ib) return ia - ib;
+        return (fallback.get(a.module) ?? 0) - (fallback.get(b.module) ?? 0);
+      });
+  }
+
+  /** 按菜单树 DFS（与侧栏一致）得到功能权限模块顺序 */
+  private async loadPermissionModuleOrderByMenus(): Promise<Map<string, number>> {
+    const rows = await this.prisma.menu.findMany({
+      select: {
+        id: true,
+        parentId: true,
+        type: true,
+        routeName: true,
+        sortOrder: true,
+        name: true,
+      },
+    });
+
+    const children = new Map<string | null, typeof rows>();
+    for (const r of rows) {
+      const key = r.parentId;
+      const list = children.get(key);
+      if (list) list.push(r);
+      else children.set(key, [r]);
+    }
+    for (const list of children.values()) {
+      list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    }
+
+    const order = new Map<string, number>();
+    let idx = 0;
+    const place = (module: string) => {
+      if (!module || order.has(module)) return;
+      order.set(module, idx++);
+      for (const orphan of ORPHAN_PERMISSION_MODULES_AFTER[module] || []) {
+        if (!order.has(orphan)) order.set(orphan, idx++);
+      }
+    };
+
+    const walk = (parentId: string | null) => {
+      for (const n of children.get(parentId) || []) {
+        if (n.type === 'menu') {
+          const mod = permissionModuleForMenuRoute(n.routeName);
+          if (mod) place(mod);
+        }
+        walk(n.id);
+      }
+    };
+    walk(null);
+
+    for (const m of PERMISSION_MODULES) {
+      place(m.module);
+    }
+    return order;
   }
 
   async listAll() {

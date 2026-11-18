@@ -1086,8 +1086,13 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
 }
 
 .sidebar-menu :deep(.el-menu-tooltip__trigger) {
+  display: flex !important;
+  align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 100%;
   padding: 0 !important;
+  box-sizing: border-box;
 }
 
 /* 与 Element Plus 菜单默认一致（约 14px）；此前未 :deep，大屏实际一直是这档 */
@@ -1131,14 +1136,27 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   }
 }
 
-.app-layout.collapsed .sidebar-menu :deep(.el-sub-menu__title),
-.app-layout.collapsed .sidebar-menu :deep(.el-menu-item) {
-  justify-content: center;
+.app-layout.collapsed .sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title),
+.app-layout.collapsed .sidebar-menu.el-menu--collapse :deep(.el-menu-item),
+.app-layout.collapsed .sidebar-menu.el-menu--collapse :deep(.el-menu-tooltip__trigger) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   padding: 0 !important;
+  margin-inline: 0;
+}
+
+.app-layout.collapsed .sidebar-menu :deep(.el-sub-menu__icon-arrow),
+.app-layout.collapsed .sidebar-menu :deep(.nav-label) {
+  display: none !important;
 }
 
 .app-layout.collapsed .sidebar-menu :deep(.nav-icon) {
-  margin-right: 0;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .main {

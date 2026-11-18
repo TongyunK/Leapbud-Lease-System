@@ -285,6 +285,8 @@ export default {
     menusSelectAll: '全選',
     menusClear: '清空',
     menusUpdated: '菜單權限已更新',
+    menusUpdatedWithRevoke:
+      '菜單權限已更新。已關閉菜單對應頁面的功能按鈕權限已一併清空，如有需要請在「功能」中自行勾選。',
     permissions: '功能',
     permissionsTitle: '功能按鈕權限 — {name}',
     permissionsSearchPlaceholder: '搜尋模組或功能按鈕',

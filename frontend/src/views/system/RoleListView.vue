@@ -376,13 +376,18 @@ async function saveMenus() {
   syncCheckedMenuIdsFromTree()
   menusSaving.value = true
   try {
-    await assignRoleMenusApi(row.id, checkedMenuIds.value)
-    ElMessage.success(t('role.menusUpdated'))
+    const { data } = await assignRoleMenusApi(row.id, checkedMenuIds.value)
+    const revoked = data?.revokedModules?.length ?? 0
+    await ElMessageBox.alert(
+      revoked > 0 ? t('role.menusUpdatedWithRevoke') : t('role.menusUpdated'),
+      t('common.tip'),
+      { type: 'success' },
+    )
     menusDrawerVisible.value = false
     await loadList()
     void navStore.loadNav()
   } catch {
-    /* interceptor */
+    /* interceptor / dismiss */
   } finally {
     menusSaving.value = false
   }
@@ -492,13 +497,19 @@ function clearAllPerms() {
 }
 
 function selectModulePerms(group: PermissionModuleGroup) {
-  const allow = userStore.isSuperAdmin
-    ? null
-    : new Set(userStore.permissions)
+  const allow = userStore.isSuperAdmin ? null : new Set(userStore.permissions)
   const codes = group.items
     .map((i) => i.code)
     .filter((c) => !allow || allow.has(c))
-  checkedPermCodes.value = [...new Set([...checkedPermCodes.value, ...codes])]
+  if (!codes.length) return
+  const checked = new Set(checkedPermCodes.value)
+  const allOn = codes.every((c) => checked.has(c))
+  if (allOn) {
+    const drop = new Set(codes)
+    checkedPermCodes.value = checkedPermCodes.value.filter((c) => !drop.has(c))
+  } else {
+    checkedPermCodes.value = [...new Set([...checkedPermCodes.value, ...codes])]
+  }
 }
 
 async function savePermissions() {
