@@ -428,6 +428,7 @@ watch(
           <div class="form-grid form-grid--2">
             <el-form-item :label="t('refundOrder.fields.paymentMethod')">
               <el-select
+                fit-input-width
                 v-model="form.paymentMethod"
                 filterable
                 clearable
@@ -482,16 +483,16 @@ watch(
   gap: 14px;
 }
 .settlement-refund__summary {
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 10px;
-  background: #f7faf8;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7);
   padding: 12px 14px;
 }
 .settlement-refund__meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
-  color: #3d4f45;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.9rem;
   margin-bottom: 10px;
 }
@@ -502,7 +503,7 @@ watch(
 }
 .settlement-refund__totals label {
   display: block;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   margin-bottom: 2px;
 }
@@ -510,7 +511,7 @@ watch(
   font-style: normal;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #1f2a24;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .settlement-refund__totals em.is-remain {
   color: #b45309;
@@ -518,11 +519,11 @@ watch(
 .settlement-refund__section h4 {
   margin: 0 0 8px;
   font-size: 0.92rem;
-  color: #1f2a24;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .settlement-refund__empty {
   margin: 0;
-  color: #7a8a80;
+  color: var(--lb-muted, #666);
   font-size: 0.9rem;
 }
 .settlement-refund__orders {
@@ -537,7 +538,7 @@ watch(
   align-items: center;
   width: 100%;
   text-align: left;
-  border: 1px solid #d7ded9;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
   padding: 10px 12px;
@@ -555,7 +556,7 @@ watch(
   cursor: pointer;
   font: inherit;
   font-weight: 700;
-  color: #1f2a24;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .settlement-refund__order-code.fk-link {
   color: var(--lb-brand, #0f4a32);
@@ -565,7 +566,7 @@ watch(
 }
 .settlement-refund__order strong {
   font-variant-numeric: tabular-nums;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 .settlement-refund__label-with-tip {
   display: inline-flex;
@@ -573,7 +574,7 @@ watch(
   gap: 4px;
 }
 .settlement-refund__label-tip {
-  color: #8a9a90;
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
 }
@@ -581,8 +582,8 @@ watch(
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .settlement-refund__alloc-head {
   display: inline-flex;
@@ -591,7 +592,7 @@ watch(
   margin: 0 0 8px;
   font-size: 0.86rem;
   font-weight: 700;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .settlement-refund__alloc-list {
   list-style: none;
@@ -609,7 +610,7 @@ watch(
   padding: 7px 9px;
   border-radius: 8px;
   background: #fff;
-  border: 1px solid #e0e8e3;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .settlement-refund__alloc-code {
   min-width: 0;
@@ -639,12 +640,12 @@ watch(
   background: #f3e6d0;
 }
 .settlement-refund__alloc-tag.is-now {
-  color: #0f4a32;
-  background: #ddeee4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 .settlement-refund__alloc-tag.is-settled {
-  color: #0f4a32;
-  background: #d8f0e4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
 }
 .settlement-refund__alloc-tag.is-later {
   color: #8a2f2f;

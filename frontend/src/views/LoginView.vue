@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
@@ -22,17 +22,67 @@ const showPassword = ref(false)
 const loading = ref(false)
 const formError = ref('')
 
+const heroTitleRef = ref<HTMLElement | null>(null)
+const brandPaneRef = ref<HTMLElement | null>(null)
+let heroResizeObs: ResizeObserver | null = null
+/** 标题过长时允许换行的字号下限（rem） */
+const HERO_TITLE_MIN_REM = 1.05
+
+function fitHeroTitle() {
+  const el = heroTitleRef.value
+  if (!el) return
+
+  // 先回到 CSS 默认字号，测「首选」是否单行塞得下
+  el.style.fontSize = ''
+  el.style.whiteSpace = 'nowrap'
+
+  const preferredPx = parseFloat(getComputedStyle(el).fontSize) || 24
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+  const minPx = HERO_TITLE_MIN_REM * rootPx
+
+  let size = preferredPx
+  el.style.fontSize = `${size}px`
+
+  // 略超宽：逐步缩小，尽量保持单行
+  let guard = 48
+  while (el.scrollWidth > el.clientWidth + 0.5 && size > minPx && guard-- > 0) {
+    size = Math.max(minPx, size - 0.5)
+    el.style.fontSize = `${size}px`
+  }
+
+  // 缩到下限仍放不下 → 允许换行
+  if (el.scrollWidth > el.clientWidth + 0.5) {
+    el.style.whiteSpace = 'normal'
+    el.style.fontSize = `${minPx}px`
+  }
+}
+
+function scheduleFitHeroTitle() {
+  void nextTick(() => fitHeroTitle())
+}
+
 onMounted(() => {
   document.documentElement.style.overflow = 'hidden'
   document.body.style.overflow = 'hidden'
   document.body.style.height = '100%'
+  scheduleFitHeroTitle()
+  if (typeof ResizeObserver !== 'undefined' && brandPaneRef.value) {
+    heroResizeObs = new ResizeObserver(() => fitHeroTitle())
+    heroResizeObs.observe(brandPaneRef.value)
+  }
+  window.addEventListener('resize', scheduleFitHeroTitle)
 })
 
 onUnmounted(() => {
   document.documentElement.style.overflow = ''
   document.body.style.overflow = ''
   document.body.style.height = ''
+  heroResizeObs?.disconnect()
+  heroResizeObs = null
+  window.removeEventListener('resize', scheduleFitHeroTitle)
 })
+
+watch(loginHeroTitle, () => scheduleFitHeroTitle())
 
 function onLogoClick() {
   window.location.reload()
@@ -81,7 +131,7 @@ async function onSubmit() {
     </div>
 
     <div class="login__stage">
-      <aside class="login__brand">
+      <aside ref="brandPaneRef" class="login__brand">
         <button
           type="button"
           class="brand-mark"
@@ -93,7 +143,7 @@ async function onSubmit() {
         </button>
         <div class="brand-copy">
           <p class="brand-kicker">{{ brandTitle }}</p>
-          <h1>{{ loginHeroTitle }}</h1>
+          <h1 ref="heroTitleRef">{{ loginHeroTitle }}</h1>
         </div>
       </aside>
 
@@ -179,7 +229,7 @@ async function onSubmit() {
     radial-gradient(ellipse 70% 50% at 15% 20%, rgba(217, 130, 43, 0.16), transparent 55%),
     linear-gradient(
       145deg,
-      var(--lb-login-page-from, #243029) 0%,
+      var(--lb-login-page-from, color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333)) 0%,
       var(--lb-login-page-mid, #3e5b45) 48%,
       var(--lb-login-page-to, #2a3f31) 100%
     );
@@ -238,7 +288,7 @@ async function onSubmit() {
       165deg,
       var(--lb-login-brand-from, #4a6b52) 0%,
       var(--lb-login-brand-mid, #3e5b45) 42%,
-      var(--lb-login-brand-to, #243029) 100%
+      var(--lb-login-brand-to, color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333)) 100%
     );
   isolation: isolate;
   overflow: hidden;
@@ -298,6 +348,8 @@ async function onSubmit() {
 .brand-copy {
   position: relative;
   z-index: 1;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .brand-kicker {
@@ -311,10 +363,13 @@ async function onSubmit() {
 
 .brand-copy h1 {
   margin: 0;
+  max-width: 100%;
   font-size: clamp(1.35rem, 2.6vw, 1.85rem);
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: 0.01em;
+  /* 默认由 JS 尽量压成单行；过长时再允许换行 */
+  overflow-wrap: anywhere;
 }
 
 .login__form-pane {

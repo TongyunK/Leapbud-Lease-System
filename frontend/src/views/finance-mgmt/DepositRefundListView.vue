@@ -1464,14 +1464,18 @@ async function onImportFile(ev: Event) {
         <div class="form-grid">
           <el-form-item :label="t('depositRefund.fields.contractCode')" required class="span-2">
             <SelectWithViewAction
+              clearable
               :disabled="!form.contractId"
               @view="openContractSide(form.contractId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.contractId"
                 filterable
                 fit-input-width
                 style="width: 100%"
+                popper-class="deposit-refund-contract-select-popper"
                 :placeholder="t('depositRefund.fields.contractCode')"
                 :disabled="!!editing"
               >
@@ -1526,7 +1530,7 @@ async function onImportFile(ev: Event) {
             />
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.status')">
-            <el-select v-model="form.status" style="width: 100%">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.status" style="width: 100%">
               <el-option
                 v-for="s in DEPOSIT_REFUND_STATUSES"
                 :key="s"
@@ -1546,10 +1550,11 @@ async function onImportFile(ev: Event) {
           <el-form-item :label="t('depositRefund.fields.handler')">
             <el-select
               v-model="form.handlerId"
-              clearable
+              clearable value-on-clear=""
               filterable
               fit-input-width
               style="width: 100%"
+              popper-class="deposit-refund-handler-select-popper"
               :placeholder="t('depositRefund.fields.handler')"
             >
               <el-option
@@ -1557,7 +1562,10 @@ async function onImportFile(ev: Event) {
                 :key="opt.value"
                 :label="opt.label"
                 :value="opt.value"
-              />
+                :title="opt.label"
+              >
+                <span class="select-option-ellipsis" :title="opt.label">{{ opt.label }}</span>
+              </el-option>
             </el-select>
           </el-form-item>
           <el-form-item :label="t('depositRefund.fields.totalDeposit')">
@@ -1683,7 +1691,7 @@ async function onImportFile(ev: Event) {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;

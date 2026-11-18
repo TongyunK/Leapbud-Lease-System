@@ -1605,7 +1605,9 @@ async function onImportFile(ev: Event) {
               filterable
               clearable
               value-on-clear=""
+              fit-input-width
               style="width: 100%"
+              popper-class="req-sales-manager-select-popper"
               :placeholder="t('customerRequirement.fields.salesManager')"
             >
               <el-option
@@ -1613,15 +1615,21 @@ async function onImportFile(ev: Event) {
                 :key="u.id"
                 :label="userLabel(u)"
                 :value="u.id"
-              />
+                :title="userLabel(u)"
+              >
+                <span class="select-option-ellipsis" :title="userLabel(u)">{{ userLabel(u) }}</span>
+              </el-option>
             </el-select>
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.customerName')" required>
             <SelectWithViewAction
+              clearable
               :disabled="!form.customerId"
               @view="openCustomerSide(form.customerId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.customerId"
                 filterable
                 fit-input-width
@@ -1668,7 +1676,7 @@ async function onImportFile(ev: Event) {
             v-if="editing"
             :label="t('customerRequirement.fields.status')"
           >
-            <el-select v-model="form.status" style="width: 100%">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.status" style="width: 100%">
               <el-option
                 v-for="s in CUSTOMER_REQUIREMENT_STATUSES"
                 :key="s"
@@ -1680,7 +1688,7 @@ async function onImportFile(ev: Event) {
         </div>
         <div class="form-grid form-grid--3">
           <el-form-item :label="t('customerRequirement.fields.rentalType')" required>
-            <el-select v-model="form.rentalType" style="width: 100%">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.rentalType" style="width: 100%">
               <el-option
                 v-for="rt in CUSTOMER_REQUIREMENT_RENTAL_TYPES"
                 :key="rt"
@@ -1698,7 +1706,7 @@ async function onImportFile(ev: Event) {
                 controls-position="right"
                 class="lease-duration-row__amount"
               />
-              <el-select v-model="form.leaseDurationUnit" class="lease-duration-row__unit">
+              <el-select clearable value-on-clear="" fit-input-width v-model="form.leaseDurationUnit" class="lease-duration-row__unit">
                 <el-option
                   value="year"
                   :label="t('customerRequirement.leaseUnit.year')"
@@ -1734,6 +1742,7 @@ async function onImportFile(ev: Event) {
         <div class="form-grid form-grid--3">
           <el-form-item :label="t('customerRequirement.fields.sizeConfig')">
             <el-select
+              fit-input-width
               v-model="form.sizeConfigId"
               clearable
               filterable
@@ -1750,6 +1759,7 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.acConfig')">
             <el-select
+              fit-input-width
               v-model="form.acConfigId"
               clearable
               filterable
@@ -1761,6 +1771,7 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('customerRequirement.fields.windowConfig')">
             <el-select
+              fit-input-width
               v-model="form.windowConfigId"
               clearable
               filterable
@@ -1977,7 +1988,7 @@ async function onImportFile(ev: Event) {
 }
 
 .customer-status-empty {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .lease-duration-row {
@@ -2022,7 +2033,7 @@ async function onImportFile(ev: Event) {
 .budget-row__unit {
   flex: 0 0 auto;
   min-width: 3.2em;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.9rem;
   white-space: nowrap;
 }
@@ -2032,7 +2043,7 @@ async function onImportFile(ev: Event) {
   margin-bottom: 16px;
   padding-top: 12px;
   padding-bottom: 4px;
-  border-top: 1px solid var(--lb-border, #d7ded9);
+  border-top: 1px solid var(--lb-border, #e0e0e0);
 }
 
 .matched-rooms__head {
@@ -2059,7 +2070,7 @@ async function onImportFile(ev: Event) {
 
 .matched-rooms__count {
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   white-space: nowrap;
 }
 
@@ -2072,9 +2083,9 @@ async function onImportFile(ev: Event) {
   padding: 28px 12px;
   text-align: center;
   font-size: 0.86rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   background: rgba(15, 74, 50, 0.03);
-  border: 1px dashed var(--lb-border, #d7ded9);
+  border: 1px dashed var(--lb-border, #e6e6e6);
   border-radius: 10px;
 }
 

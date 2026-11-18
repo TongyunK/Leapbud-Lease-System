@@ -219,6 +219,8 @@ const shownText = computed(() => {
       ref="inputRef"
       v-model="draft"
       filterable
+      clearable value-on-clear=""
+      fit-input-width
       size="small"
       style="width: 100%"
       teleported
@@ -315,7 +317,7 @@ const shownText = computed(() => {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, transparent),
     0 1px 4px rgb(15 74 50 / 10%);
-  color: var(--lb-muted, #8a9590);
+  color: var(--lb-muted, #666);
   cursor: pointer;
   line-height: 1;
   opacity: 0;
@@ -398,7 +400,7 @@ const shownText = computed(() => {
 .sa-inline--edit :deep(.el-select__caret),
 .sa-inline--edit :deep(.el-input__prefix),
 .sa-inline--edit :deep(.el-input__suffix) {
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 55%, #8a9590);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 55%, var(--lb-muted, #666));
 }
 
 .sa-inline--edit :deep(.el-input-number) {

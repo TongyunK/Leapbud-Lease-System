@@ -499,9 +499,46 @@ export class InvoicesService {
   private async assertCustomerExists(customerId: string) {
     const c = await this.prisma.customer.findUnique({
       where: { id: customerId },
-      select: { id: true },
+      select: { id: true, buildingId: true },
     })
     if (!c) throw new BadRequestException('Invalid customerId')
+    return c
+  }
+
+  /**
+   * 短租房间与客户所属大厦必须一致，禁止跨大厦开票。
+   * 客户未设所属大厦时放行（兼容旧数据），由 bindCustomerBuildingIfEmpty 在保存时补全。
+   */
+  private assertCustomerRoomSameBuilding(
+    customer: { buildingId: string | null },
+    room: { buildingId: string },
+  ) {
+    const custBid = customer.buildingId?.trim() || ''
+    if (!custBid) return
+    if (custBid !== room.buildingId) {
+      throw new BadRequestException('客戶所屬大廈與房間不一致，不可跨大廈開短租發票')
+    }
+  }
+
+  /** 旧客户无所属大厦时，按短租房间补全（仅空值写入，不覆盖已有大厦） */
+  private async bindCustomerBuildingIfEmpty(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    buildingId: string,
+    actorId: string | null,
+  ) {
+    const bid = buildingId?.trim()
+    if (!bid) return
+    await tx.customer.updateMany({
+      where: {
+        id: customerId,
+        OR: [{ buildingId: null }, { buildingId: '' }],
+      },
+      data: {
+        buildingId: bid,
+        ...(actorId ? { updatedById: actorId } : {}),
+      },
+    })
   }
 
   /** 短租：房间须允许短租，且租期不与占用中合约/其它短租重叠 */
@@ -516,6 +553,7 @@ export class InvoicesService {
       select: {
         id: true,
         roomCode: true,
+        buildingId: true,
         allowShortTerm: true,
         name: true,
         sizeSqft: true,
@@ -647,7 +685,7 @@ export class InvoicesService {
     const roomId = s(dto.roomId)
     if (!customerId) throw new BadRequestException('短租发票须选择客户')
     if (!roomId) throw new BadRequestException('短租发票须选择房间')
-    await this.assertCustomerExists(customerId)
+    const customer = await this.assertCustomerExists(customerId)
 
     const rentalStart = parseDateOnly(dto.rentalStartDate, 'rentalStartDate')
     const rentalEnd = parseDateOnly(dto.rentalEndDate, 'rentalEndDate')
@@ -668,6 +706,7 @@ export class InvoicesService {
       rentalStart,
       rentalEnd,
     })
+    this.assertCustomerRoomSameBuilding(customer, room)
 
     const salesManagerId = nullId(dto.salesManagerId) || actorId || null
     await this.assertSalesManager(salesManagerId)
@@ -689,6 +728,7 @@ export class InvoicesService {
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
+        await this.bindCustomerBuildingIfEmpty(tx, customerId, room.buildingId, actorId || null)
         const created = await tx.invoice.create({
           data: {
             invoiceCode,
@@ -753,11 +793,13 @@ export class InvoicesService {
     let rentalDurationText = existing.rentalDurationText
     let referredByCustomerId = existing.referredByCustomerId
     let shortTermRentalCode = existing.shortTermRentalCode
+    let shortRoomBuildingIdToBind = ''
 
     if (source === 'short_term') {
+      let shortCustomer = await this.assertCustomerExists(customerId)
       if (dto.customerId !== undefined) {
         customerId = s(dto.customerId) || existing.customerId
-        await this.assertCustomerExists(customerId)
+        shortCustomer = await this.assertCustomerExists(customerId)
       }
       if (dto.roomId !== undefined) {
         roomId = s(dto.roomId) || existing.roomId
@@ -787,12 +829,23 @@ export class InvoicesService {
       const nextStatus =
         dto.status !== undefined ? s(dto.status) || existing.status : existing.status
       if (nextStatus !== '已取消') {
-        await this.assertShortTermRoomAvailable({
+        const shortRoom = await this.assertShortTermRoomAvailable({
           roomId,
           rentalStart: rentalStartDate,
           rentalEnd: rentalEndDate,
           excludeInvoiceId: id,
         })
+        this.assertCustomerRoomSameBuilding(shortCustomer, shortRoom)
+        shortRoomBuildingIdToBind = shortRoom.buildingId
+      } else {
+        const roomRow = await this.prisma.room.findUnique({
+          where: { id: roomId },
+          select: { buildingId: true },
+        })
+        if (roomRow) {
+          this.assertCustomerRoomSameBuilding(shortCustomer, roomRow)
+          shortRoomBuildingIdToBind = roomRow.buildingId
+        }
       }
       contractId = null
     } else if (dto.contractId !== undefined || dto.contractCode !== undefined) {
@@ -833,6 +886,14 @@ export class InvoicesService {
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
+        if (source === 'short_term' && shortRoomBuildingIdToBind) {
+          await this.bindCustomerBuildingIfEmpty(
+            tx,
+            customerId,
+            shortRoomBuildingIdToBind,
+            actorId || null,
+          )
+        }
         await tx.invoice.update({
           where: { id },
           data: {

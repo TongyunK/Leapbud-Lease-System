@@ -144,7 +144,8 @@ function applyMail(src: MailSmtpConfig): MailSmtpConfig {
     port: Number(src.port) || 587,
     secure: !!src.secure,
     email: src.email || '',
-    password: src.hasPassword ? PASSWORD_MASK : '',
+    // 管理端回传明文，便于管理员点小眼睛核对
+    password: String(src.password || ''),
     fromName: src.fromName || '',
     hasPassword: !!src.hasPassword,
   }
@@ -290,7 +291,8 @@ async function save() {
         port: Math.trunc(Number(form.mailSmtp.port)) || 587,
         secure: !!form.mailSmtp.secure,
         email,
-        password: pwd === PASSWORD_MASK ? undefined : pwd,
+        // 空 / 掩码 → 不改库内密码；仅提交用户新输入的明文
+        password: !pwd.trim() || pwd === PASSWORD_MASK ? undefined : pwd,
         fromName: form.mailSmtp.fromName.trim(),
       },
       branding: {
@@ -335,7 +337,7 @@ onMounted(() => {
         @click="selectSection(sec.id)"
       >
         <span class="system-settings__nav-icon" aria-hidden="true">
-          <el-icon :size="18"><component :is="sec.icon" /></el-icon>
+          <el-icon :size="19"><component :is="sec.icon" /></el-icon>
         </span>
         <span class="system-settings__nav-text">
           <span class="system-settings__nav-label">{{ sec.title }}</span>
@@ -350,7 +352,7 @@ onMounted(() => {
           <section v-if="activeSection === 'branding'" class="settings-card">
             <header class="settings-card__head">
               <div class="settings-card__icon" aria-hidden="true">
-                <el-icon :size="20"><Brush /></el-icon>
+                <el-icon :size="22"><Brush /></el-icon>
               </div>
               <div class="settings-card__head-text">
                 <h3 class="settings-card__title">
@@ -360,7 +362,7 @@ onMounted(() => {
                     placement="top"
                     :fallback-placements="['top', 'left', 'right']"
                   >
-                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                    <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </h3>
               </div>
@@ -376,7 +378,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <div class="logo-row">
@@ -422,7 +424,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <div class="theme-color-row">
@@ -452,7 +454,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <el-input
@@ -472,7 +474,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <el-input
@@ -490,7 +492,7 @@ onMounted(() => {
           <section v-else-if="activeSection === 'billing'" class="settings-card">
             <header class="settings-card__head">
               <div class="settings-card__icon" aria-hidden="true">
-                <el-icon :size="20"><Ticket /></el-icon>
+                <el-icon :size="22"><Ticket /></el-icon>
               </div>
               <div class="settings-card__head-text">
                 <h3 class="settings-card__title">
@@ -500,7 +502,7 @@ onMounted(() => {
                     placement="top"
                     :fallback-placements="['top', 'left', 'right']"
                   >
-                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                    <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </h3>
               </div>
@@ -516,7 +518,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                 </div>
@@ -542,7 +544,7 @@ onMounted(() => {
           <section v-else-if="activeSection === 'mail'" class="settings-card">
             <header class="settings-card__head">
               <div class="settings-card__icon" aria-hidden="true">
-                <el-icon :size="20"><Message /></el-icon>
+                <el-icon :size="22"><Message /></el-icon>
               </div>
               <div class="settings-card__head-text">
                 <h3 class="settings-card__title">
@@ -552,7 +554,7 @@ onMounted(() => {
                     placement="top"
                     :fallback-placements="['top', 'left', 'right']"
                   >
-                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                    <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </h3>
               </div>
@@ -568,7 +570,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <el-input
@@ -588,7 +590,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <div class="field-block__control field-block__control--port">
@@ -623,7 +625,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <el-input
@@ -643,7 +645,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <el-input
@@ -663,7 +665,7 @@ onMounted(() => {
                       placement="top"
                       :fallback-placements="['top', 'left', 'right']"
                     >
-                      <el-icon class="settings-tip" :size="14"><QuestionFilled /></el-icon>
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
                     </el-tooltip>
                   </label>
                   <el-input
@@ -677,11 +679,6 @@ onMounted(() => {
                       form.mailSmtp.hasPassword
                         ? t('systemSettings.mailPasswordKeep')
                         : t('systemSettings.mailPasswordPlaceholder')
-                    "
-                    @focus="
-                      () => {
-                        if (form.mailSmtp.password === PASSWORD_MASK) form.mailSmtp.password = ''
-                      }
                     "
                     @input="markDirty"
                   />
@@ -735,20 +732,23 @@ onMounted(() => {
 
 <style scoped>
 .system-settings {
+  --ss-body: 0.92rem;
+  --ss-label: 0.95rem;
+  --ss-muted: 0.88rem;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 18px;
   align-items: stretch;
   width: 100%;
   height: 100%;
   min-height: 0;
+  font-size: var(--ss-body);
 }
 
 .system-settings__nav {
-  align-self: start;
-  position: sticky;
-  top: 0;
-  max-height: 100%;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
   overflow: auto;
   padding: 10px;
   border-radius: 14px;
@@ -761,7 +761,7 @@ onMounted(() => {
 
 .system-settings__nav-title {
   margin: 2px 8px 12px;
-  font-size: 0.86rem;
+  font-size: var(--ss-label);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--lb-muted, #666);
@@ -799,8 +799,8 @@ onMounted(() => {
 .system-settings__nav-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   border-radius: 9px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
@@ -821,14 +821,14 @@ onMounted(() => {
 }
 
 .system-settings__nav-label {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 .system-settings__nav-desc {
-  font-size: 11.5px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.4;
   color: #888;
 }
 
@@ -846,6 +846,8 @@ onMounted(() => {
 }
 
 .system-settings__canvas {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -857,11 +859,16 @@ onMounted(() => {
 .system-settings__form {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 14px;
-  min-height: 0;
+  min-height: 100%;
 }
 
 .settings-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
   background: #fff;
@@ -914,7 +921,7 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.18rem;
   font-weight: 750;
   line-height: 1.3;
   color: var(--lb-ink, #1a1a1a);
@@ -933,6 +940,8 @@ onMounted(() => {
 }
 
 .settings-card__body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 16px 18px 18px;
 }
 
@@ -1031,9 +1040,9 @@ onMounted(() => {
 .logo-hint {
   margin: 4px 0 0;
   width: 100%;
-  font-size: 0.78rem;
+  font-size: var(--ss-muted);
   color: var(--lb-muted, #666);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .theme-color-row {
@@ -1067,10 +1076,10 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   margin: 0 0 8px;
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-label);
   font-weight: 700;
   color: var(--lb-ink, #1a1a1a);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .field-block--inline .field-block__label {
@@ -1093,7 +1102,7 @@ onMounted(() => {
 }
 
 .field-block__unit {
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-body);
   font-weight: 650;
   color: var(--lb-muted, #666);
   white-space: nowrap;
@@ -1113,18 +1122,18 @@ onMounted(() => {
 }
 
 .ssl-toggle__text {
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-body);
   font-weight: 650;
   color: var(--lb-muted, #666);
 }
 
 .field-block > :deep(.el-input) {
   width: 100%;
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-body);
 }
 
 .field-block :deep(.el-input__inner) {
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-body);
 }
 
 .field-block :deep(.el-input__wrapper) {
@@ -1184,7 +1193,7 @@ onMounted(() => {
   height: 38px;
   line-height: 38px;
   text-align: left;
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-body);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--lb-ink, #1a1a1a);
@@ -1242,7 +1251,7 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  font-size: var(--lb-table-body, 0.82rem);
+  font-size: var(--ss-muted);
   font-weight: 500;
   color: var(--lb-muted, #666);
 }
@@ -1252,7 +1261,7 @@ onMounted(() => {
   align-items: center;
   padding: 2px 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #8a5a12;
   background: #f8ecd6;
@@ -1263,6 +1272,10 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.system-settings__actions :deep(.el-button) {
+  font-size: var(--ss-body);
 }
 
 .system-settings__actions :deep(.lb-btn-primary) {
@@ -1276,6 +1289,10 @@ onMounted(() => {
   min-width: 96px;
 }
 
+.logo-actions :deep(.el-button) {
+  font-size: var(--ss-body);
+}
+
 @media (max-width: 900px) {
   .system-settings {
     grid-template-columns: 1fr;
@@ -1285,7 +1302,8 @@ onMounted(() => {
   }
 
   .system-settings__nav {
-    position: static;
+    align-self: stretch;
+    height: auto;
     max-height: none;
     overflow: visible;
     display: flex;
@@ -1319,6 +1337,24 @@ onMounted(() => {
 }
 
 @media (max-height: 900px) {
+  .system-settings {
+    --ss-body: 0.88rem;
+    --ss-label: 0.9rem;
+    --ss-muted: 0.84rem;
+  }
+
+  .system-settings__nav-label {
+    font-size: 14px;
+  }
+
+  .system-settings__nav-desc {
+    font-size: 12.5px;
+  }
+
+  .settings-card__title {
+    font-size: 1.1rem;
+  }
+
   .settings-card__body {
     padding: 14px 16px 16px;
   }

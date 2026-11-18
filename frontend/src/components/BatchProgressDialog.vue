@@ -157,7 +157,7 @@ function onClose() {
 .batch-status {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .batch-stats {
@@ -180,7 +180,7 @@ function onClose() {
 .batch-stat dt {
   margin: 0;
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .batch-stat dd {

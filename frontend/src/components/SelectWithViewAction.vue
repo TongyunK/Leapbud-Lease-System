@@ -123,7 +123,7 @@ const { t } = useI18n()
 }
 
 .sia__view:disabled {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: not-allowed;
   opacity: 0.55;
 }

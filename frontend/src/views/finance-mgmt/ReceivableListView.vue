@@ -2050,10 +2050,13 @@ async function onImportFile(ev: Event) {
         <div class="form-grid">
           <el-form-item :label="t('receivable.fields.invoiceCode')" required class="span-2">
             <SelectWithViewAction
+              clearable
               :disabled="!form.invoiceId"
               @view="openInvoiceSide(form.invoiceId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.invoiceId"
                 filterable
                 remote
@@ -2106,7 +2109,8 @@ async function onImportFile(ev: Event) {
               v-model="form.invoiceAmount"
               :min="0"
               :precision="2"
-              :controls="false"
+              :step="100"
+              controls-position="right"
               style="width: 100%"
               @change="onInvoiceAmountChange"
             />
@@ -2116,7 +2120,8 @@ async function onImportFile(ev: Event) {
               v-model="form.receivedAmount"
               :min="0"
               :precision="2"
-              :controls="false"
+              :step="100"
+              controls-position="right"
               style="width: 100%"
               @change="onReceivedAmountChange"
             />
@@ -2125,7 +2130,8 @@ async function onImportFile(ev: Event) {
             <el-input-number
               v-model="form.receivableAmount"
               :precision="2"
-              :controls="false"
+              :step="100"
+              controls-position="right"
               style="width: 100%"
               @change="onReceivableAmountManual"
             />
@@ -2135,7 +2141,8 @@ async function onImportFile(ev: Event) {
               v-model="form.refundedAmount"
               :min="0"
               :precision="2"
-              :controls="false"
+              :step="100"
+              controls-position="right"
               disabled
               style="width: 100%"
             />
@@ -2398,7 +2405,7 @@ async function onImportFile(ev: Event) {
 .period-section-head h3 {
   margin: 0;
   font-size: 0.92rem;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .period-add-btn {
@@ -2417,7 +2424,7 @@ async function onImportFile(ev: Event) {
 .period-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
 }
@@ -2430,21 +2437,21 @@ async function onImportFile(ev: Event) {
   margin-left: auto;
   padding: 2px 4px 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .period-pager.el-pagination {
   --el-pagination-button-bg-color: #fff;
   --el-pagination-hover-color: var(--lb-brand, #0f4a32);
-  --el-pagination-button-color: #4a5c54;
+  --el-pagination-button-color: var(--lb-muted, #666);
   font-weight: 600;
   gap: 2px;
 }
 
 .period-pager :deep(.el-pagination__total) {
   margin-right: 4px;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   font-weight: 650;
 }
@@ -2508,7 +2515,7 @@ async function onImportFile(ev: Event) {
   min-height: 34px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -2528,7 +2535,7 @@ async function onImportFile(ev: Event) {
   box-sizing: border-box;
   min-height: var(--period-row-h);
   height: var(--period-row-h);
-  border-bottom: 1px solid #edf2ef;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   transition: background 0.12s ease, box-shadow 0.12s ease;
   background: #fff;
 }
@@ -2603,7 +2610,7 @@ async function onImportFile(ev: Event) {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
   flex: 0 0 auto;
 }
@@ -2631,7 +2638,7 @@ async function onImportFile(ev: Event) {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   cursor: text;
   line-height: 1.4;
 }
@@ -2640,20 +2647,20 @@ async function onImportFile(ev: Event) {
   width: 2.2rem;
   height: 22px;
   padding: 0 4px;
-  border: 1px solid color-mix(in srgb, var(--lb-brand) 40%, #cfd8d3);
+  border: 1px solid color-mix(in srgb, var(--lb-brand) 40%, color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6));
   border-radius: 5px;
   text-align: center;
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   outline: none;
 }
 
 .receipt-link-table__empty {
   padding: 18px 12px;
   text-align: center;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 

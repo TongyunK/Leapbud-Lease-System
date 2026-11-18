@@ -311,8 +311,8 @@ function emitIfCount(
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #176db0;
-  background: #eef6fb;
-  box-shadow: inset 0 0 0 1px #b7d7ea;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
 }
 </style>

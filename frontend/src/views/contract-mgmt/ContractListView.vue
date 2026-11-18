@@ -4246,6 +4246,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                       v-if="expiringEditForm.statusMode !== 'all'"
                       v-model="expiringEditForm.statuses"
                       multiple
+                      clearable
                       collapse-tags
                       collapse-tags-tooltip
                       filterable
@@ -5826,6 +5827,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   </div>
                   <div class="period-table__cell period-table__cell--type" role="cell">
                     <el-select
+                      fit-input-width
                       v-model="p.dateType"
                       clearable
                       value-on-clear=""
@@ -5842,6 +5844,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
                   </div>
                   <div class="period-table__cell period-table__cell--unit" role="cell">
                     <el-select
+                      fit-input-width
                       v-model="p.dateUnit"
                       clearable
                       value-on-clear=""
@@ -6082,6 +6085,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
             </el-form-item>
             <el-form-item :label="t('contract.fields.paymentCycle')">
               <el-select
+                fit-input-width
                 v-model="form.paymentCycle"
                 filterable
                 clearable
@@ -6228,6 +6232,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               :required="!editing && Number(form.bookingDeposit ?? 0) > 0"
             >
               <el-select
+                fit-input-width
                 v-model="form.paymentMethod"
                 filterable
                 clearable
@@ -6440,12 +6445,15 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           required
         >
           <el-select
+            clearable
+            value-on-clear=""
             v-model="topUpForm.mergeReceiptId"
             filterable
+            fit-input-width
             style="width: 100%"
             :loading="topUpReceiptsLoading"
             :placeholder="t('common.pleaseSelect')"
-            popper-class="top-up-dlg-popper"
+            popper-class="top-up-receipt-select-popper"
             :popper-style="topUpFieldPopperStyle"
             @change="applyMergePaymentMethodLock"
           >
@@ -6454,7 +6462,15 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
               :key="r.id"
               :label="`${r.receiptCode}（${formatMoney(r.amount)}）`"
               :value="r.id"
-            />
+              :title="`${r.receiptCode}（${formatMoney(r.amount)}）`"
+            >
+              <span
+                class="select-option-ellipsis"
+                :title="`${r.receiptCode}（${formatMoney(r.amount)}）`"
+              >
+                {{ r.receiptCode }}（{{ formatMoney(r.amount) }}）
+              </span>
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item :label="t('receipt.bookingDeposit.topUpAmount')" required>
@@ -6481,6 +6497,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
           :required="topUpForm.mode === 'new_receipt'"
         >
           <el-select
+            fit-input-width
             v-model="topUpForm.paymentMethod"
             filterable
             clearable
@@ -6674,7 +6691,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   margin: 0 0 12px;
   font-size: 0.78rem;
   line-height: 1.45;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .contract-form-body.is-readonly {
@@ -6797,7 +6814,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   margin: 0;
   padding: 10px 12px;
   text-align: left;
-  border: 1px solid #d7e2db;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #d8d8d8);
   border-radius: 10px;
   background: #fff;
   cursor: pointer;
@@ -6808,14 +6825,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 }
 
 .top-up-mode-card:hover:not(:disabled):not(.is-disabled) {
-  border-color: color-mix(in srgb, var(--lb-brand) 45%, #d7e2db);
-  background: color-mix(in srgb, var(--lb-brand) 4%, #fff);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #d8d8d8);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
 }
 
 .top-up-mode-card.is-active {
-  border-color: var(--lb-brand);
-  background: color-mix(in srgb, var(--lb-brand) 8%, #fff);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand) 35%, transparent);
+  border-color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, transparent);
 }
 
 .top-up-mode-card.is-disabled,
@@ -6829,14 +6846,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   flex: none;
   width: 16px;
   height: 16px;
-  border: 1.5px solid #9aab9f;
+  border: 1.5px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #aaa);
   border-radius: 50%;
   background: #fff;
   position: relative;
 }
 
 .top-up-mode-card.is-active .top-up-mode-card__radio {
-  border-color: var(--lb-brand);
+  border-color: var(--lb-brand, #0f4a32);
 }
 
 .top-up-mode-card.is-active .top-up-mode-card__radio::after {
@@ -6844,7 +6861,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   position: absolute;
   inset: 3px;
   border-radius: 50%;
-  background: var(--lb-brand);
+  background: var(--lb-brand, #0f4a32);
 }
 
 .top-up-mode-card__title-row {
@@ -6858,7 +6875,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 .top-up-mode-card__title {
   font-size: 0.9rem;
   font-weight: 650;
-  color: #143628;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 72%, #1a1a1a);
   line-height: 1.35;
 }
 
@@ -6884,7 +6901,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 .loan-item-table__empty {
   padding: 18px 12px;
   text-align: center;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 
@@ -6899,7 +6916,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 .period-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
 }
@@ -6912,21 +6929,21 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   margin-left: auto;
   padding: 2px 4px 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .period-pager.el-pagination {
   --el-pagination-button-bg-color: #fff;
   --el-pagination-hover-color: var(--lb-brand, #0f4a32);
-  --el-pagination-button-color: #4a5c54;
+  --el-pagination-button-color: var(--lb-muted, #666);
   font-weight: 600;
   gap: 2px;
 }
 
 .period-pager :deep(.el-pagination__total) {
   margin-right: 4px;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   font-weight: 650;
 }
@@ -6992,7 +7009,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   min-height: 34px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -7012,7 +7029,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   box-sizing: border-box;
   min-height: var(--period-row-h);
   height: var(--period-row-h);
-  border-bottom: 1px solid #edf2ef;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #eee);
   transition: background 0.12s ease, box-shadow 0.12s ease;
   background: #fff;
 }
@@ -7075,7 +7092,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
   flex: 0 0 auto;
 }
@@ -7103,7 +7120,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   cursor: text;
   line-height: 1.4;
 }
@@ -7128,7 +7145,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   border: 1px solid var(--lb-brand, #0f4a32);
   border-radius: 5px;
   background: #fff;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
@@ -7147,7 +7164,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 }
 
 .period-row__to {
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   font-size: 0.8rem;
 }
 
@@ -7182,7 +7199,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
 }
@@ -7195,7 +7212,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   min-height: 32px;
   padding: 6px 12px;
   border-radius: 8px;
-  /* 白底淡染主题色；勿用旧绿灰 #f4f7f5 作混色底 */
+  /* 白底淡染主题色；勿用旧绿灰 color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) 作混色底 */
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
 }
@@ -7217,7 +7234,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 .occupancy-form-item__sep {
   margin: 0 4px;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-weight: 500;
 }
 
@@ -7244,7 +7261,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 .part-label-picker__empty {
   font-size: 0.84rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .part-label-chip {
@@ -7260,8 +7277,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   border: none;
   border-radius: 8px;
   background: #fff;
-  box-shadow: inset 0 0 0 1px #cfd8d3;
-  color: #4a5c54;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
+  color: var(--lb-muted, #666);
   font: inherit;
   cursor: pointer;
   transition:
@@ -7286,7 +7303,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 
 .part-label-chip:hover:not(:disabled):not(.is-active) {
   color: var(--lb-brand, #0f4a32);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #cfd8d3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #e6e6e6);
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
 }
 
@@ -7341,7 +7358,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
 .el-popover.expiring-soon-edit-popper .el-popper__arrow::before,
 .el-popper.expiring-soon-edit-popper .el-popper__arrow::before {
   border: 1px solid #dce6e0 !important;
-  background: #f7faf8 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) !important;
 }
 
 .expiring-soon-edit-popper .expiring-edit {
@@ -7355,7 +7372,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   align-items: flex-start;
   gap: 10px;
   padding: 14px 16px 12px;
-  background: linear-gradient(180deg, #f7faf8 0%, #fff 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) 0%, #fff 100%);
   border-bottom: 1px solid #e8efe9;
   border-radius: 14px 14px 0 0;
 }
@@ -7367,8 +7384,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   height: 32px;
   flex-shrink: 0;
   border-radius: 10px;
-  color: #0f4a32;
-  background: color-mix(in srgb, #0f4a32 12%, #fff);
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 
 .expiring-soon-edit-popper .expiring-edit__head-text {
@@ -7388,7 +7405,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: #6b7c74;
+  color: var(--lb-muted, #666);
 }
 
 .expiring-soon-edit-popper .expiring-edit__body {
@@ -7405,14 +7422,14 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   padding: 12px;
   border: 1px solid #e6eee9;
   border-radius: 10px;
-  background: #fbfcfb;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 2%, #fff);
 }
 
 .expiring-soon-edit-popper .expiring-edit__label {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
 }
 
 .expiring-soon-edit-popper .expiring-edit__controls {
@@ -7442,7 +7459,7 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   width: 100%;
   padding: 8px 6px;
   border-color: var(--lb-muted-border, #d0d0d0) !important;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-weight: 600;
   box-shadow: none !important;
 }
@@ -7459,8 +7476,8 @@ function onOpenDepositRefundFromList(record: DepositRefundRecord) {
   .expiring-edit__mode
   .el-radio-button__original-radio:checked
   + .el-radio-button__inner {
-  background: #0f4a32 !important;
-  border-color: #0f4a32 !important;
+  background: var(--lb-brand, #0f4a32) !important;
+  border-color: var(--lb-brand, #0f4a32) !important;
   color: #fff !important;
   box-shadow: none !important;
 }

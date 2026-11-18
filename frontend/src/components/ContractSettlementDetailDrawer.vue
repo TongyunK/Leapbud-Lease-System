@@ -482,7 +482,7 @@ function onOpenRefundOrders() {
 
 .settlement-detail__empty {
   margin: 8px 0 0;
-  color: #8a9a90;
+  color: var(--lb-muted, #666);
   font-size: 0.95rem;
 }
 

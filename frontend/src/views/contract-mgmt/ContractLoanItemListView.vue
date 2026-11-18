@@ -881,14 +881,18 @@ async function onImportFile(ev: Event) {
         <div class="form-grid">
           <el-form-item :label="t('contractLoanItem.fields.contractCode')" required class="span-2">
             <SelectWithViewAction
+              clearable
               :disabled="!form.contractId"
               @view="openContractSide(form.contractId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.contractId"
                 filterable
                 fit-input-width
                 style="width: 100%"
+                popper-class="loan-item-contract-select-popper"
                 :placeholder="t('contractLoanItem.fields.contractCode')"
                 :disabled="!!editing"
               >

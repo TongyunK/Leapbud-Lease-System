@@ -429,34 +429,34 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
 <style scoped>
 /* append-to-body 对齐列表表格字号断点 */
 .settlement-items-shell {
-  --lb-table-body: 0.82rem;
-  --lb-table-head: 0.78rem;
+  --lb-table-body: 0.86rem;
+  --lb-table-head: 0.82rem;
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
   font-size: var(--lb-table-body);
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 @media (max-width: 1279.98px) {
   .settlement-items-shell {
-    --lb-table-body: 0.76rem;
-    --lb-table-head: 0.72rem;
+    --lb-table-body: 0.83rem;
+    --lb-table-head: 0.78rem;
   }
 }
 
 @media (min-width: 1440px) {
   .settlement-items-shell {
-    --lb-table-body: 0.86rem;
-    --lb-table-head: 0.82rem;
+    --lb-table-body: 0.89rem;
+    --lb-table-head: 0.85rem;
   }
 }
 
 @media (min-width: 1800px) {
   .settlement-items-shell {
-    --lb-table-body: 0.9rem;
-    --lb-table-head: 0.86rem;
+    --lb-table-body: 0.93rem;
+    --lb-table-head: 0.89rem;
   }
 }
 
@@ -499,7 +499,7 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
   margin: 0;
   font-size: var(--lb-table-body);
   font-weight: 700;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .settlement-item-group__sum {
@@ -513,7 +513,7 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
 .settlement-items-table.el-table {
   --el-table-font-size: var(--lb-table-body);
   font-size: var(--lb-table-body);
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .settlement-items-table :deep(.el-table__cell) {
@@ -541,7 +541,7 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
 }
 
 .settlement-amount {
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   font-weight: 650;
   font-size: inherit;
   font-variant-numeric: tabular-nums;
@@ -579,7 +579,7 @@ function onOpenDescCode(row: ContractSettlementItemRecord) {
 
 .settlement-item-desc__formula {
   font-size: inherit;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-variant-numeric: tabular-nums;
 }
 

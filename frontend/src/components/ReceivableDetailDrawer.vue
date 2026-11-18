@@ -392,7 +392,7 @@ watch(
 }
 
 .receipt-pair__tag {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-weight: 650;
 }
 

@@ -1927,7 +1927,7 @@ async function saveForm() {
             <el-input v-model="form.name" />
           </el-form-item>
           <el-form-item :label="t('room.fields.roomType')" required>
-            <el-select v-model="form.roomType" style="width: 100%" :placeholder="t('common.pleaseSelect')">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.roomType" style="width: 100%" :placeholder="t('common.pleaseSelect')">
               <el-option
                 v-for="opt in roomTypeOptions"
                 :key="opt.id"
@@ -1944,12 +1944,18 @@ async function saveForm() {
             required
           >
             <SelectWithViewAction
+              clearable
               :disabled="!form.buildingId"
               @view="openBuildingDetail(form.buildingId)"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.buildingId"
+                filterable
+                fit-input-width
                 style="width: 100%"
+                popper-class="room-building-select-popper"
                 :placeholder="t('common.pleaseSelect')"
               >
                 <el-option
@@ -1957,8 +1963,11 @@ async function saveForm() {
                   :key="b.id"
                   :label="b.name"
                   :value="b.id"
+                  :title="b.name"
                   :disabled="!b.active && b.id !== form.buildingId"
-                />
+                >
+                  <span class="select-option-ellipsis" :title="b.name">{{ b.name }}</span>
+                </el-option>
               </el-select>
             </SelectWithViewAction>
           </el-form-item>
@@ -2048,12 +2057,12 @@ async function saveForm() {
             </p>
           </el-form-item>
           <el-form-item :label="t('room.fields.windowConfig')">
-            <el-select v-model="form.windowConfig" clearable filterable style="width: 100%">
+            <el-select fit-input-width v-model="form.windowConfig" clearable value-on-clear="" filterable style="width: 100%">
               <el-option v-for="o in windowOptions" :key="o.id" :label="o.label" :value="o.label" />
             </el-select>
           </el-form-item>
           <el-form-item :label="t('room.fields.acConfig')">
-            <el-select v-model="form.acConfig" clearable filterable style="width: 100%">
+            <el-select fit-input-width v-model="form.acConfig" clearable value-on-clear="" filterable style="width: 100%">
               <el-option
                 v-for="o in acOptions"
                 :key="o.id"
@@ -2214,6 +2223,9 @@ async function saveForm() {
             {{ t('room.fields.roomType') }}
           </el-checkbox>
           <el-select
+            clearable
+            value-on-clear=""
+            fit-input-width
             v-model="batchEditForm.roomType"
             :disabled="!batchEditEnable.roomType"
             :placeholder="t('common.pleaseSelect')"
@@ -2233,22 +2245,31 @@ async function saveForm() {
             {{ t('room.fields.building') }}
           </el-checkbox>
           <SelectWithViewAction
+            clearable
             :disabled="!batchEditEnable.buildingId || !batchEditForm.buildingId"
             @view="openBuildingDetail(batchEditForm.buildingId)"
           >
             <el-select
+              clearable
+              value-on-clear=""
               v-model="batchEditForm.buildingId"
+              filterable
+              fit-input-width
               :disabled="!batchEditEnable.buildingId"
               :placeholder="t('common.pleaseSelect')"
               style="width: 100%"
+              popper-class="room-building-select-popper"
             >
               <el-option
                 v-for="b in formBuildingOptions"
                 :key="b.id"
                 :label="b.name"
                 :value="b.id"
+                :title="b.name"
                 :disabled="!b.active && b.id !== batchEditForm.buildingId"
-              />
+              >
+                <span class="select-option-ellipsis" :title="b.name">{{ b.name }}</span>
+              </el-option>
             </el-select>
           </SelectWithViewAction>
         </div>
@@ -2290,9 +2311,11 @@ async function saveForm() {
             {{ t('room.fields.windowConfig') }}
           </el-checkbox>
           <el-select
+            fit-input-width
             v-model="batchEditForm.windowConfig"
             :disabled="!batchEditEnable.windowConfig"
             clearable
+            value-on-clear=""
             :placeholder="t('common.pleaseSelect')"
             style="width: 100%"
           >
@@ -2310,9 +2333,11 @@ async function saveForm() {
             {{ t('room.fields.acConfig') }}
           </el-checkbox>
           <el-select
+            fit-input-width
             v-model="batchEditForm.acConfig"
             :disabled="!batchEditEnable.acConfig"
             clearable
+            value-on-clear=""
             :placeholder="t('common.pleaseSelect')"
             style="width: 100%"
           >
@@ -2428,7 +2453,7 @@ async function saveForm() {
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .batch-edit-fields {
@@ -2467,8 +2492,12 @@ async function saveForm() {
   margin: 2px 0 4px;
   padding: 12px 14px 10px;
   border-radius: 12px;
-  background: linear-gradient(180deg, #f7faf8 0%, #f2f6f3 100%);
-  border: 1px solid #e2eae5;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
@@ -2516,7 +2545,7 @@ async function saveForm() {
   padding: 4px 8px;
   border-radius: 8px;
   background: #fff;
-  border: 1px solid var(--lb-border, #d7ded9);
+  border: 1px solid var(--lb-border, #e6e6e6);
 }
 
 .room-lease-cap-detail {
@@ -2544,9 +2573,9 @@ async function saveForm() {
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #176db0;
-  background: #eef6fb;
-  box-shadow: inset 0 0 0 1px #b7d7ea;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
 }
 
 @media (max-width: 720px) {
@@ -2560,7 +2589,7 @@ async function saveForm() {
   width: 36px;
   padding: 0 !important;
   border-radius: 8px !important;
-  border-color: #d7ded9 !important;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   background: #fff !important;
   color: var(--lb-brand) !important;
 }
@@ -2569,7 +2598,7 @@ async function saveForm() {
 .room-io-btn:focus {
   border-color: var(--lb-brand) !important;
   color: var(--lb-brand) !important;
-  background: #f3f8f5 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) !important;
 }
 
 .room-io-file {
@@ -2628,7 +2657,7 @@ async function saveForm() {
   display: block;
   overflow: hidden;
   cursor: zoom-in;
-  background: #f5f7f6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
 }
 
 .room-image-tile__img :deep(img) {
@@ -2662,7 +2691,7 @@ async function saveForm() {
   min-height: 90px;
   border: 1px dashed var(--lb-border);
   border-radius: 10px;
-  background: #f8faf9;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   color: var(--lb-muted);
   cursor: pointer;
 }

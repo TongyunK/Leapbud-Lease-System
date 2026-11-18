@@ -214,34 +214,34 @@ function onOpenReceipt(it: RefundItemRecord) {
 <style scoped>
 /* append-to-body 拿不到 .admin-page 变量，自行对齐列表表格字号断点 */
 .refund-items-shell {
-  --lb-table-body: 0.82rem;
-  --lb-table-head: 0.78rem;
+  --lb-table-body: 0.86rem;
+  --lb-table-head: 0.82rem;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
   font-size: var(--lb-table-body);
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 @media (max-width: 1279.98px) {
   .refund-items-shell {
-    --lb-table-body: 0.76rem;
-    --lb-table-head: 0.72rem;
+    --lb-table-body: 0.83rem;
+    --lb-table-head: 0.78rem;
   }
 }
 
 @media (min-width: 1440px) {
   .refund-items-shell {
-    --lb-table-body: 0.86rem;
-    --lb-table-head: 0.82rem;
+    --lb-table-body: 0.89rem;
+    --lb-table-head: 0.85rem;
   }
 }
 
 @media (min-width: 1800px) {
   .refund-items-shell {
-    --lb-table-body: 0.9rem;
-    --lb-table-head: 0.86rem;
+    --lb-table-body: 0.93rem;
+    --lb-table-head: 0.89rem;
   }
 }
 
@@ -290,7 +290,7 @@ function onOpenReceipt(it: RefundItemRecord) {
 .refund-items-table.el-table {
   --el-table-font-size: var(--lb-table-body);
   font-size: var(--lb-table-body);
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .refund-items-table :deep(.el-table__cell) {

@@ -1,14 +1,12 @@
 import { computed, ref, watch, type Ref } from 'vue'
-
-const DEFAULT_PAGE_SIZE = 20
-const PAGE_SIZES = [10, 20, 50, 100]
+import { DEFAULT_LIST_PAGE_SIZE, LIST_PAGE_SIZES } from '@/types/pagination'
 
 /**
  * 前端列表分页：对过滤后的全量数据切片
  */
 export function useClientPagination<T>(source: Ref<T[]>, options?: { pageSize?: number }) {
   const page = ref(1)
-  const pageSize = ref(options?.pageSize ?? DEFAULT_PAGE_SIZE)
+  const pageSize = ref(options?.pageSize ?? DEFAULT_LIST_PAGE_SIZE)
 
   watch(
     source,
@@ -52,7 +50,7 @@ export function useClientPagination<T>(source: Ref<T[]>, options?: { pageSize?: 
   return {
     page,
     pageSize,
-    pageSizes: PAGE_SIZES,
+    pageSizes: LIST_PAGE_SIZES,
     paged,
     from,
     to,

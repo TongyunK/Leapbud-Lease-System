@@ -574,7 +574,7 @@ function onClearFilters() {
       <div class="head-actions">
         <el-select
           v-model="filterType"
-          clearable
+          clearable value-on-clear=""
           class="head-filter"
           :placeholder="t('documentTemplate.fields.type')"
         >
@@ -876,7 +876,7 @@ function onClearFilters() {
           <el-input v-model="form.name" />
         </el-form-item>
         <el-form-item :label="t('documentTemplate.fields.type')" required>
-          <el-select v-model="form.type" style="width: 100%">
+          <el-select clearable value-on-clear="" fit-input-width v-model="form.type" style="width: 100%">
             <el-option
               v-for="o in typeFilterOptions"
               :key="o.value"
@@ -1249,7 +1249,7 @@ function onClearFilters() {
 }
 .template-upload__empty {
   margin: 0;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   font-size: 0.82rem;
   line-height: 1.4;
 }
@@ -1336,7 +1336,7 @@ function onClearFilters() {
   line-height: 1.4;
 }
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;
@@ -1530,7 +1530,7 @@ function onClearFilters() {
   white-space: normal;
   word-break: break-word;
   line-height: 1.45;
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   font-size: inherit;
 }
 .field-guide-empty {
@@ -1544,7 +1544,7 @@ function onClearFilters() {
   --el-table-row-hover-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 3.5%, #fff);
   --el-table-border-color: var(--lb-table-border, #ebebeb);
   font-size: var(--lb-table-body, 0.82rem);
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .field-guide-table :deep(th.el-table__cell) {
   background-color: var(--el-table-header-bg-color);

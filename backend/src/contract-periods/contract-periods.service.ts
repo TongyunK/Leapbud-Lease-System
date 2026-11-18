@@ -93,7 +93,7 @@ export class ContractPeriodsService {
     pageSize?: number;
   }) {
     const page = Math.max(1, Math.floor(Number(params.page) || 1));
-    const pageSize = Math.min(500, Math.max(1, Math.floor(Number(params.pageSize) || 20)));
+    const pageSize = Math.min(500, Math.max(1, Math.floor(Number(params.pageSize) || 30)));
     const where = this.buildListWhere(params);
     await this.access.constrain(where, 'viaContractRoom');
 

@@ -147,9 +147,9 @@ onBeforeUnmount(() => {
   max-width: 100%;
   margin: 0;
   padding: 6px 10px;
-  border: 1px solid var(--lb-border, #d8e0db);
+  border: 1px solid var(--lb-border, #e0e0e0);
   border-radius: 8px;
-  background: #f7faf8;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7);
   font: inherit;
   color: inherit;
   cursor: pointer;
@@ -158,7 +158,7 @@ onBeforeUnmount(() => {
 
 .receipt-att__chip:hover {
   border-color: var(--lb-brand, #0f4a32);
-  background: #eef6f1;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
 }
 
 .receipt-att__icon {

@@ -1313,7 +1313,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   font-family: inherit;
   font-size: 0.8rem;
   font-weight: 550;
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
   white-space: nowrap;
   line-height: 1.2;
   transition: color 0.15s ease, background 0.15s ease;
@@ -1339,7 +1339,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   border-radius: 50%;
   padding: 0;
   background: transparent;
-  color: #8a9a92;
+  color: var(--lb-muted, #666);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
@@ -1688,7 +1688,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   padding: 9px 12px !important;
   font-size: 0.88rem;
   font-weight: 550;
-  color: #243029 !important;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333) !important;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1744,7 +1744,7 @@ function onRemoveShortcut(name: FrequentRouteName, event: Event) {
   line-height: 38px !important;
   padding: 0 12px !important;
   border-radius: 8px !important;
-  color: #243029 !important;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333) !important;
   font-size: 0.82rem !important;
   font-weight: 600 !important;
   display: flex !important;

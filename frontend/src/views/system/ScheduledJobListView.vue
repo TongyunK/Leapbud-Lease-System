@@ -698,6 +698,8 @@ function triggerLabel(trigger: string) {
           <div v-else-if="form.recurrence === 'monthly_days'" class="recurrence-panel">
             <div class="recurrence-panel__label">{{ t('scheduledJob.selectDate') }}</div>
             <el-select
+              clearable
+              fit-input-width
               v-model="form.monthDays"
               multiple
               filterable
@@ -720,7 +722,7 @@ function triggerLabel(trigger: string) {
             v-else-if="form.recurrence === 'monthly_weekday'"
             class="recurrence-panel recurrence-panel--row"
           >
-            <el-select v-model="form.weekOrdinal" class="recurrence-select">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.weekOrdinal" class="recurrence-select">
               <el-option
                 v-for="w in WEEK_ORDINAL_VALUES"
                 :key="w"
@@ -728,7 +730,7 @@ function triggerLabel(trigger: string) {
                 :value="w"
               />
             </el-select>
-            <el-select v-model="form.monthWeekday" class="recurrence-select">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.monthWeekday" class="recurrence-select">
               <el-option
                 v-for="d in WEEKDAY_VALUES"
                 :key="d"
@@ -1002,7 +1004,7 @@ function triggerLabel(trigger: string) {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;
@@ -1047,7 +1049,7 @@ function triggerLabel(trigger: string) {
   width: 100%;
   padding: 12px 12px 10px;
   border-radius: 10px;
-  background: #f6f9f7;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border: 1px solid #e8f0ec;
 }
 

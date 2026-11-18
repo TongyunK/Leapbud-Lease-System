@@ -265,7 +265,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   height: 32px;
   padding: 0 11px;
-  border: 1px solid var(--lb-border, #d7ded9);
+  border: 1px solid var(--lb-border, #e6e6e6);
   border-radius: 8px;
   background: #fff;
   cursor: text;
@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
   font-size: 0.875rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: #1f2a24;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   line-height: 1;
 }
 </style>
@@ -330,8 +330,8 @@ onBeforeUnmount(() => {
   height: 28px;
   margin-top: -14px;
   border-radius: 7px;
-  background: #eef6f1;
-  box-shadow: 0 0 0 1px rgba(15, 74, 50, 0.08) inset;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, transparent) inset;
   pointer-events: none;
 }
 
@@ -380,7 +380,7 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   font: inherit;
   font-size: 0.84rem;
   font-variant-numeric: tabular-nums;
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
 }
 
 .thm-panel__item:hover {
-  color: #1f2a24;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .thm-panel__item.is-active {

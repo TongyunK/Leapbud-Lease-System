@@ -242,13 +242,13 @@ function openPastCustomer(customerId: string) {
 .path-text {
   word-break: break-all;
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .past-hint {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .past-list {
@@ -275,6 +275,6 @@ function openPastCustomer(customerId: string) {
 
 .past-meta {
   font-size: 0.78rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 </style>

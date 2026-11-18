@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
   object-fit: cover;
   border-radius: 10px;
   border: 1px solid var(--lb-border);
-  background: #f5f7f6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
   display: block;
 }
 

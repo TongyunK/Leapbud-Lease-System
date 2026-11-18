@@ -1623,7 +1623,7 @@ async function onImportFile(ev: Event) {
               <el-input v-model="form.name" />
             </el-form-item>
             <el-form-item :label="t('customer.fields.status')">
-              <el-select v-model="form.status" style="width: 100%">
+              <el-select clearable value-on-clear="" fit-input-width v-model="form.status" style="width: 100%">
                 <el-option
                   v-for="s in CUSTOMER_STATUSES"
                   :key="s"
@@ -1634,6 +1634,9 @@ async function onImportFile(ev: Event) {
             </el-form-item>
             <el-form-item :label="t('customer.fields.accountManager')" required>
               <el-select
+                clearable
+                value-on-clear=""
+                fit-input-width
                 v-model="form.accountManagerId"
                 filterable
                 style="width: 100%"
@@ -1649,8 +1652,9 @@ async function onImportFile(ev: Event) {
             </el-form-item>
             <el-form-item :label="t('customer.fields.source')">
               <el-select
+                fit-input-width
                 v-model="form.source"
-                clearable
+                clearable value-on-clear=""
                 filterable
                 style="width: 100%"
                 :placeholder="t('common.pleaseSelect')"
@@ -1665,13 +1669,18 @@ async function onImportFile(ev: Event) {
             </el-form-item>
             <el-form-item :label="t('customer.fields.buildingName')" required>
               <SelectWithViewAction
+                clearable
                 :disabled="!form.buildingId"
                 @view="openBuildingSide(form.buildingId)"
               >
                 <el-select
+                  clearable
+                  value-on-clear=""
                   v-model="form.buildingId"
                   filterable
+                  fit-input-width
                   style="width: 100%"
+                  popper-class="customer-building-select-popper"
                   :placeholder="t('customer.fields.buildingName')"
                 >
                   <el-option
@@ -1679,7 +1688,10 @@ async function onImportFile(ev: Event) {
                     :key="b.id"
                     :label="b.name"
                     :value="b.id"
-                  />
+                    :title="b.name"
+                  >
+                    <span class="select-option-ellipsis" :title="b.name">{{ b.name }}</span>
+                  </el-option>
                 </el-select>
               </SelectWithViewAction>
             </el-form-item>
@@ -1733,9 +1745,11 @@ async function onImportFile(ev: Event) {
                 v-model="linkOccupantId"
                 filterable
                 remote
-                clearable
+                clearable value-on-clear=""
                 reserve-keyword
+                fit-input-width
                 style="width: 100%"
+                popper-class="customer-occupant-select-popper"
                 :placeholder="t('customer.selectOccupantPlaceholder')"
                 :remote-method="searchOccupantsRemote"
                 :loading="occupantSelectLoading"
@@ -1746,7 +1760,12 @@ async function onImportFile(ev: Event) {
                   :key="o.id"
                   :label="occupantOptionLabel(o)"
                   :value="o.id"
-                />
+                  :title="occupantOptionLabel(o)"
+                >
+                  <span class="select-option-ellipsis" :title="occupantOptionLabel(o)">
+                    {{ occupantOptionLabel(o) }}
+                  </span>
+                </el-option>
               </el-select>
             </el-form-item>
             <el-form-item
@@ -1756,9 +1775,12 @@ async function onImportFile(ev: Event) {
               required
             >
               <el-select
+                clearable value-on-clear=""
                 v-model="primaryOccupantSelect"
                 filterable
+                fit-input-width
                 style="width: 100%"
+                popper-class="customer-primary-occupant-select-popper"
                 :placeholder="t('customer.selectPrimaryOccupantPlaceholder')"
                 @change="onPrimaryOccupantSelectChange"
               >
@@ -1767,7 +1789,12 @@ async function onImportFile(ev: Event) {
                   :key="o.id"
                   :label="customerOccupantOptionLabel(o)"
                   :value="o.id"
-                />
+                  :title="customerOccupantOptionLabel(o)"
+                >
+                  <span class="select-option-ellipsis" :title="customerOccupantOptionLabel(o)">
+                    {{ customerOccupantOptionLabel(o) }}
+                  </span>
+                </el-option>
                 <el-option
                   :value="NEW_OCCUPANT_VALUE"
                   :label="t('customer.createNewOccupant')"
@@ -1891,7 +1918,7 @@ async function onImportFile(ev: Event) {
 
 .form-section-hint {
   margin: -4px 0 12px;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.86rem;
   line-height: 1.4;
 }

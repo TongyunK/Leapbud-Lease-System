@@ -904,16 +904,20 @@ async function onImportFile(ev: Event) {
         <div class="form-grid">
           <el-form-item :label="t('invoiceServiceDetail.fields.invoiceCode')" required class="span-2">
             <SelectWithViewAction
+              clearable
               :disabled="!form.invoiceId"
               @view="openInvoiceSide(form.invoiceId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.invoiceId"
                 filterable
                 remote
                 reserve-keyword
                 fit-input-width
                 style="width: 100%"
+                popper-class="invoice-service-invoice-select-popper"
                 :placeholder="t('invoiceServiceDetail.fields.invoiceCode')"
                 :disabled="!!editing"
                 :remote-method="searchInvoicesRemote"

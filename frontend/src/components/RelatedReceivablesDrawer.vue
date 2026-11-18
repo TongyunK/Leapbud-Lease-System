@@ -474,7 +474,7 @@ async function onToolbarDelete() {
 
 .related-list__empty {
   margin: 12px 0 0;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .related-list__table {
@@ -494,7 +494,7 @@ async function onToolbarDelete() {
 .related-list__pager {
   flex: 0 0 auto;
   margin: 0 -4px -4px;
-  border: 1px solid #e6ebe8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 10px;
   overflow: hidden;
 }

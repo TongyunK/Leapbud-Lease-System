@@ -709,8 +709,8 @@ async function submitRefund() {
 .receipt-alloc {
   padding: 8px 10px;
   border-radius: 8px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .receipt-alloc__main {
@@ -728,7 +728,7 @@ async function submitRefund() {
 .receipt-alloc__meta {
   margin-top: 4px;
   font-size: 12px;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .booking-dep-head {
@@ -771,8 +771,8 @@ async function submitRefund() {
 .booking-dep-mov {
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .booking-dep-mov__main {
@@ -808,7 +808,7 @@ async function submitRefund() {
 .booking-dep-empty {
   padding: 12px;
   text-align: center;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 

@@ -136,6 +136,12 @@ export class ReceiptsController {
     })
   }
 
+  @Get('code-preview')
+  @ApiOkResponse({ description: 'Preview next receipt code without consuming sequence' })
+  previewCode() {
+    return this.receiptsService.previewReceiptCode()
+  }
+
   @RequirePermissions('receipts:import')
   @Post('import')
   @ApiOkResponse({ description: 'Batch import receipts' })

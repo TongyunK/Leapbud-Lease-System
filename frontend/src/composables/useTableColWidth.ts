@@ -48,14 +48,14 @@ function resolveFontFamily(): string {
 }
 
 function resolveHeaderFont(): string {
-  const size = getComputedStyle(document.documentElement).getPropertyValue('--lb-table-head').trim() || '0.82rem'
+  const size = getComputedStyle(document.documentElement).getPropertyValue('--lb-table-head').trim() || '0.86rem'
   return `700 ${size} ${resolveFontFamily()}`
 }
 
 /** 表体编号/链接字重（.fk-link 为 600），字号用 --lb-table-body */
 function resolveCodeBodyFont(): string {
   const size =
-    getComputedStyle(document.documentElement).getPropertyValue('--lb-table-body').trim() || '0.86rem'
+    getComputedStyle(document.documentElement).getPropertyValue('--lb-table-body').trim() || '0.89rem'
   return `600 ${size} ${resolveFontFamily()}`
 }
 

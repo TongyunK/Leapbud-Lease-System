@@ -166,11 +166,11 @@ export const DEFAULT_MAIL_SMTP: MailSmtpConfig = {
   fromName: 'Leapbud 租賃系統',
 }
 
-/** 管理端展示：密码不明文回传 */
+/** 管理端展示：密码明文仅给有系统设置权限的接口使用，便于管理员核对 */
 export type MailSmtpConfigView = Omit<MailSmtpConfig, 'password'> & {
   /** 是否已配置 SMTP 密码 */
   hasPassword: boolean
-  /** 占位；保存时留空或 ******** 表示不改密码 */
+  /** 解密后的明文密码（未配置则为空）；保存时留空或 ******** 表示不改密码 */
   password: string
 }
 

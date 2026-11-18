@@ -1249,6 +1249,7 @@ onMounted(() => {
           </el-form-item>
           <el-form-item :label="t('refundOrder.fields.paymentMethod')">
             <el-select
+              fit-input-width
               v-model="payForm.paymentMethod"
               filterable
               clearable
@@ -1375,7 +1376,7 @@ onMounted(() => {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;
@@ -1385,8 +1386,8 @@ onMounted(() => {
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .refund-alloc__head {
   display: inline-flex;
@@ -1395,10 +1396,10 @@ onMounted(() => {
   margin: 0 0 8px;
   font-size: 0.86rem;
   font-weight: 700;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .refund-alloc__tip {
-  color: #8a9a90;
+  color: var(--lb-muted, #666);
   cursor: help;
 }
 .refund-alloc__list {
@@ -1417,7 +1418,7 @@ onMounted(() => {
   padding: 7px 9px;
   border-radius: 8px;
   background: #fff;
-  border: 1px solid #e0e8e3;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .refund-alloc__code {
   min-width: 0;
@@ -1447,12 +1448,12 @@ onMounted(() => {
   background: #f3e6d0;
 }
 .refund-alloc__tag.is-now {
-  color: #0f4a32;
-  background: #ddeee4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 .refund-alloc__tag.is-settled {
-  color: #0f4a32;
-  background: #d8f0e4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
 }
 .refund-alloc__tag.is-later {
   color: #8a2f2f;

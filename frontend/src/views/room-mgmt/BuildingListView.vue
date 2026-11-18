@@ -1034,7 +1034,7 @@ async function saveForm() {
             <div class="template-bind-row">
               <el-select
                 v-model="form[slot.formKey]"
-                clearable
+                clearable value-on-clear=""
                 filterable
                 class="template-bind-select"
                 :placeholder="t('building.chooseTemplate')"
@@ -1113,7 +1113,7 @@ async function saveForm() {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;

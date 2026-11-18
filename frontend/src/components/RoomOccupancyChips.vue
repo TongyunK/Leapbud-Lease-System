@@ -488,7 +488,7 @@ function onSlotKeydown(slot: RoomOccupancySlot, e: KeyboardEvent) {
 }
 
 .occ-root--expanded .occ-slot--free .occ-slot__badge {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   background: #fff;
   box-shadow: inset 0 0 0 1px #d0d8d3;
 }
@@ -503,7 +503,7 @@ function onSlotKeydown(slot: RoomOccupancySlot, e: KeyboardEvent) {
 .occ-root--expanded .occ-slot__name {
   font-size: 0.82rem;
   font-weight: 650;
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -512,7 +512,7 @@ function onSlotKeydown(slot: RoomOccupancySlot, e: KeyboardEvent) {
 
 .occ-root--expanded .occ-slot__code {
   font-size: 0.76rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -522,7 +522,7 @@ function onSlotKeydown(slot: RoomOccupancySlot, e: KeyboardEvent) {
 
 .occ-root--expanded .occ-slot__free {
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .occ-root--expanded .occ-slot .lb-status {

@@ -930,6 +930,7 @@ function onViewCustomer() {
           :required="cashCollectAmount > 0"
         >
           <el-select
+            fit-input-width
             v-model="payForm.paymentMethod"
             filterable
             clearable
@@ -1035,7 +1036,7 @@ function onViewCustomer() {
   height: 100%;
   overflow: hidden; /* 高度吃紧时只裁表格区，不裁统计 */
   font-size: 14px;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .receive-pay__top {
@@ -1060,7 +1061,7 @@ function onViewCustomer() {
   height: 22px;
   pointer-events: none;
   border-radius: 0 0 10px 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(243, 247, 245, 0.95));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.95));
   z-index: 2;
 }
 
@@ -1077,9 +1078,13 @@ function onViewCustomer() {
   align-items: center;
   margin-bottom: 14px;
   padding: 12px 16px;
-  border: 1px solid #e2e8e5;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 12px;
-  background: linear-gradient(180deg, #f7faf8 0%, #f2f6f4 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 9%, #f5f5f5) 100%
+  );
 }
 
 .receive-pay__meta-row {
@@ -1091,7 +1096,7 @@ function onViewCustomer() {
 
 .receive-pay__label {
   flex: 0 0 auto;
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
@@ -1121,7 +1126,7 @@ function onViewCustomer() {
 }
 
 .receive-pay__view {
-  border: 1px solid #c5d2cb;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #d8d8d8);
   background: #fff;
   color: var(--lb-brand);
   border-radius: 8px;
@@ -1133,7 +1138,7 @@ function onViewCustomer() {
 
 .receive-pay__view:hover {
   border-color: var(--lb-brand);
-  background: rgba(15, 74, 50, 0.05);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
 }
 
 .receive-pay__toolbar {
@@ -1174,7 +1179,7 @@ function onViewCustomer() {
 .receive-pay__section {
   font-size: 15px;
   font-weight: 700;
-  color: #0d3a28;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 72%, #1a1a1a);
 }
 
 .receive-pay__bill-meta {
@@ -1192,9 +1197,9 @@ function onViewCustomer() {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  color: #3a4a42;
-  background: #e8efeb;
-  border: 1px solid #d5dfd9;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #e0e0e0);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1205,7 +1210,7 @@ function onViewCustomer() {
 }
 
 .receive-pay__sel {
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
   font-size: 13px;
   font-weight: 600;
 }
@@ -1214,9 +1219,9 @@ function onViewCustomer() {
   width: 100%;
   height: 100%;
   --el-table-header-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
-  --el-table-header-text-color: #0d3a28;
-  --el-table-text-color: #1a2a22;
-  --el-table-row-hover-bg-color: #f0f6f3;
+  --el-table-header-text-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 72%, #1a1a1a);
+  --el-table-text-color: var(--lb-ink, #1a1a1a);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -1236,7 +1241,7 @@ function onViewCustomer() {
 .receive-pay__table :deep(.el-table__body .cell) {
   font-size: 14px;
   font-weight: 500;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1273,9 +1278,9 @@ function onViewCustomer() {
   font-variant-numeric: tabular-nums;
 }
 
-/* 与主题深绿区分：用偏亮的成功绿，表示已结清 */
+/* 已结清：品牌色（随主题），与未收红区分 */
 .receive-pay__table :deep(.is-cleared) {
-  color: #12a35a;
+  color: var(--lb-brand-mid, var(--lb-brand, #0f4a32));
   font-weight: 750;
   font-variant-numeric: tabular-nums;
 }
@@ -1287,15 +1292,15 @@ function onViewCustomer() {
   align-items: center;
   margin-top: 4px;
   padding: 8px;
-  border: 1px solid #e2e8e5;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
-  background: #fbfcfb;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 2%, #fff);
 }
 
 .receive-pay__totals--deposit {
   margin-top: 4px;
-  background: #f3f8f5;
-  border-color: #d5e4db;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #e0e0e0);
 }
 
 .receive-pay__total {
@@ -1313,7 +1318,7 @@ function onViewCustomer() {
   margin-bottom: 0;
   font-size: 12px;
   line-height: 1;
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
   font-weight: 650;
 }
 
@@ -1329,7 +1334,7 @@ function onViewCustomer() {
   justify-content: center;
   width: 14px;
   height: 14px;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   flex-shrink: 0;
   line-height: 1;
@@ -1343,7 +1348,7 @@ function onViewCustomer() {
   min-height: 28px;
   padding-top: 0;
   padding-bottom: 0;
-  box-shadow: 0 0 0 1px #d7ded9 inset;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e0e0e0) inset;
   background: #fff;
 }
 
@@ -1351,7 +1356,7 @@ function onViewCustomer() {
   font-size: 14px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
-  color: #0d3a28;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 72%, #1a1a1a);
   height: 28px;
   line-height: 28px;
 }
@@ -1385,7 +1390,7 @@ function onViewCustomer() {
 .receive-pay-hint {
   margin-top: 6px;
   font-size: 0.78rem;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   line-height: 1.4;
 }
 
@@ -1403,8 +1408,8 @@ function onViewCustomer() {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
 }
 
 .receive-pay-alloc__head {
@@ -1419,7 +1424,7 @@ function onViewCustomer() {
   margin: 0;
   font-size: 0.86rem;
   font-weight: 700;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -1443,14 +1448,14 @@ function onViewCustomer() {
   padding: 7px 9px;
   border-radius: 8px;
   background: #fff;
-  border: 1px solid #e0e8e3;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e6e6e6);
 }
 
 .receive-pay-alloc__code {
   min-width: 0;
   font-size: 0.84rem;
   font-weight: 650;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1483,13 +1488,13 @@ function onViewCustomer() {
 }
 
 .receive-pay-alloc__tag.is-cash {
-  color: #0f4a32;
-  background: #ddeee4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 
 .receive-pay-alloc__tag.is-settled {
-  color: #0f4a32;
-  background: #d8f0e4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
 }
 
 .receive-pay-alloc__tag.is-remain {
@@ -1552,7 +1557,7 @@ function onViewCustomer() {
 
 .recv-pay-att__empty {
   margin: 0;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   font-size: 0.82rem;
   line-height: 1.4;
 }
@@ -1600,7 +1605,7 @@ function onViewCustomer() {
   font-weight: 700;
   line-height: 1;
   color: #fff;
-  background: #6a7a72;
+  background: #6b7280;
 }
 
 .recv-pay-att__icon--pdf {
@@ -1608,11 +1613,11 @@ function onViewCustomer() {
 }
 
 .recv-pay-att__icon--img {
-  background: #2a6b4d;
+  background: var(--lb-brand-mid, var(--lb-brand, #0f4a32));
 }
 
 .recv-pay-att__icon--file {
-  background: #5a6b62;
+  background: #64748b;
 }
 
 .recv-pay-att__name {

@@ -1048,6 +1048,9 @@ async function onSubmit() {
             <div class="renew-dlg__row2">
               <el-form-item :label="t('contract.fields.paymentCycle')">
                 <el-select
+                  clearable
+                  value-on-clear=""
+                  fit-input-width
                   v-model="form.paymentCycle"
                   :popper-style="fieldPopperStyle"
                   style="width: 100%"
@@ -1241,6 +1244,9 @@ async function onSubmit() {
                   </div>
                   <div class="period-table__cell period-table__cell--type" role="cell">
                     <el-select
+                      clearable
+                      value-on-clear=""
+                      fit-input-width
                       v-model="p.dateType"
                       style="width: 100%"
                       :popper-style="fieldPopperStyle"
@@ -1263,6 +1269,9 @@ async function onSubmit() {
                   </div>
                   <div class="period-table__cell period-table__cell--unit" role="cell">
                     <el-select
+                      clearable
+                      value-on-clear=""
+                      fit-input-width
                       v-model="p.dateUnit"
                       style="width: 100%"
                       :popper-style="fieldPopperStyle"
@@ -1508,7 +1517,7 @@ async function onSubmit() {
   padding: 12px 14px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
-  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #e4ebe6);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #e6e6e6);
 }
 
 .renew-dlg__hero-code {
@@ -1521,7 +1530,7 @@ async function onSubmit() {
 .renew-dlg__hero-code strong {
   font-size: 1.05rem;
   font-weight: 750;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .renew-dlg__hero-meta--grid {
@@ -1529,7 +1538,7 @@ async function onSubmit() {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 10px 16px;
   font-size: 0.88rem;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
 }
 
 .renew-dlg__hero-cell {
@@ -1542,7 +1551,7 @@ async function onSubmit() {
 .renew-dlg__hero-cell em {
   flex: 0 0 auto;
   font-style: normal;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .renew-dlg__hero-cell > span,
@@ -1586,7 +1595,7 @@ async function onSubmit() {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .renew-dlg__section-title-with-tip,
@@ -1598,7 +1607,7 @@ async function onSubmit() {
 }
 
 .renew-dlg__label-tip {
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   cursor: help;
   outline: none;
 }
@@ -1622,7 +1631,7 @@ async function onSubmit() {
 
 .renew-dlg__period-add.el-button {
   --el-button-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
-  --el-button-border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 32%, #e4ebe6);
+  --el-button-border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 32%, #e6e6e6);
   --el-button-text-color: var(--lb-brand, #0f4a32);
   --el-button-hover-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
   --el-button-hover-border-color: var(--lb-brand, #0f4a32);
@@ -1674,14 +1683,14 @@ async function onSubmit() {
   gap: 6px;
   padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid #e4ebe6;
-  background: #fbfcfb;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 2%, #fff);
 }
 
 .renew-dlg__amt-label {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   line-height: 1.35;
 }
 
@@ -1761,7 +1770,7 @@ async function onSubmit() {
 }
 
 .renew-dlg__form :deep(.el-form-item__label) {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-weight: 550;
   font-size: 0.84rem;
   margin-bottom: 6px !important;
@@ -1793,7 +1802,7 @@ async function onSubmit() {
 .period-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
 }
@@ -1806,14 +1815,14 @@ async function onSubmit() {
   margin-left: auto;
   padding: 2px 4px 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .period-pager.el-pagination {
   --el-pagination-button-bg-color: #fff;
   --el-pagination-hover-color: var(--lb-brand, #0f4a32);
-  --el-pagination-button-color: #4a5c54;
+  --el-pagination-button-color: var(--lb-muted, #666);
   font-weight: 600;
   gap: 2px;
 }
@@ -1857,7 +1866,7 @@ async function onSubmit() {
   min-height: 34px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -1873,7 +1882,7 @@ async function onSubmit() {
   box-sizing: border-box;
   min-height: var(--period-row-h);
   height: var(--period-row-h);
-  border-bottom: 1px solid #edf2ef;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #eee);
   background: #fff;
 }
 
@@ -1929,7 +1938,7 @@ async function onSubmit() {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
 }
 
@@ -1951,7 +1960,7 @@ async function onSubmit() {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   cursor: text;
 }
 
@@ -1968,7 +1977,7 @@ async function onSubmit() {
   border: 1px solid var(--lb-brand, #0f4a32);
   border-radius: 5px;
   background: #fff;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
@@ -1977,13 +1986,13 @@ async function onSubmit() {
 }
 
 .period-row__duration {
-  color: var(--lb-muted, #7a8b82);
+  color: var(--lb-muted, #666);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
 }
 
 .period-row__to {
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
 }
 
@@ -1993,7 +2002,7 @@ async function onSubmit() {
 
 .period-row__index.is-readonly:hover {
   background: transparent;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
 }
 
 .loan-item-table.period-table .period-table__head,
@@ -2019,13 +2028,13 @@ async function onSubmit() {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.84rem;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .renew-dlg__cell-num {
   font-size: 0.84rem;
   font-variant-numeric: tabular-nums;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
 }
 
 .renew-dlg__cell-num.is-strong {
@@ -2043,11 +2052,11 @@ async function onSubmit() {
   margin: 0;
   padding: 14px 16px;
   text-align: center;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
-  background: #f6f9f7;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
   border-radius: 8px;
-  border: 1px dashed #d5e0d9;
+  border: 1px dashed color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e0e0e0);
 }
 
 .renew-dlg__footer {

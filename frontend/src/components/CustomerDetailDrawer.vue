@@ -459,13 +459,13 @@ function emitIfCount(
 .path-text {
   word-break: break-all;
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .past-hint {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .past-list {
@@ -492,7 +492,7 @@ function emitIfCount(
 
 .past-meta {
   font-size: 0.78rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .lease-block + .lease-block {
@@ -509,7 +509,7 @@ function emitIfCount(
 .lease-empty {
   margin: 0;
   font-size: 0.84rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .lease-chip-list {
@@ -521,7 +521,7 @@ function emitIfCount(
 .lease-chip {
   margin: 0;
   padding: 4px 10px;
-  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #d8e0db);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e0e0e0);
   border-radius: 999px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
   color: var(--lb-brand, #0f4a32);
@@ -548,7 +548,7 @@ function emitIfCount(
   padding: 8px 10px;
   border-radius: 8px;
   background: #f6f8f7;
-  border: 1px solid #e6ebe8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .lease-list__main {
@@ -565,6 +565,6 @@ function emitIfCount(
   align-items: center;
   gap: 10px;
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 </style>

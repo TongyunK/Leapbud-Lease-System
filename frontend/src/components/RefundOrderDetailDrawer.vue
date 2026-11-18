@@ -263,8 +263,8 @@ function onOpenCashFlows() {
   margin: 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .refund-alloc__head {
   display: inline-flex;
@@ -273,10 +273,10 @@ function onOpenCashFlows() {
   margin: 0 0 8px;
   font-size: 0.86rem;
   font-weight: 700;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .refund-alloc__tip {
-  color: #8a9a90;
+  color: var(--lb-muted, #666);
   cursor: help;
 }
 .refund-alloc__list {
@@ -295,7 +295,7 @@ function onOpenCashFlows() {
   padding: 7px 9px;
   border-radius: 8px;
   background: #fff;
-  border: 1px solid #e0e8e3;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .refund-alloc__code {
   min-width: 0;
@@ -325,12 +325,12 @@ function onOpenCashFlows() {
   background: #f3e6d0;
 }
 .refund-alloc__tag.is-now {
-  color: #0f4a32;
-  background: #ddeee4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 .refund-alloc__tag.is-settled {
-  color: #0f4a32;
-  background: #d8f0e4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
 }
 .refund-alloc__tag.is-later {
   color: #8a2f2f;
@@ -338,7 +338,7 @@ function onOpenCashFlows() {
 }
 .refund-alloc__empty {
   margin: 0;
-  color: #7a8a80;
+  color: var(--lb-muted, #666);
   font-size: 0.9rem;
 }
 </style>

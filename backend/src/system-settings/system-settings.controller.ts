@@ -31,9 +31,12 @@ export class SystemSettingsController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(UserRole.admin, UserRole.user)
-  @ApiOkResponse({ description: 'System settings' })
+  @RequirePermissions('systemSettings:update')
+  @ApiOkResponse({
+    description: 'System settings（含 SMTP 明文密码，仅系统设置保存权限可取）',
+  })
   get() {
     return this.service.getView()
   }

@@ -984,7 +984,7 @@ async function showCancelSuccess(
   padding: 12px 14px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
-  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #e4ebe6);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #e6e6e6);
 }
 
 .cancel-dlg__hero-code {
@@ -997,7 +997,7 @@ async function showCancelSuccess(
 .cancel-dlg__hero-code strong {
   font-size: 1.05rem;
   font-weight: 750;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .cancel-dlg__hero-meta {
@@ -1005,12 +1005,12 @@ async function showCancelSuccess(
   flex-wrap: wrap;
   gap: 12px 20px;
   font-size: 0.88rem;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
 }
 
 .cancel-dlg__hero-meta em {
   font-style: normal;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   margin-right: 6px;
 }
 
@@ -1029,7 +1029,7 @@ async function showCancelSuccess(
   margin: 0;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .cancel-dlg__section-title-with-tip,
@@ -1040,7 +1040,7 @@ async function showCancelSuccess(
 }
 
 .cancel-dlg__label-tip {
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   cursor: help;
   outline: none;
 }
@@ -1086,7 +1086,7 @@ async function showCancelSuccess(
   margin: 0 0 8px;
   font-size: 0.84rem;
   font-weight: 600;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
 }
 
 .cancel-dlg__choice-grid {
@@ -1103,7 +1103,7 @@ async function showCancelSuccess(
   max-width: 100%;
   margin: 0;
   padding: 6px 12px;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
   text-align: left;
@@ -1115,7 +1115,7 @@ async function showCancelSuccess(
 }
 
 .cancel-dlg__choice:hover {
-  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #e4ebe6);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #e6e6e6);
 }
 
 .cancel-dlg__choice.is-active {
@@ -1158,7 +1158,7 @@ async function showCancelSuccess(
 .cancel-dlg__choice-text strong {
   font-size: 0.84rem;
   font-weight: 650;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
   line-height: 1.3;
 }
 
@@ -1169,7 +1169,7 @@ async function showCancelSuccess(
 .cancel-dlg__choice-text em {
   font-style: normal;
   font-size: 0.75rem;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   line-height: 1.3;
 }
 
@@ -1177,7 +1177,7 @@ async function showCancelSuccess(
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px dashed color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #e4ebe6);
+  border: 1px dashed color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #e6e6e6);
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
 }
 
@@ -1186,20 +1186,20 @@ async function showCancelSuccess(
   margin-bottom: 8px;
   font-size: 0.84rem;
   font-weight: 600;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
 }
 
 .cancel-dlg__field-hint {
   margin: 6px 0 0;
   font-size: 0.82rem;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   line-height: 1.45;
 }
 
 .cancel-dlg__empty {
   margin: 0;
   font-size: 0.88rem;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
 }
 
 .cancel-dlg__tiles {
@@ -1232,7 +1232,7 @@ async function showCancelSuccess(
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .cancel-dlg__unset {
@@ -1252,9 +1252,9 @@ async function showCancelSuccess(
   gap: 0;
   padding: 12px 14px;
   border-radius: 10px;
-  background: #f8faf8;
-  border: 1px solid #e4ebe6;
-  box-shadow: 0 1px 0 color-mix(in srgb, #0f4a32 4%, transparent);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, transparent);
 }
 
 .cancel-dlg__card-row {
@@ -1299,7 +1299,7 @@ async function showCancelSuccess(
 .cancel-dlg__unset-type {
   font-size: 12px;
   font-weight: 550;
-  color: #8a9a92;
+  color: var(--lb-muted, #666);
 }
 
 .cancel-dlg__seg {
@@ -1308,7 +1308,7 @@ async function showCancelSuccess(
   padding: 2px;
   border-radius: 8px;
   background: #f1f4f2;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .cancel-dlg__seg--lg .cancel-dlg__seg-btn {
@@ -1339,7 +1339,7 @@ async function showCancelSuccess(
 .cancel-dlg__seg-btn.is-active {
   background: #fff;
   color: var(--lb-brand, #0f4a32);
-  box-shadow: 0 1px 2px color-mix(in srgb, #0f4a32 12%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, transparent);
 }
 
 .cancel-dlg__timing {
@@ -1354,8 +1354,8 @@ async function showCancelSuccess(
   margin: 6px 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .cancel-dlg__alloc-head {
@@ -1365,7 +1365,7 @@ async function showCancelSuccess(
   margin: 0 0 8px;
   font-size: 0.86rem;
   font-weight: 700;
-  color: #2f3f36;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .cancel-dlg__alloc-list {
@@ -1385,14 +1385,14 @@ async function showCancelSuccess(
   padding: 7px 9px;
   border-radius: 8px;
   background: #fff;
-  border: 1px solid #e0e8e3;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .cancel-dlg__alloc-code {
   min-width: 0;
   font-size: 0.84rem;
   font-weight: 650;
-  color: #3a4a42;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 35%, #333);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1420,13 +1420,13 @@ async function showCancelSuccess(
 }
 
 .cancel-dlg__alloc-tag.is-now {
-  color: #0f4a32;
-  background: #ddeee4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
 }
 
 .cancel-dlg__alloc-tag.is-settled {
-  color: #0f4a32;
-  background: #d8f0e4;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff);
 }
 
 .cancel-dlg__alloc-tag.is-later {
@@ -1465,18 +1465,18 @@ async function showCancelSuccess(
   font-size: 11.5px;
   font-weight: 600;
   line-height: 1.2;
-  color: #8a9a92;
+  color: var(--lb-muted, #666);
 }
 
 .cancel-dlg__unset-amt-val {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.3;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .cancel-dlg__unset-recv {
-  color: #0d3a28;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 72%, #1a1a1a);
   font-weight: 750;
 }
 
@@ -1505,7 +1505,7 @@ async function showCancelSuccess(
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
   font-weight: 400;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
 }
 
 .cancel-dlg__tile {
@@ -1514,28 +1514,28 @@ async function showCancelSuccess(
   gap: 4px;
   padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid #e4ebe6;
-  background: #f8faf8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #fff);
   min-width: 0;
 }
 
 .cancel-dlg__tile span {
   font-size: 0.78rem;
   font-weight: 550;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .cancel-dlg__tile strong {
   font-size: 1.05rem;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
   line-height: 1.25;
 }
 
 .cancel-dlg__tile--accent {
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
-  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e4ebe6);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e6e6e6);
 }
 
 .cancel-dlg__tile--accent strong {
@@ -1554,7 +1554,7 @@ async function showCancelSuccess(
 .cancel-dlg__list-code {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
-  color: #1a2a22;
+  color: var(--lb-ink, #1a1a1a);
   text-align: left;
 }
 
@@ -1624,6 +1624,6 @@ async function showCancelSuccess(
   gap: 8px;
   margin-top: 10px;
   padding-top: 12px;
-  border-top: 1px solid #e8eeea;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e8e8e8);
 }
 </style>

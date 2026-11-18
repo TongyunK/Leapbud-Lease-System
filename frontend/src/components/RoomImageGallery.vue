@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   border: 1px solid var(--lb-border);
   overflow: hidden;
-  background: #f5f7f6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
   cursor: zoom-in;
 }
 
@@ -219,7 +219,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   color: var(--lb-muted);
-  background: #f5f7f6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
 }
 
 .room-image-gallery__mask {

@@ -109,7 +109,7 @@ const preview = computed(() => model.value || t('building.workingHours.empty'))
   appearance: none;
   margin: 0;
   padding: 5px 10px;
-  border: 1px solid #d7ded9;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 999px;
   background: #fff;
   color: #3a4a42;
@@ -121,13 +121,13 @@ const preview = computed(() => model.value || t('building.workingHours.empty'))
 }
 
 .wh-chip:hover {
-  border-color: #b7c6bd;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d0d0d0);
   background: #f7f9f8;
 }
 
 .wh-chip.is-on {
   border-color: var(--lb-brand);
-  background: #eef6f1;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
   color: var(--lb-brand);
   box-shadow: 0 0 0 1px var(--lb-brand) inset;
 }

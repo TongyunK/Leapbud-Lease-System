@@ -13,6 +13,8 @@ import {
   fetchReceiptKindCounts,
   fetchReceipts,
   importReceiptsApi,
+  fetchReceiptAttachmentBlob,
+  previewReceiptCodeApi,
   updateReceiptApi,
   uploadReceiptAttachmentsApi,
 } from '@/api/receipts'
@@ -474,11 +476,6 @@ function formatReceiptChangeLogCell(raw?: string | null) {
     .join('；')
 }
 
-const formChangeLogStructured = computed(() =>
-  isStructuredBookingDepositChangeLog(form.changeLog),
-)
-
-const formChangeLogDisplay = computed(() => formatReceiptChangeLog(form.changeLog))
 const createdByFilterOptions = computed(() =>
   uniqLabelOptions(list.value.map((r) => r.createdBy)),
 )
@@ -515,7 +512,7 @@ const receivableCodeFilterOptions = computed(() =>
   uniqLabelOptions(list.value.map((r) => r.receivableCode)),
 )
 
-const dialogWidth = computed(() => (isMobile.value ? '94%' : '640px'))
+const dialogWidth = computed(() => (isMobile.value ? '94%' : '720px'))
 
 const emptyForm = () => ({
   customerId: '' as string,
@@ -539,15 +536,44 @@ const formPendingAttachments = ref<Array<{ key: string; file: File }>>([])
 const formRemovedAttachmentIds = ref<string[]>([])
 const attachmentFileInput = ref<HTMLInputElement | null>(null)
 const saving = ref(false)
+const formAttUrlById = ref<Record<string, string>>({})
+const formAttObjectUrls: string[] = []
+const formPendingPreviewUrls = ref<string[]>([])
+const formImageViewerVisible = ref(false)
+const formImageViewerList = ref<string[]>([])
+const formImageViewerIndex = ref(0)
 
 const isMultiAllocationEdit = computed(
   () => !!editing.value && formAllocations.value.length > 1,
 )
 
+function revokeFormAttObjectUrls() {
+  for (const u of formAttObjectUrls) URL.revokeObjectURL(u)
+  formAttObjectUrls.length = 0
+  formAttUrlById.value = {}
+}
+
+function revokeFormPendingPreviewUrls() {
+  for (const u of formPendingPreviewUrls.value) URL.revokeObjectURL(u)
+  formPendingPreviewUrls.value = []
+}
+
+function syncFormPendingPreviewUrls() {
+  revokeFormPendingPreviewUrls()
+  formPendingPreviewUrls.value = formPendingAttachments.value.map((p) =>
+    URL.createObjectURL(p.file),
+  )
+}
+
 function resetFormAttachments() {
   formExistingAttachments.value = []
   formPendingAttachments.value = []
   formRemovedAttachmentIds.value = []
+  revokeFormAttObjectUrls()
+  revokeFormPendingPreviewUrls()
+  formImageViewerVisible.value = false
+  formImageViewerList.value = []
+  formImageViewerIndex.value = 0
 }
 
 function onPickAttachments(ev: Event) {
@@ -564,10 +590,12 @@ function onPickAttachments(ev: Event) {
       file,
     })
   }
+  syncFormPendingPreviewUrls()
 }
 
 function removePendingAttachment(key: string) {
   formPendingAttachments.value = formPendingAttachments.value.filter((p) => p.key !== key)
+  syncFormPendingPreviewUrls()
 }
 
 function removeExistingAttachment(id: string) {
@@ -587,6 +615,61 @@ function attachmentIconClass(fileName: string) {
   if (isPdfAttachment(fileName)) return 'receipt-form-att__icon--pdf'
   if (isImageAttachment(fileName)) return 'receipt-form-att__icon--img'
   return 'receipt-form-att__icon--file'
+}
+
+async function resolveFormExistingAttUrl(att: ReceiptAttachmentRecord): Promise<string> {
+  if (att.publicUrl) return att.publicUrl
+  if (formAttUrlById.value[att.id]) return formAttUrlById.value[att.id]
+  const receiptId = editing.value?.id
+  if (!receiptId) return ''
+  try {
+    const blob = await fetchReceiptAttachmentBlob(receiptId, att.id)
+    const url = URL.createObjectURL(blob)
+    formAttObjectUrls.push(url)
+    formAttUrlById.value = { ...formAttUrlById.value, [att.id]: url }
+    return url
+  } catch {
+    return ''
+  }
+}
+
+async function previewExistingAttachment(att: ReceiptAttachmentRecord) {
+  const url = att.publicUrl || formAttUrlById.value[att.id] || (await resolveFormExistingAttUrl(att))
+  if (!url) return
+  if (isImageAttachment(att.fileName)) {
+    const images = formExistingAttachments.value.filter((a) => isImageAttachment(a.fileName))
+    const urls: string[] = []
+    for (const img of images) {
+      const u = img.publicUrl || formAttUrlById.value[img.id] || (await resolveFormExistingAttUrl(img))
+      if (u) urls.push(u)
+    }
+    formImageViewerList.value = urls
+    formImageViewerIndex.value = Math.max(0, urls.indexOf(url))
+    formImageViewerVisible.value = true
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function previewPendingAttachment(key: string) {
+  const idx = formPendingAttachments.value.findIndex((p) => p.key === key)
+  const item = idx >= 0 ? formPendingAttachments.value[idx] : null
+  const url = idx >= 0 ? formPendingPreviewUrls.value[idx] : ''
+  if (!item || !url) return
+  if (isImageAttachment(item.file.name) || item.file.type.startsWith('image/')) {
+    const imageIdxs = formPendingAttachments.value
+      .map((p, i) =>
+        isImageAttachment(p.file.name) || p.file.type.startsWith('image/') ? i : -1,
+      )
+      .filter((i) => i >= 0)
+    formImageViewerList.value = imageIdxs
+      .map((i) => formPendingPreviewUrls.value[i]!)
+      .filter(Boolean)
+    formImageViewerIndex.value = Math.max(0, imageIdxs.indexOf(idx))
+    formImageViewerVisible.value = true
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 function keepSelectedInOptions<T extends { id: string }>(
@@ -1178,6 +1261,8 @@ onBeforeUnmount(() => {
   unbindSelectScroll(contractSelectScrollEl, contractSelectScrollHandler)
   unbindSelectScroll(invoiceSelectScrollEl, invoiceSelectScrollHandler)
   unbindSelectScroll(receivableSelectScrollEl, receivableSelectScrollHandler)
+  revokeFormAttObjectUrls()
+  revokeFormPendingPreviewUrls()
 })
 
 watch(
@@ -1187,13 +1272,21 @@ watch(
   },
 )
 
-function openCreate() {
+async function openCreate() {
   editing.value = null
   formAllocations.value = []
   Object.assign(form, emptyForm())
   resetFormAttachments()
   resetFormSelectOptions()
   formVisible.value = true
+  try {
+    const { data } = await previewReceiptCodeApi()
+    if (formVisible.value && !editing.value) {
+      form.receiptCode = data?.code?.trim() || ''
+    }
+  } catch {
+    /* 预览失败时保留占位提示 */
+  }
 }
 
 async function openEdit(row: ReceiptRecord) {
@@ -1225,6 +1318,9 @@ async function openEdit(row: ReceiptRecord) {
     remark: detail.remark || '',
     changeLog: detail.changeLog || '',
   })
+  revokeFormAttObjectUrls()
+  revokeFormPendingPreviewUrls()
+  formImageViewerVisible.value = false
   formExistingAttachments.value = [...(detail.attachments || [])]
   formPendingAttachments.value = []
   formRemovedAttachmentIds.value = []
@@ -1245,25 +1341,25 @@ async function openEdit(row: ReceiptRecord) {
 }
 
 function payloadFromForm(): ReceiptWritePayload {
-  // 结构化 #bd|… 由系统维护，编辑时不回写，避免覆盖机器格式
-  const changeLogPayload = formChangeLogStructured.value
-    ? undefined
-    : form.changeLog.trim() || undefined
   // 多摊收据：不可改金额／应收／收款方式（与后端校验一致），只允许改备注等
+  // 新增不传编号，由后端自动编号；编辑才带表单值
+  // 修改记录由系统维护，弹窗不提交 changeLog
+  const receiptCodePayload = editing.value
+    ? form.receiptCode.trim() || undefined
+    : undefined
   if (isMultiAllocationEdit.value) {
     return {
       customerId: form.customerId.trim() || undefined,
-      receiptCode: form.receiptCode.trim() || undefined,
+      receiptCode: receiptCodePayload,
       kind: form.kind || undefined,
       contractId: form.contractId.trim() || null,
       paymentDate: form.paymentDate || undefined,
       remark: form.remark.trim() || undefined,
-      changeLog: changeLogPayload,
     }
   }
   return {
     customerId: form.customerId.trim() || undefined,
-    receiptCode: form.receiptCode.trim() || undefined,
+    receiptCode: receiptCodePayload,
     kind: form.kind || undefined,
     contractId: form.contractId.trim() || null,
     invoiceId: form.invoiceId.trim() || null,
@@ -1272,7 +1368,6 @@ function payloadFromForm(): ReceiptWritePayload {
     paymentMethod: form.paymentMethod || undefined,
     amount: form.amount == null ? undefined : Number(form.amount) || 0,
     remark: form.remark.trim() || undefined,
-    changeLog: changeLogPayload,
   }
 }
 
@@ -2139,10 +2234,14 @@ async function onImportFile(ev: Event) {
       <el-form label-position="top" class="fee-form">
         <div class="form-grid">
           <el-form-item :label="t('receipt.fields.receiptCode')">
-            <el-input v-model="form.receiptCode" :placeholder="t('receipt.codeAutoHint')" />
+            <el-input
+              v-model="form.receiptCode"
+              disabled
+              :placeholder="editing ? undefined : t('receipt.codeAutoHint')"
+            />
           </el-form-item>
           <el-form-item :label="t('receipt.fields.kind')">
-            <el-select v-model="form.kind" style="width: 100%">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.kind" style="width: 100%">
               <el-option
                 v-for="k in RECEIPT_KINDS"
                 :key="k"
@@ -2215,10 +2314,13 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('receipt.fields.customerName')" required>
             <SelectWithViewAction
+              clearable
               :disabled="!form.customerId"
               @view="openCustomerSide(form.customerId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.customerId"
                 filterable
                 remote
@@ -2291,6 +2393,9 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('receipt.fields.paymentMethod')">
             <el-select
+              clearable
+              value-on-clear=""
+              fit-input-width
               v-model="form.paymentMethod"
               filterable
               style="width: 100%"
@@ -2304,12 +2409,13 @@ async function onImportFile(ev: Event) {
               />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('receipt.fields.amount')" class="span-2">
+          <el-form-item :label="t('receipt.fields.amount')">
             <el-input-number
               v-model="form.amount"
               :min="0"
               :precision="2"
-              :controls="false"
+              :step="1"
+              controls-position="right"
               :disabled="isMultiAllocationEdit"
               style="width: 100%"
             />
@@ -2319,19 +2425,27 @@ async function onImportFile(ev: Event) {
               <div
                 v-for="att in formExistingAttachments"
                 :key="att.id"
-                class="receipt-form-att__chip"
+                class="receipt-form-att__chip-wrap"
               >
-                <span
-                  class="receipt-form-att__icon"
-                  :class="attachmentIconClass(att.fileName)"
+                <button
+                  type="button"
+                  class="receipt-form-att__chip receipt-form-att__chip--clickable"
+                  :title="t('attachment.preview')"
+                  @click="previewExistingAttachment(att)"
                 >
-                  {{ attachmentExtLabel(att.fileName) }}
-                </span>
-                <span class="receipt-form-att__name">{{ att.fileName }}</span>
+                  <span
+                    class="receipt-form-att__icon"
+                    :class="attachmentIconClass(att.fileName)"
+                  >
+                    {{ attachmentExtLabel(att.fileName) }}
+                  </span>
+                  <span class="receipt-form-att__name">{{ att.fileName }}</span>
+                </button>
                 <button
                   type="button"
                   class="receipt-form-att__remove"
                   :aria-label="t('common.delete')"
+                  :title="t('common.delete')"
                   @click="removeExistingAttachment(att.id)"
                 >
                   ×
@@ -2340,19 +2454,27 @@ async function onImportFile(ev: Event) {
               <div
                 v-for="p in formPendingAttachments"
                 :key="p.key"
-                class="receipt-form-att__chip receipt-form-att__chip--pending"
+                class="receipt-form-att__chip-wrap"
               >
-                <span
-                  class="receipt-form-att__icon"
-                  :class="attachmentIconClass(p.file.name)"
+                <button
+                  type="button"
+                  class="receipt-form-att__chip receipt-form-att__chip--pending receipt-form-att__chip--clickable"
+                  :title="t('attachment.preview')"
+                  @click="previewPendingAttachment(p.key)"
                 >
-                  {{ attachmentExtLabel(p.file.name) }}
-                </span>
-                <span class="receipt-form-att__name">{{ p.file.name }}</span>
+                  <span
+                    class="receipt-form-att__icon"
+                    :class="attachmentIconClass(p.file.name)"
+                  >
+                    {{ attachmentExtLabel(p.file.name) }}
+                  </span>
+                  <span class="receipt-form-att__name">{{ p.file.name }}</span>
+                </button>
                 <button
                   type="button"
                   class="receipt-form-att__remove"
                   :aria-label="t('common.delete')"
+                  :title="t('common.delete')"
                   @click="removePendingAttachment(p.key)"
                 >
                   ×
@@ -2374,20 +2496,15 @@ async function onImportFile(ev: Event) {
                 @change="onPickAttachments"
               />
             </div>
+            <AttachmentImageViewer
+              v-if="formImageViewerVisible && formImageViewerList.length"
+              :url-list="formImageViewerList"
+              :initial-index="formImageViewerIndex"
+              @close="formImageViewerVisible = false"
+            />
           </el-form-item>
           <el-form-item :label="t('receipt.fields.remark')" class="span-2">
             <el-input v-model="form.remark" type="textarea" :rows="2" />
-          </el-form-item>
-          <el-form-item :label="t('receipt.fields.changeLog')" class="span-2">
-            <template v-if="formChangeLogStructured">
-              <el-input
-                :model-value="formChangeLogDisplay"
-                type="textarea"
-                :rows="Math.min(6, Math.max(2, formChangeLogDisplay.split('\n').length))"
-                disabled
-              />
-            </template>
-            <el-input v-else v-model="form.changeLog" type="textarea" :rows="2" />
           </el-form-item>
         </div>
       </el-form>
@@ -2450,7 +2567,7 @@ async function onImportFile(ev: Event) {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
 }
@@ -2472,13 +2589,13 @@ async function onImportFile(ev: Event) {
   align-items: center;
   padding: 8px 10px;
   border-radius: 8px;
-  background: #f4f7f5;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .receipt-alloc-form__code {
   font-size: 12px;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2513,20 +2630,40 @@ async function onImportFile(ev: Event) {
   width: 100%;
 }
 
+.receipt-form-att__chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+}
+
 .receipt-form-att__chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   max-width: 100%;
+  margin: 0;
   padding: 4px 8px;
-  border: 1px solid var(--lb-border, #d8e0db);
+  border: 1px solid var(--lb-border, #e0e0e0);
   border-radius: 8px;
-  background: #f7faf8;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7);
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 
 .receipt-form-att__chip--pending {
   border-style: dashed;
   background: #fff;
+}
+
+.receipt-form-att__chip--clickable {
+  cursor: pointer;
+}
+
+.receipt-form-att__chip--clickable:hover {
+  border-color: #3a7bd5;
+  background: #f0f6fc;
 }
 
 .receipt-form-att__icon {

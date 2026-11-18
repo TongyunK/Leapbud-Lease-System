@@ -773,7 +773,7 @@ function emitIfCount(
 }
 
 .detail-label-tip {
-  color: #8a9a90;
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
 }
@@ -821,7 +821,7 @@ function emitIfCount(
 
 .booking-dep-receipts__amt {
   margin-left: 2px;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }

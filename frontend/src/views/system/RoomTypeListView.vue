@@ -499,7 +499,7 @@ async function toggleActive(row: RoomTypeOption) {
           <el-input v-model="form.label" />
         </el-form-item>
         <el-form-item :label="t('roomType.fields.tone')">
-          <el-select v-model="form.tone" style="width: 100%">
+          <el-select clearable value-on-clear="" fit-input-width v-model="form.tone" style="width: 100%">
             <el-option
               v-for="tone in ROOM_TYPE_TONE_OPTIONS"
               :key="tone"
@@ -553,7 +553,7 @@ async function toggleActive(row: RoomTypeOption) {
 <style scoped>
 .admin-page-hint {
   margin: -4px 0 8px;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.9rem;
   flex-shrink: 0;
 }

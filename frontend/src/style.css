@@ -9,12 +9,12 @@
   --lb-sidebar-from: #115338;
   --lb-sidebar-mid: #0f4a32;
   --lb-sidebar-to: #0c3d29;
-  /* 登录左栏默认比侧栏更亮（对齐历史 #4a6b52→#3e5b45→#243029） */
+  /* 登录左栏默认比侧栏更亮（对齐历史 #4a6b52→#3e5b45→color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333)） */
   --lb-login-brand-from: #4a6b52;
   --lb-login-brand-mid: #3e5b45;
-  --lb-login-brand-to: #243029;
+  --lb-login-brand-to: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   /* 登录页整页背景 */
-  --lb-login-page-from: #243029;
+  --lb-login-page-from: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   --lb-login-page-mid: #3e5b45;
   --lb-login-page-to: #2a3f31;
   --lb-accent: #d9822b;
@@ -24,7 +24,7 @@
   --lb-ink: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #1a1a1a);
   --lb-muted: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #666666);
   /*
-   * 表格／灰面：按原固定绿主题观感校准（约等于旧 #f3f5f4 / #d7ded9）。
+   * 表格／灰面：按原固定绿主题观感校准（约等于旧 color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) / color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #e0e0e0)）。
    * 主题色变化时仍淡染同比例，默认绿 (#0f4a32) 时与图2接近。
    */
   --lb-surface: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f3f3f3);
@@ -47,11 +47,11 @@
   /* 图片预览须盖过抬高的业务弹窗／抽屉（≥4600）；与 useOverlayStackZ.OVERLAY_IMAGE_PREVIEW_Z 一致 */
   --lb-image-viewer-z: 9800;
   --el-color-primary: var(--lb-brand, #0f4a32);
-  --el-color-primary-light-3: #3d7358;
-  --el-color-primary-light-5: #6e9784;
-  --el-color-primary-light-7: #9ebbb0;
-  --el-color-primary-light-8: #b7ccc4;
-  --el-color-primary-light-9: #cfddd7;
+  --el-color-primary-light-3: color-mix(in srgb, var(--lb-brand, #0f4a32) 70%, #fff);
+  --el-color-primary-light-5: color-mix(in srgb, var(--lb-brand, #0f4a32) 50%, #fff);
+  --el-color-primary-light-7: color-mix(in srgb, var(--lb-brand, #0f4a32) 30%, #fff);
+  --el-color-primary-light-8: color-mix(in srgb, var(--lb-brand, #0f4a32) 20%, #fff);
+  --el-color-primary-light-9: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
   --el-color-primary-dark-2: var(--lb-brand-dark, #0c3d29);
   --el-checkbox-checked-bg-color: var(--lb-brand);
   --el-checkbox-checked-input-border-color: var(--lb-brand);
@@ -206,7 +206,7 @@ button {
       155deg,
       var(--lb-login-page-to, #2a3f31) 0%,
       var(--lb-login-page-mid, #3e5b45) 42%,
-      var(--lb-login-page-from, #243029) 100%
+      var(--lb-login-page-from, color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333)) 100%
     );
 }
 
@@ -494,34 +494,34 @@ button {
   max-width: 100%;
   min-height: 100%;
   height: 100%;
-  --lb-table-body: 0.82rem;
-  --lb-table-head: 0.78rem;
-  --lb-table-action: 0.74rem;
+  --lb-table-body: 0.86rem;
+  --lb-table-head: 0.82rem;
+  --lb-table-action: 0.78rem;
   /* 操作列最右按钮与列右缘：大屏 10px；小屏见下方 media（与 useActionColWidth 同读此变量） */
   --lb-action-pad-right: 10px;
 }
 
 @media (max-width: 1279.98px) {
   .admin-page {
-    --lb-table-body: 0.76rem;
-    --lb-table-head: 0.72rem;
-    --lb-table-action: 0.7rem;
+    --lb-table-body: 0.85rem;
+    --lb-table-head: 0.80rem;
+    --lb-table-action: 0.75rem;
   }
 }
 
 @media (min-width: 1440px) {
   .admin-page {
-    --lb-table-body: 0.86rem;
-    --lb-table-head: 0.82rem;
-    --lb-table-action: 0.76rem;
+    --lb-table-body: 0.89rem;
+    --lb-table-head: 0.85rem;
+    --lb-table-action: 0.79rem;
   }
 }
 
 @media (min-width: 1800px) {
   .admin-page {
-    --lb-table-body: 0.9rem;
-    --lb-table-head: 0.86rem;
-    --lb-table-action: 0.78rem;
+    --lb-table-body: 0.93rem;
+    --lb-table-head: 0.89rem;
+    --lb-table-action: 0.81rem;
   }
 }
 
@@ -668,27 +668,27 @@ button {
   max-width: 96px;
   border-radius: 999px;
   border-color: var(--lb-muted-border, #d0d0d0);
-  background: #eef3f0;
-  color: #2a3d34;
-  --el-tag-text-color: #2a3d34;
-  --el-tag-bg-color: #eef3f0;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
+  --el-tag-text-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
+  --el-tag-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
   --el-tag-border-color: var(--lb-muted-border, #d0d0d0);
   --el-tag-hover-color: var(--lb-brand, #0f4a32);
 }
 
 .admin-page-head .head-building-filter .el-select__selected-item {
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
 }
 
 .admin-page-head .head-building-filter .el-select__placeholder {
-  color: #8a9690;
+  color: var(--lb-muted, #888);
 }
 
 .utility-building-popper.el-select__popper,
 .utility-building-popper.el-popper {
   min-width: 240px !important;
   max-width: 320px;
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   border-radius: 12px !important;
   box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
   overflow: hidden;
@@ -743,10 +743,12 @@ button {
 .user-building-popper.el-select__popper,
 .user-building-popper.el-popper {
   --el-color-primary: var(--lb-brand, #0f4a32);
-  border: 1px solid #e2e8e5 !important;
+  max-width: min(560px, calc(100vw - 48px)) !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   border-radius: 12px !important;
   box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .user-building-popper .el-select-dropdown__list {
@@ -783,7 +785,7 @@ button {
 
 .user-building-option .el-icon {
   flex-shrink: 0;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .user-building-popper .el-select-dropdown__item.is-selected .user-building-option .el-icon {
@@ -799,7 +801,7 @@ button {
 .head-building-filter-popper.el-select__popper,
 .head-building-filter-popper.el-popper {
   min-width: 220px !important;
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   border-radius: 12px !important;
   box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
   overflow: hidden;
@@ -866,8 +868,8 @@ button {
   margin-left: 8px;
   padding: 0 6px;
   border-radius: 999px;
-  background: #eef3f0;
-  color: #5a6b62;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  color: var(--lb-muted, #666);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -949,7 +951,7 @@ button {
   gap: 4px;
   margin-right: 4px;
   padding: 0 2px;
-  color: #6a7a72;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1220,7 +1222,7 @@ button {
 
 .lb-btn-ghost {
   border-radius: 8px !important;
-  border-color: #cfd8d3 !important;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   color: #1f2d27 !important;
   background: #fff !important;
 }
@@ -1249,7 +1251,7 @@ button {
   flex: 1;
   min-height: 0;
   background: #fff;
-  border: 1px solid #e6ebe8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 12px;
   overflow: hidden;
   max-width: 100%;
@@ -1282,14 +1284,14 @@ button {
 .table-card .el-table,
 .related-list__table.el-table,
 .related-list__table .el-table {
-  /* 表头 ≈ 旧 #f3f5f4；悬停 ≈ #f7f9f8；斑马纹 ≈ #fafbfa */
+  /* 表头 ≈ 旧 color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff)；悬停 ≈ #f7f9f8；斑马纹 ≈ #fafbfa */
   --el-table-header-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   --el-table-header-text-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #5a6068);
   --el-table-row-hover-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 3.5%, #fff);
   --el-table-border-color: var(--lb-table-border, #ebebeb);
   --el-fill-color-lighter: color-mix(in srgb, var(--lb-brand, #0f4a32) 2%, #fff);
   font-size: var(--lb-table-body);
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .table-card .el-table th.el-table__cell {
@@ -1475,8 +1477,12 @@ button {
   height: 1.55rem;
   padding: 0 0.55rem;
   border-radius: 999px;
-  border: 1px solid #c5ddd0;
-  background: linear-gradient(180deg, #f4faf6 0%, #e8f3ec 100%);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff) 100%
+  );
   color: var(--lb-brand);
   font-size: 0.8rem;
   font-weight: 700;
@@ -1488,23 +1494,23 @@ button {
 
 .lb-room-count.is-empty {
   border-color: var(--lb-muted-border, #d0d0d0);
-  background: #f5f7f6;
-  color: #8a9690;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
+  color: var(--lb-muted, #666);
   font-weight: 600;
 }
 
 .lb-room-count-tag.el-tag {
-  --el-tag-bg-color: #eef6f1;
-  --el-tag-border-color: #c5ddd0;
+  --el-tag-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #fff);
+  --el-tag-border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
   --el-tag-text-color: var(--lb-brand);
   border-radius: 999px;
   font-weight: 650;
 }
 
 .lb-room-count-tag.el-tag.is-empty {
-  --el-tag-bg-color: #f5f7f6;
+  --el-tag-bg-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
   --el-tag-border-color: var(--lb-muted-border, #d0d0d0);
-  --el-tag-text-color: #8a9690;
+  --el-tag-text-color: var(--lb-muted, #666);
 }
 
 /* 数量 pill + 列表放大镜（关联列表入口）：跟随主题色 */
@@ -1749,9 +1755,13 @@ button {
 }
 
 .lb-status--idle {
-  color: #0d6b42;
-  background: linear-gradient(180deg, #e8f6ee 0%, #d5eddf 100%);
-  box-shadow: inset 0 0 0 1px #a8d4bb;
+  color: var(--lb-brand, #0f4a32);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff) 100%
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
 }
 
 .lb-status--signing {
@@ -1787,25 +1797,29 @@ button {
 }
 
 .lb-status--active {
-  color: #0d6b42;
-  background: linear-gradient(180deg, #e8f6ee 0%, #d5eddf 100%);
-  box-shadow: inset 0 0 0 1px #a8d4bb;
+  color: var(--lb-brand, #0f4a32);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff) 0%,
+    color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #fff) 100%
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
 }
 
 .lb-status--disabled {
-  color: #55665e;
-  background: linear-gradient(180deg, #f4f5f4 0%, #e9ebea 100%);
-  box-shadow: inset 0 0 0 1px #cdd3cf;
+  color: var(--lb-muted, #666);
+  background: linear-gradient(180deg, #f5f5f5 0%, #ececec 100%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e0e0e0);
 }
 
 .lb-status--neutral {
-  color: #4a5c54;
-  background: #eef1f0;
+  color: var(--lb-muted, #666);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f5f5f5);
   box-shadow: inset 0 0 0 1px var(--lb-muted-border, #d0d0d0);
 }
 
 .lb-status--empty {
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   background: transparent;
   box-shadow: none;
   padding-left: 0;
@@ -1842,9 +1856,9 @@ button {
 }
 
 .lb-room-type--office {
-  color: #0d6b42;
-  background: #dceddf;
-  box-shadow: inset 0 0 0 1px #a8d4bb;
+  color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #fff);
 }
 
 .lb-room-type--meeting {
@@ -1866,13 +1880,13 @@ button {
 }
 
 .lb-room-type--other {
-  color: #55665e;
-  background: #e9ebea;
-  box-shadow: inset 0 0 0 1px #cdd3cf;
+  color: var(--lb-muted, #666);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f3f3f3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e0e0e0);
 }
 
 .lb-room-type--empty {
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   background: transparent;
   box-shadow: none;
   padding-left: 0;
@@ -1898,7 +1912,7 @@ button {
   border: 1px solid var(--lb-muted-border, #d0d0d0);
   border-radius: 12px;
   background: #fff;
-  color: #2a3d34;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   font: inherit;
   font-size: 0.86rem;
   font-weight: 650;
@@ -1908,7 +1922,7 @@ button {
 }
 
 .lb-room-type-picker__item:hover {
-  border-color: #b7c6bd;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d0d0d0);
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f7f7f7);
 }
 
@@ -2008,8 +2022,8 @@ button {
 }
 
 .action-pill--key {
-  border: 1px solid #3d7358;
-  background: #3d7358;
+  border: 1px solid var(--lb-brand-mid, var(--lb-brand, #0f4a32));
+  background: var(--lb-brand-mid, var(--lb-brand, #0f4a32));
   color: #fff;
 }
 
@@ -2020,16 +2034,16 @@ button {
 }
 
 .action-pill--view {
-  border: 1px solid #cfd8d3;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #d8d8d8);
   background: #fff;
-  color: #2a3d34;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 /**
  * 操作列配色语义（以合约列表为准，其它表对齐）：
  * --edit   编辑（品牌绿实心）
  * --accent 收款等强调操作（橙）
- * --leave  打印协议 / 列印发票·收据等（雾青，贴近品牌绿）
+ * --leave  打印协议 / 列印发票·收据 / 收款记录等（品牌中调，次于 edit 实心）
  * --info   开单 / 运行任务等（雾蓝）
  * --key    续约 / 重置密码等（深绿）
  * --view   查看·详情·下载等次要描边
@@ -2099,28 +2113,28 @@ button {
   border-color: #b37330;
 }
 
-/** 列印等：雾青，贴近品牌绿、区别于开单蓝与删除红 */
+/** 列印 / 收款记录等：品牌中调，区别于 edit 实心与开单蓝、删除红 */
 .action-pill--leave {
-  border: 1px solid #4f8a7c;
-  background: #4f8a7c;
+  border: 1px solid var(--lb-brand-mid, var(--lb-brand, #0f4a32));
+  background: var(--lb-brand-mid, var(--lb-brand, #0f4a32));
   color: #fff;
 }
 
 .action-pill--leave:hover {
-  background: #427568;
-  border-color: #427568;
+  background: var(--lb-brand, #0f4a32);
+  border-color: var(--lb-brand, #0f4a32);
 }
 
 /** 取消等次要操作：中性灰 */
 .action-pill--muted {
-  border: 1px solid #8a9690;
-  background: #8a9690;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #888);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #888);
   color: #fff;
 }
 
 .action-pill--muted:hover {
-  background: #73807a;
-  border-color: #73807a;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 30%, #777);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 30%, #777);
 }
 
 /** 合约「解除合約」：深灰，区别于普通 muted */
@@ -2162,7 +2176,7 @@ button {
  * 必须自带 --lb-table-action：挂到 body 后拿不到 .admin-page 变量，否则 pill 会变大。
  */
 .contract-more-menu {
-  --lb-table-action: 0.74rem;
+  --lb-table-action: 0.78rem;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -2190,19 +2204,19 @@ button {
 
 @media (max-width: 1279.98px) {
   .contract-more-menu {
-    --lb-table-action: 0.7rem;
+    --lb-table-action: 0.75rem;
   }
 }
 
 @media (min-width: 1440px) {
   .contract-more-menu {
-    --lb-table-action: 0.76rem;
+    --lb-table-action: 0.79rem;
   }
 }
 
 @media (min-width: 1800px) {
   .contract-more-menu {
-    --lb-table-action: 0.78rem;
+    --lb-table-action: 0.81rem;
   }
 }
 
@@ -2219,7 +2233,7 @@ button {
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.04em;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   line-height: 1.2;
 }
 
@@ -2238,7 +2252,7 @@ button {
   gap: 5px;
   padding: 7px 8px 8px;
   border-radius: 8px;
-  background: #f7faf8;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7);
 }
 
 .contract-more-menu__label {
@@ -2246,7 +2260,7 @@ button {
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.06em;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   line-height: 1.2;
 }
 
@@ -2263,7 +2277,7 @@ button {
 }
 
 .room-io-popper.el-popper {
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   border-radius: 12px !important;
   box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
   padding: 0 !important;
@@ -2273,7 +2287,7 @@ button {
 
 /* 房间列表 · 分租份位详情弹出层（与 lb-col-head / room-io popper 同系） */
 .room-occ-popper.el-popper {
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   border-radius: 12px !important;
   box-shadow: 0 12px 32px rgba(15, 40, 30, 0.14) !important;
   padding: 0 !important;
@@ -2282,7 +2296,7 @@ button {
 }
 
 .room-occ-popper .el-popper__arrow::before {
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   background: #fff !important;
 }
 
@@ -2304,7 +2318,7 @@ button {
 .room-occ-popper .occ-panel__title {
   font-size: var(--lb-table-body, 0.82rem);
   font-weight: 700;
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   letter-spacing: 0.01em;
 }
 
@@ -2383,7 +2397,7 @@ button {
 }
 
 .room-occ-popper .occ-slot--free .occ-slot__badge {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   background: #fff;
   box-shadow: inset 0 0 0 1px #d0d8d3;
 }
@@ -2398,7 +2412,7 @@ button {
 .room-occ-popper .occ-slot__name {
   font-size: 0.82rem;
   font-weight: 650;
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2407,7 +2421,7 @@ button {
 
 .room-occ-popper .occ-slot__code {
   font-size: 0.76rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2417,7 +2431,7 @@ button {
 
 .room-occ-popper .occ-slot__free {
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .room-occ-popper .occ-slot .lb-status {
@@ -2439,12 +2453,12 @@ button {
   padding: 9px 12px !important;
   border-radius: 8px;
   font-weight: 600;
-  color: #243029 !important;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333) !important;
 }
 
 .room-io-popper .el-dropdown-menu__item .el-icon {
   margin: 0;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .room-io-popper .el-dropdown-menu__item:not(.is-disabled):hover {
@@ -2512,7 +2526,7 @@ button {
   align-items: center;
   gap: 10px;
   padding: 6px 14px;
-  border-top: 1px solid #e6ebe8;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   background: var(--lb-muted-fill, #f5f5f5);
 }
 
@@ -2532,8 +2546,8 @@ button {
   min-height: 28px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #e8ecea;
-  color: #4a5c54;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  color: var(--lb-muted, #666);
   font-size: 0.82rem;
   font-weight: 600;
   line-height: 1;
@@ -2600,14 +2614,14 @@ button {
 }
 
 .lb-pager__batch-btn--muted {
-  border-color: #cfd8d3;
-  color: #4a5c54;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
+  color: var(--lb-muted, #666);
 }
 
 .lb-pager__batch-btn--muted:hover:not(:disabled) {
-  background: #e8ecea;
-  color: #243029;
-  border-color: #b7c7bd;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d0d0d0);
 }
 
 .lb-pager__nav {
@@ -2632,7 +2646,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
@@ -2647,7 +2661,7 @@ button {
   border: 1px solid var(--lb-muted-border, #d0d0d0);
   border-radius: 8px;
   background: #fff;
-  color: #243029;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 650;
@@ -2688,7 +2702,7 @@ button {
   background: #fff !important;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
 }
 
 .lb-pager__size .el-select__suffix {
@@ -2725,6 +2739,13 @@ button {
   font-weight: 600;
 }
 
+/* 所有下拉选项：防悬停／选中高亮撑破白底（短枚举与长文案均适用） */
+.el-select-dropdown__item {
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 /* 下拉选项过长时省略，悬停用 title 显示全文 */
 .el-select-dropdown__item .select-option-ellipsis {
   display: block;
@@ -2732,61 +2753,29 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-}
-
-/* 终止结算／退租表单：合约下拉防选项高亮撑破 */
-.vacate-contract-select-popper.el-popper,
-.vacate-contract-select-popper.el-select__popper {
-  max-width: min(560px, calc(100vw - 48px)) !important;
-  box-sizing: border-box;
-}
-.vacate-contract-select-popper .el-select-dropdown {
-  max-width: 100%;
-  overflow: hidden;
-}
-.vacate-contract-select-popper .el-select-dropdown__item {
-  overflow: hidden;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-/* 客户／销售经理／需求编号下拉：防长文案／悬停高亮撑破白底 */
-.req-customer-select-popper.el-popper,
-.req-customer-select-popper.el-select__popper,
-.contract-customer-select-popper.el-popper,
-.contract-customer-select-popper.el-select__popper,
-.contract-sales-manager-select-popper.el-popper,
-.contract-sales-manager-select-popper.el-select__popper,
-.contract-requirement-select-popper.el-popper,
-.contract-requirement-select-popper.el-select__popper {
-  max-width: min(560px, calc(100vw - 48px)) !important;
-  box-sizing: border-box;
-}
-.req-customer-select-popper .el-select-dropdown,
-.contract-customer-select-popper .el-select-dropdown,
-.contract-sales-manager-select-popper .el-select-dropdown,
-.contract-requirement-select-popper .el-select-dropdown {
-  max-width: 100%;
-  overflow: hidden;
-}
-.req-customer-select-popper .el-select-dropdown__item,
-.contract-customer-select-popper .el-select-dropdown__item,
-.contract-sales-manager-select-popper .el-select-dropdown__item,
-.contract-requirement-select-popper .el-select-dropdown__item {
-  overflow: hidden;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-.req-customer-select-popper .el-select-dropdown__item .select-option-ellipsis,
-.contract-customer-select-popper .el-select-dropdown__item .select-option-ellipsis,
-.contract-sales-manager-select-popper .el-select-dropdown__item .select-option-ellipsis,
-.contract-requirement-select-popper .el-select-dropdown__item .select-option-ellipsis {
-  display: block;
-  max-width: 100%;
   min-width: 0;
+}
+
+/*
+ * 业务实体下拉（popper-class 含 -select-popper）：
+ * 限制最大宽度 + 裁切选项，避免长客户名／合约号等撑破白底。
+ * 房间等特例另设 min-width；短租房间内嵌筛选另设 overflow:visible。
+ */
+.el-select__popper[class*='-select-popper'],
+.el-popper[class*='-select-popper'] {
+  max-width: min(560px, calc(100vw - 48px)) !important;
+  box-sizing: border-box;
+}
+.el-select__popper[class*='-select-popper'] .el-select-dropdown,
+.el-popper[class*='-select-popper'] .el-select-dropdown {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.el-select__popper[class*='-select-popper'] .el-select-dropdown__item,
+.el-popper[class*='-select-popper'] .el-select-dropdown__item {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* 合约：房间下拉顶部租用方式筛选 + 选项右侧可租状态 */
@@ -2806,7 +2795,7 @@ button {
 
 .contract-room-select-popper .el-select-dropdown__header {
   padding: 8px 10px 6px;
-  border-bottom: 1px solid #e6ebe8;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .contract-room-pick-modes {
@@ -2822,7 +2811,7 @@ button {
   border: 1px solid var(--lb-muted-border, #d0d0d0);
   border-radius: 999px;
   background: #fff;
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 650;
@@ -2832,9 +2821,9 @@ button {
 }
 
 .contract-room-pick-mode:hover {
-  border-color: #b7c6bd;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d0d0d0);
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f7f7f7);
-  color: #2a3d34;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 
 .contract-room-pick-mode.is-active {
@@ -2887,10 +2876,13 @@ button {
 .invoice-short-room-select-popper.el-select__popper {
   overflow: visible !important;
 }
+.invoice-short-room-select-popper .el-select-dropdown {
+  overflow: visible;
+}
 
 .invoice-short-room-select-popper .el-select-dropdown__header {
   padding: 8px 10px 6px;
-  border-bottom: 1px solid #e6ebe8;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   overflow: visible;
   position: relative;
   z-index: 2;
@@ -2966,7 +2958,7 @@ button {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #5b6b63;
+  color: var(--lb-muted, #666);
   font-size: 0.86rem;
   font-weight: 600;
   line-height: 1;
@@ -3000,7 +2992,7 @@ button {
 }
 
 .lb-pager__arrow:hover:not(:disabled) {
-  background: #e8ecea;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
 }
 
 .lb-pager__btn:disabled {
@@ -3021,7 +3013,7 @@ button {
 
 .cards-pagination {
   grid-column: 1 / -1;
-  border: 1px solid #e6ebe8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -3054,7 +3046,7 @@ button {
   justify-content: space-between;
   gap: 10px;
   padding-top: 4px;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 
@@ -3080,7 +3072,7 @@ button {
 
 .data-card {
   background: #fff;
-  border: 1px solid #e6ebe8;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 12px;
   padding: 14px;
   box-shadow: 0 4px 16px rgba(15, 40, 30, 0.04);
@@ -3107,7 +3099,7 @@ button {
 .data-card__meta {
   margin: 4px 0 0;
   font-size: 0.8rem;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   line-height: 1.4;
 }
 
@@ -3123,7 +3115,7 @@ button {
 
 .data-card__grid dt {
   font-size: 0.7rem;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   margin-bottom: 2px;
 }
 
@@ -3177,7 +3169,7 @@ button {
   max-width: 420px !important;
   padding: 0 !important;
   border-radius: 14px !important;
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   box-shadow: 0 18px 48px rgba(15, 40, 30, 0.18) !important;
   overflow: hidden;
   background: #fff !important;
@@ -3227,7 +3219,7 @@ button {
 }
 
 .lb-message-box .el-message-box__close {
-  color: #8a9a92 !important;
+  color: var(--lb-muted, #666) !important;
 }
 
 .lb-message-box .el-message-box__close:hover {
@@ -3261,7 +3253,7 @@ button {
 
 .lb-message-box .el-message-box__message {
   padding-left: 0 !important;
-  color: #2a3d34 !important;
+  color: var(--lb-ink, #1a1a1a) !important;
   font-size: 0.95rem !important;
   line-height: 1.55 !important;
   font-weight: 500;
@@ -3275,8 +3267,8 @@ button {
 .lb-message-box .lb-message-box__cancel {
   min-width: 88px;
   border-radius: 8px !important;
-  border-color: #cfd8d3 !important;
-  color: #2a3d34 !important;
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #d8d8d8) !important;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333) !important;
   background: #fff !important;
   font-weight: 600 !important;
 }
@@ -3284,7 +3276,7 @@ button {
 .lb-message-box .lb-message-box__cancel:hover {
   border-color: var(--lb-brand) !important;
   color: var(--lb-brand) !important;
-  background: #f4faf6 !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) !important;
 }
 
 .lb-message-box .lb-message-box__confirm {
@@ -3317,7 +3309,7 @@ button {
 .el-dialog {
   --el-dialog-border-radius: 12px;
   border-radius: 12px !important;
-  border: 1px solid #e2e8e5;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   box-shadow: 0 16px 48px rgba(15, 40, 30, 0.16) !important;
   overflow: hidden;
   padding: 0 !important;
@@ -3371,7 +3363,7 @@ button {
 }
 
 .el-dialog__headerbtn .el-dialog__close {
-  color: #8a9a92 !important;
+  color: var(--lb-muted, #666) !important;
   font-size: 16px !important;
   width: 1em;
   height: 1em;
@@ -3406,7 +3398,7 @@ button {
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  color: #8a9a92;
+  color: var(--lb-muted, #666);
   font-size: 15px;
   line-height: 1;
   width: 1em;
@@ -3489,7 +3481,7 @@ button {
 }
 
 .el-drawer__close-btn {
-  color: #8a9a92 !important;
+  color: var(--lb-muted, #666) !important;
   width: 28px !important;
   height: 28px !important;
   display: inline-flex !important;
@@ -3531,32 +3523,32 @@ button {
 
 /* append-to-body 拿不到 .admin-page 变量，抽屉根节点自带同一套表格字号 */
 .related-list-drawer {
-  --lb-table-body: 0.82rem;
-  --lb-table-head: 0.78rem;
-  --lb-table-action: 0.74rem;
+  --lb-table-body: 0.86rem;
+  --lb-table-head: 0.82rem;
+  --lb-table-action: 0.78rem;
 }
 
 @media (max-width: 1279.98px) {
   .related-list-drawer {
-    --lb-table-body: 0.76rem;
-    --lb-table-head: 0.72rem;
-    --lb-table-action: 0.7rem;
+    --lb-table-body: 0.85rem;
+    --lb-table-head: 0.80rem;
+    --lb-table-action: 0.75rem;
   }
 }
 
 @media (min-width: 1440px) {
   .related-list-drawer {
-    --lb-table-body: 0.86rem;
-    --lb-table-head: 0.82rem;
-    --lb-table-action: 0.76rem;
+    --lb-table-body: 0.89rem;
+    --lb-table-head: 0.85rem;
+    --lb-table-action: 0.79rem;
   }
 }
 
 @media (min-width: 1800px) {
   .related-list-drawer {
-    --lb-table-body: 0.9rem;
-    --lb-table-head: 0.86rem;
-    --lb-table-action: 0.78rem;
+    --lb-table-body: 0.93rem;
+    --lb-table-head: 0.89rem;
+    --lb-table-action: 0.81rem;
   }
 }
 
@@ -3638,7 +3630,7 @@ button {
 
 .el-dialog__footer .el-button--default {
   --el-button-bg-color: #fff;
-  --el-button-border-color: #cfd8d3;
+  --el-button-border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   --el-button-text-color: #1f2d27;
   --el-button-hover-bg-color: #fff;
   --el-button-hover-border-color: var(--lb-brand);
@@ -3660,7 +3652,7 @@ button {
 }
 
 .el-dialog .el-form-item__label {
-  /* 跟随主题淡染的中性灰，勿写死旧绿灰 #6a7a70 */
+  /* 跟随主题淡染的中性灰，勿写死旧绿灰 var(--lb-muted, #666) */
   color: var(--lb-muted, #666) !important;
   font-weight: 550 !important;
   font-size: 0.84rem !important;
@@ -3764,9 +3756,9 @@ button {
   max-width: 55%;
   padding: 1px 8px;
   border-radius: 999px;
-  border: 1px solid #d7e2db;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 18%, #e0e0e0);
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 6%, #fff);
-  color: #2f4a3d;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
   font-size: 0.82rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
@@ -3837,7 +3829,7 @@ button {
 }
 
 .detail-grid dt {
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: var(--lb-muted, #666);
   margin-bottom: 2px;
 }

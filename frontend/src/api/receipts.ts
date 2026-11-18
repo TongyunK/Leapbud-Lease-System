@@ -99,6 +99,11 @@ export function fetchReceipt(id: string) {
   return request.get<ReceiptRecord>(`/receipts/${id}`)
 }
 
+/** 预览下一个收据编号（不占用序号） */
+export function previewReceiptCodeApi() {
+  return request.get<{ code: string }>('/receipts/code-preview')
+}
+
 export function createReceiptApi(
   payload: ReceiptWritePayload,
   opts?: { silentError?: boolean },

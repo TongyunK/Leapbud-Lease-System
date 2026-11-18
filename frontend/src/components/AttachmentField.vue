@@ -212,7 +212,7 @@ function onPreview() {
 
 .attachment-field__empty {
   margin: 0;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   font-size: 0.82rem;
   line-height: 1.4;
 }

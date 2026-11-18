@@ -434,7 +434,14 @@ async function onSave() {
           </SelectWithViewAction>
         </el-form-item>
         <el-form-item :label="t('invoice.fields.invoiceType')">
-          <el-select v-model="form.invoiceType" style="width: 100%">
+          <el-select
+            clearable
+            value-on-clear=""
+            v-model="form.invoiceType"
+            fit-input-width
+            style="width: 100%"
+            popper-class="invoice-type-select-popper"
+          >
             <el-option
               v-for="s in CONTRACT_INVOICE_TYPES"
               :key="s"
@@ -685,7 +692,7 @@ async function onSave() {
   margin-bottom: 10px;
   padding-top: 8px;
   padding-bottom: 6px;
-  border-top: 1px solid #edf2ef;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .invoice-form__remark {
@@ -729,7 +736,7 @@ async function onSave() {
 .period-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
 }
@@ -742,21 +749,21 @@ async function onSave() {
   margin-left: auto;
   padding: 2px 4px 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .period-pager.el-pagination {
   --el-pagination-button-bg-color: #fff;
   --el-pagination-hover-color: var(--lb-brand, #0f4a32);
-  --el-pagination-button-color: #4a5c54;
+  --el-pagination-button-color: var(--lb-muted, #666);
   font-weight: 600;
   gap: 2px;
 }
 
 .period-pager :deep(.el-pagination__total) {
   margin-right: 4px;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   font-weight: 650;
 }
@@ -843,7 +850,7 @@ async function onSave() {
   min-height: 34px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -863,7 +870,7 @@ async function onSave() {
   box-sizing: border-box;
   min-height: var(--period-row-h);
   height: var(--period-row-h);
-  border-bottom: 1px solid #edf2ef;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   transition: background 0.12s ease, box-shadow 0.12s ease;
   background: #fff;
 }
@@ -932,7 +939,7 @@ async function onSave() {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
   flex: 0 0 auto;
 }
@@ -960,7 +967,7 @@ async function onSave() {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   cursor: text;
   line-height: 1.4;
 }
@@ -984,7 +991,7 @@ async function onSave() {
   border: 1px solid var(--lb-brand, #0f4a32);
   border-radius: 5px;
   background: #fff;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
@@ -999,7 +1006,7 @@ async function onSave() {
 .fee-table__empty {
   padding: 18px 12px;
   text-align: center;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 

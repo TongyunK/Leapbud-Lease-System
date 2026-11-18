@@ -18,9 +18,9 @@ export function parsePageSize(
 ): number | null {
   const max = opts?.max ?? 500;
   if (pageSize === undefined || pageSize === null || pageSize === '') {
-    return opts?.allowAll === false ? opts?.defaultSize ?? 20 : null;
+    return opts?.allowAll === false ? opts?.defaultSize ?? 30 : null;
   }
-  return Math.min(max, Math.max(1, Math.floor(Number(pageSize) || opts?.defaultSize || 20)));
+  return Math.min(max, Math.max(1, Math.floor(Number(pageSize) || opts?.defaultSize || 30)));
 }
 
 export function parseSortDir(sortDir?: string): Prisma.SortOrder | undefined {

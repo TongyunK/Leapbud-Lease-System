@@ -760,7 +760,7 @@ async function onDelete(row: UserRecord) {
             <el-input v-model="form.displayName" />
           </el-form-item>
           <el-form-item :label="t('user.fields.role')">
-            <el-select v-model="form.role" style="width: 100%" filterable>
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.role" style="width: 100%" filterable>
               <el-option
                 v-for="r in formRoleOptions"
                 :key="r.code"
@@ -770,7 +770,7 @@ async function onDelete(row: UserRecord) {
             </el-select>
           </el-form-item>
           <el-form-item :label="t('user.fields.status')">
-            <el-select v-model="form.status" style="width: 100%">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.status" style="width: 100%">
               <el-option v-for="s in statusOptions" :key="s" :label="t(`user.status.${s}`)" :value="s" />
             </el-select>
           </el-form-item>
@@ -798,6 +798,8 @@ async function onDelete(row: UserRecord) {
             </template>
             <p v-if="isAllBuildingsRole(form.role)" class="form-hint">{{ t('user.buildingsAdminHint') }}</p>
             <el-select
+              clearable
+              fit-input-width
               v-else
               ref="buildingSelectRef"
               v-model="form.buildingIds"
@@ -899,7 +901,7 @@ async function onDelete(row: UserRecord) {
 }
 
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;
@@ -909,7 +911,7 @@ async function onDelete(row: UserRecord) {
   margin: 6px 0 0;
   font-size: 0.78rem;
   line-height: 1.45;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .user-building-select :deep(.el-tag) {
@@ -918,11 +920,11 @@ async function onDelete(row: UserRecord) {
   padding: 0 8px;
   background: #e4efe9;
   border-color: #c9ddd2;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   --el-tag-bg-color: #e4efe9;
   --el-tag-border-color: #c9ddd2;
-  --el-tag-text-color: #0f4a32;
-  --el-tag-hover-color: #0f4a32;
+  --el-tag-text-color: var(--lb-brand, #0f4a32);
+  --el-tag-hover-color: var(--lb-brand, #0f4a32);
 }
 
 @media (max-width: 640px) {

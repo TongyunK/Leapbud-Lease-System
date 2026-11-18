@@ -53,9 +53,7 @@ import { chunkArray, IMPORT_BATCH_SIZE } from '@/utils/chunk'
 import { exportFileSuffix, exportScopeFromCommand } from '@/utils/exportScope'
 import { useTableSelection, runServerBatchDelete } from '@/composables/useTableSelection'
 import { useBatchProgress } from '@/composables/useBatchProgress'
-
-const PAGE_SIZES = [10, 20, 50, 100]
-const EXPORT_PAGE_SIZE = 500
+import { DEFAULT_LIST_PAGE_SIZE, EXPORT_PAGE_SIZE, LIST_PAGE_SIZES } from '@/types/pagination'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -79,8 +77,8 @@ const editing = ref<ContractPeriodListRecord | null>(null)
 const list = ref<ContractPeriodListRecord[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
-const pageSizes = PAGE_SIZES
+const pageSize = ref(DEFAULT_LIST_PAGE_SIZE)
+const pageSizes = LIST_PAGE_SIZES
 const contracts = ref<ContractRecord[]>([])
 const periodTypeOptions = ref<ContractConfigOption[]>([])
 
@@ -1066,14 +1064,18 @@ async function onImportFile(ev: Event) {
         <div class="form-grid">
           <el-form-item :label="t('contractPeriod.fields.contractCode')" required class="span-2">
             <SelectWithViewAction
+              clearable
               :disabled="!form.contractId"
               @view="openContractSide(form.contractId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.contractId"
                 filterable
                 fit-input-width
                 style="width: 100%"
+                popper-class="contract-period-contract-select-popper"
                 :placeholder="t('contractPeriod.fields.contractCode')"
                 :disabled="!!editing"
               >
@@ -1090,7 +1092,7 @@ async function onImportFile(ev: Event) {
             </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.dateType')" required>
-            <el-select v-model="form.dateType" filterable style="width: 100%">
+            <el-select clearable value-on-clear="" fit-input-width v-model="form.dateType" filterable style="width: 100%">
               <el-option
                 v-for="pt in periodTypeOptions"
                 :key="pt.id"
@@ -1101,6 +1103,9 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('contractPeriod.fields.dateUnit')">
             <el-select
+              clearable
+              value-on-clear=""
+              fit-input-width
               v-model="form.dateUnit"
               style="width: 100%"
               @change="syncFormDatesFromDuration"

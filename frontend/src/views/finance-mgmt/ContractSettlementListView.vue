@@ -2359,7 +2359,7 @@ onMounted(() => {
               >
                 <SelectWithViewAction
                   clearable
-                  :disabled="!form.contractId || !!editing"
+                  :disabled="!form.contractId"
                   @view="relationDrawers?.openContractSide(form.contractId)"
                 >
                   <el-select
@@ -2728,18 +2728,21 @@ onMounted(() => {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 650;
-  color: #1f2a24;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333);
 }
 .vacate-dlg__section-head--with-action {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 12px;
+  min-height: 28px;
+  margin-bottom: 8px;
 }
 .vacate-dlg__section-head-main {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 .vacate-dlg__step {
   display: inline-flex;
@@ -2748,18 +2751,29 @@ onMounted(() => {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  background: #0f4a32;
+  background: var(--lb-brand, #0f4a32);
   color: #fff;
   font-size: 0.75rem;
   font-weight: 700;
 }
+/* 对齐合约弹窗「新增合约期」pill */
 .vacate-dlg__add-btn {
+  --el-button-bg-color: color-mix(in srgb, var(--lb-brand) 10%, #fff);
+  --el-button-border-color: color-mix(in srgb, var(--lb-brand) 35%, #fff);
+  --el-button-text-color: var(--lb-brand);
+  --el-button-hover-bg-color: color-mix(in srgb, var(--lb-brand) 18%, #fff);
+  --el-button-hover-border-color: var(--lb-brand);
+  --el-button-hover-text-color: var(--lb-brand);
   margin-left: 2px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 12px;
+  height: 26px;
 }
 .vacate-form .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px 16px;
+  gap: 0 16px;
 }
 .vacate-form .span-2 {
   grid-column: 1 / -1;
@@ -2778,19 +2792,19 @@ onMounted(() => {
   margin-left: auto;
   padding: 2px 4px 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .vacate-deduction-pager.el-pagination {
   --el-pagination-button-bg-color: #fff;
   --el-pagination-hover-color: var(--lb-brand, #0f4a32);
-  --el-pagination-button-color: #4a5c54;
+  --el-pagination-button-color: var(--lb-muted, #666);
   font-weight: 600;
   gap: 2px;
 }
 .vacate-deduction-pager :deep(.el-pagination__total) {
   margin-right: 4px;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   font-weight: 650;
 }
@@ -2816,7 +2830,7 @@ onMounted(() => {
 .vacate-deduction-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
 }
@@ -2846,7 +2860,7 @@ onMounted(() => {
   min-height: 34px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -2867,7 +2881,7 @@ onMounted(() => {
   box-sizing: border-box;
   min-height: var(--period-row-h);
   height: var(--period-row-h);
-  border-bottom: 1px solid #edf2ef;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   transition: background 0.12s ease, box-shadow 0.12s ease;
   background: #fff;
 }
@@ -2914,7 +2928,7 @@ onMounted(() => {
 .vacate-deduction-table__empty {
   padding: 18px 12px;
   text-align: center;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 .period-row__handle {
@@ -2927,7 +2941,7 @@ onMounted(() => {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
   flex: 0 0 auto;
 }
@@ -2952,7 +2966,7 @@ onMounted(() => {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   cursor: text;
   line-height: 1.4;
 }
@@ -2974,7 +2988,7 @@ onMounted(() => {
   border: 1px solid var(--lb-brand, #0f4a32);
   border-radius: 5px;
   background: #fff;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
@@ -3002,7 +3016,7 @@ onMounted(() => {
 }
 .vacate-select-empty {
   padding: 10px 12px;
-  color: #7a8a80;
+  color: var(--lb-muted, #666);
   font-size: 0.88rem;
 }
 .select-option-ellipsis {
@@ -3023,8 +3037,8 @@ onMounted(() => {
   margin: 0 0 14px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 .settlement-create-source-seg.lb-yesno-seg {
   width: 100%;

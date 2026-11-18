@@ -498,7 +498,7 @@ async function toggleActive(row: NumberingRule) {
           </div>
         </el-form-item>
         <el-form-item :label="t('autoNumbering.fields.resetCycle')">
-          <el-select v-model="form.resetCycle" style="width: 100%">
+          <el-select clearable value-on-clear="" fit-input-width v-model="form.resetCycle" style="width: 100%">
             <el-option
               v-for="c in RESET_CYCLES"
               :key="c"
@@ -550,7 +550,7 @@ async function toggleActive(row: NumberingRule) {
   gap: 4px;
 }
 .form-label-tip {
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   cursor: help;
   vertical-align: middle;
   flex-shrink: 0;
@@ -574,7 +574,7 @@ async function toggleActive(row: NumberingRule) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 1.05rem;
   font-weight: 600;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   word-break: break-all;
   line-height: 1.35;
 }

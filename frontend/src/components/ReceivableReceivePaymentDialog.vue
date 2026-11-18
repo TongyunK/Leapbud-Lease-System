@@ -338,6 +338,7 @@ async function submit() {
               filterable
               clearable
               value-on-clear=""
+              fit-input-width
               :placeholder="t('common.pleaseSelect')"
               style="width: 100%"
               :teleported="false"
@@ -421,6 +422,8 @@ async function submit() {
           <div class="recv-pay__grid">
             <el-form-item :label="t('receivable.sendWhatsapp')">
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.sendWhatsapp"
                 style="width: 100%"
                 :teleported="false"
@@ -475,9 +478,9 @@ async function submit() {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px 12px;
   padding: 12px 14px;
-  border: 1px solid #e2e8e5;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 12px;
-  background: linear-gradient(180deg, #f7faf8 0%, #f2f6f4 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7) 0%, color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff) 100%);
 }
 
 .recv-pay__sum-item {
@@ -490,11 +493,11 @@ async function submit() {
 .recv-pay__sum-label {
   font-size: 0.78rem;
   font-weight: 650;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
 }
 
 .recv-pay__sum-item--due :deep(.el-input__inner) {
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font-weight: 700;
 }
 
@@ -502,7 +505,7 @@ async function submit() {
   margin: 2px 0 0;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
 }
 
 .recv-pay__send-block {
@@ -513,7 +516,7 @@ async function submit() {
   margin: 0 0 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: #eef2f0;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   font-size: 0.92rem;
   font-weight: 700;
   color: #1a2a22;
@@ -580,7 +583,7 @@ async function submit() {
 
 .recv-pay-att__empty {
   margin: 0;
-  color: #8a9690;
+  color: var(--lb-muted, #666);
   font-size: 0.82rem;
   line-height: 1.4;
 }
@@ -628,7 +631,7 @@ async function submit() {
   font-weight: 700;
   line-height: 1;
   color: #fff;
-  background: #6a7a72;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #888);
 }
 
 .recv-pay-att__icon--pdf {
@@ -640,7 +643,7 @@ async function submit() {
 }
 
 .recv-pay-att__icon--file {
-  background: #5a6b62;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #888);
 }
 
 .recv-pay-att__name {

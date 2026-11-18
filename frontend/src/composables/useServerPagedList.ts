@@ -1,5 +1,5 @@
 import { nextTick, ref, watch, type Ref } from 'vue'
-import { LIST_PAGE_SIZES, EXPORT_PAGE_SIZE } from '@/types/pagination'
+import { DEFAULT_LIST_PAGE_SIZE, LIST_PAGE_SIZES, EXPORT_PAGE_SIZE } from '@/types/pagination'
 import type { PaginatedResult } from '@/types/pagination'
 import type { DateRangeValue } from '@/composables/useTableSortFilter'
 import { LIST_MIN_LOADING_MS } from '@/utils/listLoading'
@@ -38,7 +38,7 @@ export function useServerPagedList<T, Q extends { page?: number; pageSize?: numb
   const list = ref<T[]>([]) as Ref<T[]>
   const total = ref(0)
   const page = ref(1)
-  const pageSize = ref(options.initialPageSize ?? 20)
+  const pageSize = ref(options.initialPageSize ?? DEFAULT_LIST_PAGE_SIZE)
   const pageSizes = LIST_PAGE_SIZES
 
   let keywordTimer: ReturnType<typeof setTimeout> | null = null

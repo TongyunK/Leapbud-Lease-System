@@ -1294,4 +1294,16 @@ export class ReceiptsService {
         })),
     })
   }
+
+  /** 预览下一个收据编号（不占用序号；保存时仍重新分配） */
+  async previewReceiptCode() {
+    const code = await this.numberingRules.previewCode(NumberingBizKey.receipt, {
+      isTaken: async (c) =>
+        !!(await this.prisma.receipt.findFirst({
+          where: { receiptCode: c },
+          select: { id: true },
+        })),
+    })
+    return { code }
+  }
 }

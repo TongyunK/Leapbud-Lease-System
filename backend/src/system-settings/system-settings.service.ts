@@ -87,8 +87,16 @@ export class SystemSettingsService {
   }
 
   private toMailSmtpView(cfg: MailSmtpConfig): MailSmtpConfigView {
-    /** cfg.password 可能是 enc:v1 密文；有值即视为已配置 */
+    /** cfg.password 可能是 enc:v1 密文；管理端回传明文便于核对 */
     const hasPassword = Boolean(String(cfg.password || '').trim())
+    let password = ''
+    if (hasPassword) {
+      try {
+        password = decryptSecret(cfg.password)
+      } catch {
+        password = ''
+      }
+    }
     return {
       host: cfg.host,
       port: cfg.port,
@@ -96,7 +104,7 @@ export class SystemSettingsService {
       email: cfg.email,
       fromName: cfg.fromName,
       hasPassword,
-      password: hasPassword ? PASSWORD_MASK : '',
+      password,
     }
   }
 

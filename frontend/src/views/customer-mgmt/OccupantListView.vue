@@ -838,6 +838,7 @@ async function onImportFile(ev: Event) {
                 filterable
                 fit-input-width
                 style="width: 100%"
+                popper-class="occupant-customer-select-popper"
                 :placeholder="t('occupant.fields.customer')"
               >
                 <el-option

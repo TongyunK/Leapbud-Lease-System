@@ -146,7 +146,7 @@ function onOpenReceipt(row: BookingDepositApplyRow) {
 
 .bd-applies__empty {
   margin: 12px 0 0;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .bd-applies__list {
@@ -165,7 +165,7 @@ function onOpenReceipt(row: BookingDepositApplyRow) {
   gap: 2px 6px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   background: #f8faf8;
   font-size: 0.84rem;
   line-height: 1.4;
@@ -182,10 +182,10 @@ function onOpenReceipt(row: BookingDepositApplyRow) {
   flex: 0 0 auto;
   font-size: 0.72rem;
   font-weight: 700;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .bd-applies__date {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 </style>

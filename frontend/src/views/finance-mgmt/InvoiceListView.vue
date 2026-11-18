@@ -583,6 +583,73 @@ let shortRoomSuppressCloseTimer: ReturnType<typeof setTimeout> | null = null
 const shortRoomShowBuildingFilter = computed(
   () => !buildingScope.selectedId && buildingScope.options.length > 1,
 )
+
+const selectedShortCustomer = computed(
+  () => shortCustomers.value.find((c) => c.id === form.customerId.trim()) || null,
+)
+const selectedShortRoom = computed(
+  () => shortRooms.value.find((r) => r.id === form.roomId.trim()) || null,
+)
+
+/** 短租收窄用大厦：优先已选房间，其次已选客户，再次顶栏／房间筛选大厦 */
+function shortTermFormScopeBuildingId(): string {
+  const fromRoom = String(selectedShortRoom.value?.buildingId || '').trim()
+  if (fromRoom) return fromRoom
+  const fromCustomer = String(selectedShortCustomer.value?.buildingId || '').trim()
+  if (fromCustomer) return fromCustomer
+  const fromFilter = String(shortRoomBuildingId.value || '').trim()
+  if (fromFilter) return fromFilter
+  return String(buildingScope.selectedId || '').trim()
+}
+
+/** 双方都有所属大厦且不一致 → 跨大厦冲突；任一方未设大厦不视为冲突（兼容旧客户） */
+function buildingConflict(roomBid?: string | null, custBid?: string | null) {
+  const r = String(roomBid || '').trim()
+  const c = String(custBid || '').trim()
+  return !!r && !!c && r !== c
+}
+
+async function alertCustomerBuildingMismatch() {
+  await ElMessageBox.alert(
+    t('invoice.customerBuildingMismatch'),
+    t('invoice.createShortTerm'),
+    { type: 'warning', confirmButtonText: t('common.confirm') },
+  )
+}
+
+function onShortCustomerChange(customerId: string) {
+  const cid = String(customerId || '').trim()
+  if (!cid) return
+  const cust = shortCustomers.value.find((c) => c.id === cid)
+  const room = selectedShortRoom.value
+  if (cust && room && buildingConflict(room.buildingId, cust.buildingId)) {
+    form.customerId = ''
+    void alertCustomerBuildingMismatch()
+    return
+  }
+  if (cust?.buildingId?.trim()) {
+    shortRoomHasMore.value = true
+    void loadShortRoomsPage(true)
+  }
+}
+
+function onShortRoomChange(roomId: string) {
+  const rid = String(roomId || '').trim()
+  const room = shortRooms.value.find((r) => r.id === rid)
+  // 仅内部带出 roomNameText 供保存/预览；表单不再展示「房间信息/尺寸」
+  form.roomInfoText = room
+    ? [room.roomCode, room.name].filter(Boolean).join(' · ')
+    : ''
+  if (!rid || !room) return
+  const cust = selectedShortCustomer.value
+  if (cust && buildingConflict(room.buildingId, cust.buildingId)) {
+    form.customerId = ''
+    void alertCustomerBuildingMismatch()
+  }
+  shortCustomerHasMore.value = true
+  void loadShortCustomersPage(true)
+}
+
 const feeRows = ref<FeeFormRow[]>([])
 const FEE_PAGE_SIZE = 5
 const feePage = ref(1)
@@ -1110,26 +1177,37 @@ async function loadShortCustomersPage(reset: boolean) {
   }
   const page = reset ? 1 : shortCustomerPage.value
   const prevTop = shortCustomerScrollEl?.scrollTop ?? 0
-  const scopeBid = buildingScope.selectedId || undefined
+  const bid = shortTermFormScopeBuildingId()
   try {
     const { data } = await fetchCustomers({
       keyword: shortCustomerKeyword.value || undefined,
       page,
       pageSize: SELECT_PAGE_SIZE,
+      ...(bid ? { buildingId: bid } : {}),
     })
-    const items = (data.items || []).filter(
-      (c) => !scopeBid || !c.buildingId || c.buildingId === scopeBid,
-    )
+    // 仅排除「已明确属于其他大厦」的客户；无所属大厦的旧客户保留可选
+    const pageItems = bid
+      ? (data.items || []).filter((c) => {
+          const cb = String(c.buildingId || '').trim()
+          return !cb || cb === bid
+        })
+      : data.items || []
     if (reset) {
-      let next = keepSelectedInOptions(items, form.customerId, shortCustomers.value)
+      let next = keepSelectedInOptions(pageItems, form.customerId, shortCustomers.value)
       next = keepSelectedInOptions(next, form.referredByCustomerId, shortCustomers.value)
       shortCustomers.value = mergeStickyShortCustomers(next)
     } else {
-      appendUniqueById(shortCustomers.value, items)
+      appendUniqueById(shortCustomers.value, pageItems)
       await restoreShortCustomerScroll(prevTop)
     }
     shortCustomerPage.value = page + 1
     shortCustomerHasMore.value = (data.items || []).length >= SELECT_PAGE_SIZE
+    if (bid && shortCustomerHasMore.value && pageItems.length === 0) {
+      if (reset) shortCustomerLoading.value = false
+      shortCustomerLoadingMore.value = false
+      await loadShortCustomersPage(false)
+      return
+    }
   } catch {
     if (reset) {
       shortCustomers.value = mergeStickyShortCustomers(
@@ -1250,8 +1328,13 @@ async function restoreShortRoomScroll(top: number) {
 
 function buildShortRoomSelectQuery(page: number) {
   const sizeId = shortRoomSizeRangeId.value.trim()
+  // 已选客户所属大厦优先，保证与客户同大厦；否则顶栏／筛选
+  const fromCustomer = String(selectedShortCustomer.value?.buildingId || '').trim()
   const buildingId =
-    buildingScope.selectedId || shortRoomBuildingId.value.trim() || undefined
+    fromCustomer ||
+    buildingScope.selectedId ||
+    shortRoomBuildingId.value.trim() ||
+    undefined
   return {
     keyword: shortRoomKeyword.value || undefined,
     page,
@@ -1402,14 +1485,6 @@ async function loadShortRoomOptions(keyword = '') {
   shortRoomHasMore.value = true
   await ensureShortRoomFilterOptions()
   await loadShortRoomsPage(true)
-}
-
-function onShortRoomChange(roomId: string) {
-  const room = shortRooms.value.find((r) => r.id === roomId)
-  // 仅内部带出 roomNameText 供保存/预览；表单不再展示「房间信息/尺寸」
-  form.roomInfoText = room
-    ? [room.roomCode, room.name].filter(Boolean).join(' · ')
-    : ''
 }
 
 watch(
@@ -1651,6 +1726,12 @@ async function onPreviewInvoiceDraft() {
       ElMessage.warning(t('invoice.roomRequired'))
       return
     }
+    if (
+      buildingConflict(selectedShortRoom.value?.buildingId, selectedShortCustomer.value?.buildingId)
+    ) {
+      await alertCustomerBuildingMismatch()
+      return
+    }
   } else if (!form.contractId.trim()) {
     ElMessage.warning(t('invoice.contractRequired'))
     return
@@ -1739,6 +1820,12 @@ async function saveForm() {
     }
     if (!form.roomId.trim()) {
       ElMessage.warning(t('invoice.roomRequired'))
+      return
+    }
+    if (
+      buildingConflict(selectedShortRoom.value?.buildingId, selectedShortCustomer.value?.buildingId)
+    ) {
+      await alertCustomerBuildingMismatch()
       return
     }
     if (!form.rentalStartDate?.trim() || !form.rentalEndDate?.trim()) {
@@ -2761,11 +2848,14 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('invoice.fields.customerName')" required>
             <SelectWithViewAction
+              clearable
               :disabled="!form.customerId"
               @view="openCustomerSide(form.customerId, 'ltr')"
             >
               <el-select
                 v-model="form.customerId"
+                clearable
+                value-on-clear=""
                 filterable
                 remote
                 reserve-keyword
@@ -2776,6 +2866,7 @@ async function onImportFile(ev: Event) {
                 :loading="shortCustomerLoading"
                 :placeholder="t('invoice.fields.customerName')"
                 @visible-change="onShortCustomerSelectVisible"
+                @change="onShortCustomerChange"
               >
                 <el-option
                   v-for="c in shortCustomers"
@@ -2797,8 +2888,12 @@ async function onImportFile(ev: Event) {
           <el-form-item :label="t('invoice.fields.salesManager')" required>
             <el-select
               v-model="form.salesManagerId"
+              clearable
+              value-on-clear=""
               filterable
+              fit-input-width
               style="width: 100%"
+              popper-class="invoice-sales-manager-select-popper"
               :placeholder="t('invoice.fields.salesManager')"
             >
               <el-option
@@ -2806,17 +2901,25 @@ async function onImportFile(ev: Event) {
                 :key="u.id"
                 :label="userOptionLabel(u)"
                 :value="u.id"
-              />
+                :title="userOptionLabel(u)"
+              >
+                <span class="select-option-ellipsis" :title="userOptionLabel(u)">
+                  {{ userOptionLabel(u) }}
+                </span>
+              </el-option>
             </el-select>
           </el-form-item>
           <el-form-item :label="t('invoice.fields.roomName')" required>
             <SelectWithViewAction
-              :disabled="!form.roomId"
+              clearable
+              :disabled="!form.roomId || !!editing"
               @view="openRoomSide(form.roomId, 'ltr')"
             >
               <el-select
                 ref="shortRoomSelectRef"
                 v-model="form.roomId"
+                clearable
+                value-on-clear=""
                 filterable
                 remote
                 reserve-keyword
@@ -2840,7 +2943,7 @@ async function onImportFile(ev: Event) {
                       v-if="shortRoomShowBuildingFilter"
                       :model-value="shortRoomBuildingId || undefined"
                       size="small"
-                      clearable
+                      clearable value-on-clear=""
                       filterable
                       :teleported="false"
                       class="invoice-short-room-filter-select"
@@ -2854,12 +2957,15 @@ async function onImportFile(ev: Event) {
                         :key="b.id"
                         :label="b.name"
                         :value="b.id"
-                      />
+                        :title="b.name"
+                      >
+                        <span class="select-option-ellipsis" :title="b.name">{{ b.name }}</span>
+                      </el-option>
                     </el-select>
                     <el-select
                       :model-value="shortRoomSizeRangeId || undefined"
                       size="small"
-                      clearable
+                      clearable value-on-clear=""
                       :teleported="false"
                       class="invoice-short-room-filter-select"
                       popper-class="invoice-short-room-filter-popper"
@@ -2872,7 +2978,10 @@ async function onImportFile(ev: Event) {
                         :key="o.id"
                         :label="o.label"
                         :value="o.id"
-                      />
+                        :title="o.label"
+                      >
+                        <span class="select-option-ellipsis" :title="o.label">{{ o.label }}</span>
+                      </el-option>
                     </el-select>
                   </div>
                 </template>
@@ -2945,7 +3054,14 @@ async function onImportFile(ev: Event) {
             />
           </el-form-item>
           <el-form-item v-if="editing" :label="t('invoice.fields.status')">
-            <el-select v-model="form.status" style="width: 100%">
+            <el-select
+              clearable
+              value-on-clear=""
+              v-model="form.status"
+              fit-input-width
+              style="width: 100%"
+              popper-class="invoice-status-select-popper"
+            >
               <el-option
                 v-for="s in INVOICE_STATUSES"
                 :key="s"
@@ -2967,10 +3083,13 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <el-form-item :label="t('invoice.fields.contractCode')" required>
             <SelectWithViewAction
+              clearable
               :disabled="!form.contractId"
               @view="openContractSide(form.contractId, 'ltr')"
             >
               <el-select
+                clearable
+                value-on-clear=""
                 v-model="form.contractId"
                 filterable
                 remote
@@ -3034,7 +3153,14 @@ async function onImportFile(ev: Event) {
             </SelectWithViewAction>
           </el-form-item>
           <el-form-item :label="t('invoice.fields.invoiceType')">
-            <el-select v-model="form.invoiceType" style="width: 100%">
+            <el-select
+              clearable
+              value-on-clear=""
+              v-model="form.invoiceType"
+              fit-input-width
+              style="width: 100%"
+              popper-class="invoice-type-select-popper"
+            >
               <el-option
                 v-for="s in CONTRACT_INVOICE_TYPES"
                 :key="s"
@@ -3045,7 +3171,14 @@ async function onImportFile(ev: Event) {
           </el-form-item>
           <!-- 新增固定已开票，不展示；编辑可改状态 -->
           <el-form-item v-if="editing" :label="t('invoice.fields.status')">
-            <el-select v-model="form.status" style="width: 100%">
+            <el-select
+              clearable
+              value-on-clear=""
+              v-model="form.status"
+              fit-input-width
+              style="width: 100%"
+              popper-class="invoice-status-select-popper"
+            >
               <el-option
                 v-for="s in INVOICE_STATUSES"
                 :key="s"
@@ -3327,8 +3460,8 @@ async function onImportFile(ev: Event) {
   margin: 0 0 14px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .invoice-source-seg.lb-yesno-seg {
@@ -3361,7 +3494,7 @@ async function onImportFile(ev: Event) {
   margin-bottom: 10px;
   padding-top: 8px;
   padding-bottom: 6px;
-  border-top: 1px solid #edf2ef;
+  border-top: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .invoice-form__remark {
@@ -3405,7 +3538,7 @@ async function onImportFile(ev: Event) {
 .period-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   border-radius: 8px;
   background: #fff;
 }
@@ -3418,21 +3551,21 @@ async function onImportFile(ev: Event) {
   margin-left: auto;
   padding: 2px 4px 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #f4f7f5);
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .period-pager.el-pagination {
   --el-pagination-button-bg-color: #fff;
   --el-pagination-hover-color: var(--lb-brand, #0f4a32);
-  --el-pagination-button-color: #4a5c54;
+  --el-pagination-button-color: var(--lb-muted, #666);
   font-weight: 600;
   gap: 2px;
 }
 
 .period-pager :deep(.el-pagination__total) {
   margin-right: 4px;
-  color: #4a5c54;
+  color: var(--lb-muted, #666);
   font-size: 0.78rem;
   font-weight: 650;
 }
@@ -3522,7 +3655,7 @@ async function onImportFile(ev: Event) {
   min-height: 34px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #e8e8e8);
-  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #3d4f45);
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #333);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -3542,7 +3675,7 @@ async function onImportFile(ev: Event) {
   box-sizing: border-box;
   min-height: var(--period-row-h);
   height: var(--period-row-h);
-  border-bottom: 1px solid #edf2ef;
+  border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   transition: background 0.12s ease, box-shadow 0.12s ease;
   background: #fff;
 }
@@ -3611,7 +3744,7 @@ async function onImportFile(ev: Event) {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #8a9590;
+  color: var(--lb-muted, #666);
   cursor: grab;
   flex: 0 0 auto;
 }
@@ -3639,7 +3772,7 @@ async function onImportFile(ev: Event) {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #5a6b62;
+  color: var(--lb-muted, #666);
   cursor: text;
   line-height: 1.4;
 }
@@ -3663,7 +3796,7 @@ async function onImportFile(ev: Event) {
   border: 1px solid var(--lb-brand, #0f4a32);
   border-radius: 5px;
   background: #fff;
-  color: #0f4a32;
+  color: var(--lb-brand, #0f4a32);
   font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
@@ -3678,7 +3811,7 @@ async function onImportFile(ev: Event) {
 .fee-table__empty {
   padding: 18px 12px;
   text-align: center;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
 }
 

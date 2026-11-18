@@ -1118,7 +1118,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   padding: 12px 16px;
   border: 1px solid #dfe8e2;
   border-radius: 12px;
-  background: linear-gradient(180deg, #f7faf8 0%, #f1f6f3 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f7f7f7) 0%, #f1f6f3 100%);
 }
 
 .term-dlg__hero-code {
@@ -1149,7 +1149,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 .term-dlg__hero-meta em {
   font-style: normal;
   font-weight: 550;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   margin-right: 4px;
 }
 
@@ -1226,7 +1226,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   margin-bottom: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
 }
 
 .term-dlg__unset {
@@ -1246,7 +1246,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   padding: 8px 10px;
   border-radius: 8px;
   background: #f8faf8;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   flex-wrap: wrap;
 }
 
@@ -1307,7 +1307,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1.2;
-  color: #8a9a92;
+  color: var(--lb-muted, #666);
 }
 
 .term-dlg__unset-recv {
@@ -1403,7 +1403,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 }
 
 .term-dlg__form :deep(.el-form-item__label) {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-weight: 550;
   font-size: 0.84rem;
   line-height: 1.25;
@@ -1461,9 +1461,9 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   margin: 0 0 12px;
   padding: 12px 14px;
   text-align: center;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-size: 0.84rem;
-  background: #f6f9f7;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
   border-radius: 8px;
   border: 1px dashed #d5e0d9;
 }
@@ -1478,7 +1478,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 .term-dlg__loan {
   padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   background: #fbfcfb;
 }
 
@@ -1582,8 +1582,8 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   margin: 0 0 12px;
   padding: 12px 14px 4px;
   border-radius: 10px;
-  background: #f6f9f7;
-  border: 1px solid #e4ebe6;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 5%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
 }
 
 .term-dlg__keys-title {
@@ -1598,7 +1598,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 }
 
 .term-dlg__keys :deep(.el-form-item__label) {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-weight: 550;
   font-size: 0.84rem;
   margin-bottom: 6px !important;
@@ -1609,7 +1609,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 }
 
 .term-dlg__tight-item :deep(.el-form-item__label) {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-weight: 550;
   font-size: 0.84rem;
   margin-bottom: 6px !important;
@@ -1632,7 +1632,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid #e4ebe6;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6);
   background: #f8faf8;
   min-width: 0;
 }
@@ -1640,7 +1640,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 .term-dlg__tile span {
   font-size: 0.78rem;
   font-weight: 550;
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   line-height: 1.35;
 }
 
@@ -1651,7 +1651,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 }
 
 .term-dlg__label-tip {
-  color: #8a9a92;
+  color: var(--lb-muted, #666);
   cursor: help;
   flex: 0 0 auto;
 }
@@ -1718,7 +1718,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 
 .term-dlg__tile--accent {
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
-  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e4ebe6);
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 22%, #e6e6e6);
 }
 
 .term-dlg__tile--refund strong {
@@ -1744,7 +1744,7 @@ function loanToneClass(row: ContractSettlementItemRecord) {
 }
 
 .term-dlg__remark :deep(.el-form-item__label) {
-  color: #6a7a70;
+  color: var(--lb-muted, #666);
   font-weight: 550;
   font-size: 0.84rem;
   margin-bottom: 6px !important;

@@ -614,7 +614,7 @@ async function savePermissions() {
           <el-table-column
             prop="description"
             :label="t('role.fields.description')"
-            :min-width="colW(t('role.fields.description'), { contentMin: 180 })"
+            :min-width="colW(t('role.fields.description'), { contentMin: 240 })"
             show-overflow-tooltip
           />
           <el-table-column

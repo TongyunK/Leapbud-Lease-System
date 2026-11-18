@@ -431,8 +431,9 @@ async function toggleActive(row: MenuRecord) {
       <el-form label-position="top">
         <el-form-item :label="t('sysMenu.fields.parent')">
           <el-select
+            fit-input-width
             v-model="form.parentId"
-            clearable
+            clearable value-on-clear=""
             :placeholder="t('sysMenu.rootParent')"
             style="width: 100%"
           >
@@ -445,7 +446,7 @@ async function toggleActive(row: MenuRecord) {
           </el-select>
         </el-form-item>
         <el-form-item :label="t('sysMenu.fields.type')" required>
-          <el-select v-model="form.type" style="width: 100%">
+          <el-select clearable value-on-clear="" fit-input-width v-model="form.type" style="width: 100%">
             <el-option
               v-for="opt in typeOptions"
               :key="opt.value"

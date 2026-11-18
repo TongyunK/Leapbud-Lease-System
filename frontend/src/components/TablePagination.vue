@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { LIST_PAGE_SIZES } from '@/types/pagination'
 
 const page = defineModel<number>('page', { required: true })
 const pageSize = defineModel<number>('pageSize', { required: true })
@@ -17,7 +18,7 @@ const props = withDefaults(
     selectAllLoading?: boolean
   }>(),
   {
-    pageSizes: () => [10, 20, 50, 100],
+    pageSizes: () => [...LIST_PAGE_SIZES],
     selectedCount: 0,
     enableSelectAll: false,
     selectAllLoading: false,

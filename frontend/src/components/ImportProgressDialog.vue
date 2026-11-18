@@ -218,7 +218,7 @@ function downloadIssues() {
 
 .import-file-label {
   flex-shrink: 0;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .import-file-name {
@@ -232,7 +232,7 @@ function downloadIssues() {
 .import-status {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .import-stats {
@@ -255,7 +255,7 @@ function downloadIssues() {
 .import-stat dt {
   margin: 0;
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .import-stat dd {
@@ -307,7 +307,7 @@ function downloadIssues() {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
   white-space: pre-wrap;
 }
 
@@ -318,7 +318,7 @@ function downloadIssues() {
 .import-issues-hint {
   margin: 0;
   font-size: 0.82rem;
-  color: var(--lb-muted, #6a7a70);
+  color: var(--lb-muted, #666);
 }
 
 .dialog-footer {

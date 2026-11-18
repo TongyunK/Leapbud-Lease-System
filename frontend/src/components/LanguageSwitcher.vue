@@ -156,7 +156,7 @@ function onCommand(value: string) {
 <style>
 /* 下拉菜单全局（teleport 到 body） */
 .lang-dropdown-popper.el-popper {
-  border: 1px solid #e2e8e5 !important;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 14%, #e6e6e6) !important;
   border-radius: 10px !important;
   box-shadow: 0 10px 28px rgba(15, 40, 30, 0.12) !important;
   overflow: hidden;
@@ -175,7 +175,7 @@ function onCommand(value: string) {
   padding: 9px 12px !important;
   font-size: 0.88rem;
   font-weight: 550;
-  color: #243029 !important;
+  color: color-mix(in srgb, var(--lb-brand, #0f4a32) 45%, #333) !important;
   line-height: 1.3;
 }
 
