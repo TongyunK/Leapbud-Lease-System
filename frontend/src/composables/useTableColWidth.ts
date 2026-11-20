@@ -55,7 +55,7 @@ function resolveHeaderFont(): string {
 /** 表体编号/链接字重（.fk-link 为 600），字号用 --lb-table-body */
 function resolveCodeBodyFont(): string {
   const size =
-    getComputedStyle(document.documentElement).getPropertyValue('--lb-table-body').trim() || '0.89rem'
+    getComputedStyle(document.documentElement).getPropertyValue('--lb-table-body').trim() || '0.93rem'
   return `600 ${size} ${resolveFontFamily()}`
 }
 

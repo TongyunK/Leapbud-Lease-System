@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue'
 import { useUserStore } from '@/stores/user'
 
-/** 业务资源按钮权限（create / update / delete / import / batchDelete；个别模块另有 purge） */
+/** 业务资源按钮权限（create / update / delete / import / batchDelete；个别模块另有 purge / unlock） */
 export function useResourcePermissions(resource: string) {
   const userStore = useUserStore()
 
@@ -13,6 +13,7 @@ export function useResourcePermissions(resource: string) {
     batchDelete: `${resource}:batchDelete`,
     purge: `${resource}:purge`,
     batchPurge: `${resource}:batchPurge`,
+    unlock: `${resource}:unlock`,
   } as const
 
   const create = computed(() => userStore.can(codes.create))
@@ -22,6 +23,7 @@ export function useResourcePermissions(resource: string) {
   const batchDelete = computed(() => userStore.can(codes.batchDelete))
   const purge = computed(() => userStore.can(codes.purge))
   const batchPurge = computed(() => userStore.can(codes.batchPurge))
+  const unlock = computed(() => userStore.can(codes.unlock))
   const anyWrite = computed(
     () =>
       create.value ||
@@ -30,7 +32,8 @@ export function useResourcePermissions(resource: string) {
       importPerm.value ||
       batchDelete.value ||
       purge.value ||
-      batchPurge.value,
+      batchPurge.value ||
+      unlock.value,
   )
   const canEditOrDelete = computed(() => update.value || remove.value || purge.value)
 
@@ -45,6 +48,7 @@ export function useResourcePermissions(resource: string) {
     batchDelete,
     purge,
     batchPurge,
+    unlock,
     anyWrite,
     canEditOrDelete,
   })

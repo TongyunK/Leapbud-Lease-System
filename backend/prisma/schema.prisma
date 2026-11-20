@@ -183,6 +183,10 @@ model User {
   email        String     @default("")
   /// 最后登录时间（成功登录时写入；未登录过为空）
   lastLoginAt  DateTime?  @map("last_login_at")
+  /// 连续密码错误次数（成功登录清零）
+  failedLoginCount Int @default(0) @map("failed_login_count")
+  /// 登录锁定截止时间（冷却结束前不可登录；空表示未锁定）
+  loginLockedUntil DateTime? @map("login_locked_until")
   /// 创建人用户 ID
   createdById  String?    @map("created_by")
   /// 创建人用户
@@ -215,6 +219,18 @@ model User {
   createdCustomerSourceOptions CustomerSourceOption[] @relation("CustomerSourceOptionCreatedBy")
   /// 作为更新人：客户来源
   updatedCustomerSourceOptions CustomerSourceOption[] @relation("CustomerSourceOptionUpdatedBy")
+  /// 作为创建人：WhatsApp 商业号码
+  createdWhatsappBusinessNumbers WhatsappBusinessNumber[] @relation("WhatsappBusinessNumberCreatedBy")
+  /// 作为更新人：WhatsApp 商业号码
+  updatedWhatsappBusinessNumbers WhatsappBusinessNumber[] @relation("WhatsappBusinessNumberUpdatedBy")
+  /// 作为创建人：WhatsApp 发送模板
+  createdWhatsappTemplates WhatsappTemplate[] @relation("WhatsappTemplateCreatedBy")
+  /// 作为更新人：WhatsApp 发送模板
+  updatedWhatsappTemplates WhatsappTemplate[] @relation("WhatsappTemplateUpdatedBy")
+  /// 作为创建人：WhatsApp 模板分类
+  createdWhatsappTemplateCategories WhatsappTemplateCategory[] @relation("WhatsappTemplateCategoryCreatedBy")
+  /// 作为更新人：WhatsApp 模板分类
+  updatedWhatsappTemplateCategories WhatsappTemplateCategory[] @relation("WhatsappTemplateCategoryUpdatedBy")
   /// 可访问的大厦（管理员不使用此表，默认可看全部）
   userBuildings            UserBuilding[]
   /// 作为创建人：大厦
@@ -504,6 +520,136 @@ model CustomerSourceOption {
   @@map("customer_source_options")
 }
 
+/// WhatsApp 商业发送号码（系统设置维护；大厦下拉选用）
+model WhatsappBusinessNumber {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 显示名（业务唯一）
+  label       String   @unique
+  /// 商业号码（含区号，业务唯一）
+  phoneNumber String   @unique @map("phone_number")
+  /// 说明／备注
+  remark      String   @default("")
+  /// 排序权重，越小越靠前
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 是否启用（停用后新选不下拉展示；已绑定可保留）
+  active      Boolean  @default(true)
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("WhatsappBusinessNumberCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("WhatsappBusinessNumberUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  /// 选用此号码的大厦
+  buildings   Building[]
+
+  @@index([active, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("whatsapp_business_numbers")
+}
+
+/// WhatsApp 发送模板分类（系统设置维护；模板按分类关联大厦）
+model WhatsappTemplateCategory {
+  /// 主键
+  id          String   @id @default(cuid())
+  /// 稳定编码（发信／排程用，业务唯一）
+  code        String   @unique
+  /// 显示名（业务唯一）
+  label       String   @unique
+  /// 列表胶囊色调（与前端 StatusBadge tone 一致：idle/signing/contracting/leased/leasing/terminating/active/disabled/neutral）
+  badgeTone   String   @default("neutral") @map("badge_tone")
+  /// 说明／备注
+  remark      String   @default("")
+  /// 排序权重，越小越靠前
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 是否启用（停用后新选不下拉展示；已绑定可保留）
+  active      Boolean  @default(true)
+  /// 创建人用户 ID
+  createdById String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?  @relation("WhatsappTemplateCategoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?  @relation("WhatsappTemplateCategoryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  /// 此分类下的发送模板
+  templates   WhatsappTemplate[]
+
+  @@index([active, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("whatsapp_template_categories")
+}
+
+/// WhatsApp 发送模板 ↔ 大厦（多对多：一模板可绑多座大厦）
+model WhatsappTemplateBuilding {
+  /// 模板 ID
+  templateId String @map("template_id")
+  /// 所属模板
+  template   WhatsappTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  /// 大厦 ID
+  buildingId String @map("building_id")
+  /// 所属大厦
+  building   Building @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+
+  @@id([templateId, buildingId])
+  @@index([buildingId])
+  @@map("whatsapp_template_buildings")
+}
+
+/// WhatsApp 发送模板（按分类；可关联多座大厦）
+model WhatsappTemplate {
+  /// 主键
+  id           String   @id @default(cuid())
+  /// 模板分类 ID
+  categoryId   String   @map("category_id")
+  /// 模板分类
+  category     WhatsappTemplateCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  /// 关联大厦（多对多）
+  buildings    WhatsappTemplateBuilding[]
+  /// 显示名（业务唯一）
+  label        String   @unique
+  /// 发送用模板名称（业务唯一，如 Meta template name）
+  templateName String   @unique @map("template_name")
+  /// 说明／备注
+  remark       String   @default("")
+  /// 示意图（uploads 相对键；空表示未上传）
+  diagramKey   String   @default("") @map("diagram_key")
+  /// 排序权重，越小越靠前
+  sortOrder    Int      @default(0) @map("sort_order")
+  /// 是否启用（停用后新选不下拉展示；已绑定可保留）
+  active       Boolean  @default(true)
+  /// 创建人用户 ID
+  createdById  String?  @map("created_by")
+  /// 创建人用户
+  createdByUser User?   @relation("WhatsappTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 更新人用户 ID
+  updatedById  String?  @map("updated_by")
+  /// 更新人用户
+  updatedByUser User?   @relation("WhatsappTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// 创建时间
+  createdAt    DateTime @default(now()) @map("created_at")
+  /// 更新时间
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([active, sortOrder])
+  @@index([categoryId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("whatsapp_templates")
+}
+
 /// 大厦信息
 model Building {
   /// 主键
@@ -524,8 +670,8 @@ model Building {
   agreementTemplateId String? @map("agreement_template_id")
   /// 协议书模板
   agreementTemplateRef DocumentTemplate? @relation("BuildingAgreementTemplate", fields: [agreementTemplateId], references: [id], onDelete: SetNull)
-  /// API 模板名称后缀
-  apiTemplateSuffix String?  @map("api_template_suffix")
+  /// 绑定至此大厦的 WhatsApp 发送模板（多对多；同一分类业务上至多一条）
+  whatsappTemplateLinks WhatsappTemplateBuilding[]
   /// 大厦邮箱
   email             String   @default("")
   /// 工作时间
@@ -548,8 +694,12 @@ model Building {
   receiptTemplateId String?  @map("receipt_template_id")
   /// 收据模板
   receiptTemplateRef DocumentTemplate? @relation("BuildingReceiptTemplate", fields: [receiptTemplateId], references: [id], onDelete: SetNull)
-  /// 是否使用 WBA_NUMBER
-  useWbaNumber      String?  @map("use_wba_number")
+  /// WhatsApp 商业号码 ID（绑定系统设置号码目录）
+  whatsappBusinessNumberId String? @map("whatsapp_business_number_id")
+  /// WhatsApp 商业号码
+  whatsappBusinessNumberRef WhatsappBusinessNumber? @relation(fields: [whatsappBusinessNumberId], references: [id], onDelete: SetNull)
+  /// 是否开启自动发送 WhatsApp
+  whatsappAutoSendEnabled Boolean @default(false) @map("whatsapp_auto_send_enabled")
   /// 是否启用（停用后不出现在房间快捷胶囊等）
   active            Boolean  @default(true)
   /// 创建人用户 ID
@@ -577,6 +727,7 @@ model Building {
   @@index([agreementTemplateId])
   @@index([invoiceTemplateId])
   @@index([receiptTemplateId])
+  @@index([whatsappBusinessNumberId])
   @@map("buildings")
 }
 

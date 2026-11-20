@@ -9,8 +9,10 @@ withDefaults(
   defineProps<{
     urlList: string[]
     initialIndex?: number
+    /** 预览标题（如模板显示名）；有值时叠在查看器顶部 */
+    title?: string
   }>(),
-  { initialIndex: 0 },
+  { initialIndex: 0, title: '' },
 )
 
 const emit = defineEmits<{ close: [] }>()
@@ -30,4 +32,39 @@ const zIndex = allocPreviewZ()
     hide-on-click-modal
     @close="emit('close')"
   />
+  <Teleport to="body">
+    <div
+      v-if="title.trim()"
+      class="lb-attachment-image-viewer__title"
+      :style="{ zIndex: zIndex + 1 }"
+    >
+      {{ title.trim() }}
+    </div>
+  </Teleport>
 </template>
+
+<style scoped>
+.lb-attachment-image-viewer__title {
+  position: fixed;
+  /* 避开 el-image-viewer 顶部操作栏 */
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(72vw, 560px);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  color: #fff;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  background: rgba(15, 20, 18, 0.72);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+}
+</style>

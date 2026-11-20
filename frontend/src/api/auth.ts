@@ -3,7 +3,17 @@ import request from './request'
 export interface LoginPayload {
   account: string
   password: string
-  captcha?: string
+  captchaId?: string
+  captchaCode?: string
+}
+
+export interface LoginOptions {
+  captchaEnabled: boolean
+}
+
+export interface LoginCaptchaResult {
+  captchaId: string
+  imageDataUrl: string
 }
 
 export interface LoginResult {
@@ -49,11 +59,25 @@ export interface AuthMeResult {
 }
 
 export async function loginApi(payload: LoginPayload): Promise<LoginResult> {
-  const { data } = await request.post<LoginResult>('/auth/login', {
-    account: payload.account,
-    password: payload.password,
-  })
+  const { data } = await request.post<LoginResult>(
+    '/auth/login',
+    {
+      account: payload.account,
+      password: payload.password,
+      captchaId: payload.captchaId,
+      captchaCode: payload.captchaCode,
+    },
+    { silentError: true },
+  )
   return data
+}
+
+export function fetchLoginOptionsApi() {
+  return request.get<LoginOptions>('/auth/login-options', { silentError: true })
+}
+
+export function fetchLoginCaptchaApi() {
+  return request.get<LoginCaptchaResult>('/auth/captcha', { silentError: true })
 }
 
 export function fetchMeApi() {

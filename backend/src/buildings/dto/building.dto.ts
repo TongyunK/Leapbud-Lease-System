@@ -61,15 +61,15 @@ export class CreateBuildingDto {
   @IsString()
   bankAccount?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'WhatsApp 商业号码 ID；空字符串清除' })
   @IsOptional()
   @IsString()
-  apiTemplateSuffix?: string;
+  whatsappBusinessNumberId?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: '是否开启自动发送 WhatsApp' })
   @IsOptional()
-  @IsString()
-  useWbaNumber?: string;
+  @IsBoolean()
+  whatsappAutoSendEnabled?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -154,15 +154,15 @@ export class UpdateBuildingDto {
   @IsString()
   bankAccount?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'WhatsApp 商业号码 ID；空字符串清除' })
   @IsOptional()
   @IsString()
-  apiTemplateSuffix?: string;
+  whatsappBusinessNumberId?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: '是否开启自动发送 WhatsApp' })
   @IsOptional()
-  @IsString()
-  useWbaNumber?: string;
+  @IsBoolean()
+  whatsappAutoSendEnabled?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

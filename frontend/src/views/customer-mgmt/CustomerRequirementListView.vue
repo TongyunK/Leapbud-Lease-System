@@ -1147,8 +1147,12 @@ async function onImportFile(ev: Event) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading || importing">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading || importing"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
           :key="`${tableLayoutKey}-${requirementActionColWidth}`"

@@ -214,7 +214,7 @@ function onOpenReceipt(it: RefundItemRecord) {
 <style scoped>
 /* append-to-body 拿不到 .admin-page 变量，自行对齐列表表格字号断点 */
 .refund-items-shell {
-  --lb-table-body: 0.86rem;
+  --lb-table-body: 0.87rem;
   --lb-table-head: 0.82rem;
   display: flex;
   flex-direction: column;
@@ -226,21 +226,21 @@ function onOpenReceipt(it: RefundItemRecord) {
 
 @media (max-width: 1279.98px) {
   .refund-items-shell {
-    --lb-table-body: 0.83rem;
+    --lb-table-body: 0.84rem;
     --lb-table-head: 0.78rem;
   }
 }
 
 @media (min-width: 1440px) {
   .refund-items-shell {
-    --lb-table-body: 0.89rem;
+    --lb-table-body: 0.93rem;
     --lb-table-head: 0.85rem;
   }
 }
 
 @media (min-width: 1800px) {
   .refund-items-shell {
-    --lb-table-body: 0.93rem;
+    --lb-table-body: 0.97rem;
     --lb-table-head: 0.89rem;
   }
 }

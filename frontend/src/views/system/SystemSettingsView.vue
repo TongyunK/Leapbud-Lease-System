@@ -6,6 +6,8 @@ import {
   Ticket,
   Message,
   Brush,
+  Lock,
+  ChatDotRound,
   QuestionFilled,
   RefreshRight,
   Plus,
@@ -14,13 +16,14 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 import { fetchSystemSettings, updateSystemSettingsApi } from '@/api/system-settings'
 import { uploadAttachmentApi } from '@/api/uploads'
 import AttachmentImageViewer from '@/components/AttachmentImageViewer.vue'
+import WhatsappSettingsPanel from '@/components/WhatsappSettingsPanel.vue'
 import { useBrandingStore, DEFAULT_BRANDING } from '@/stores/branding'
 import { isHexColor } from '@/utils/brandTheme'
 import { probeImageHasTransparency } from '@/utils/logoFrame'
 import { formatDateTime } from '@/utils/format'
 import type { BrandingConfig, MailSmtpConfig } from '@/types/system-setting'
 
-type SettingsSectionId = 'branding' | 'billing' | 'mail'
+type SettingsSectionId = 'branding' | 'billing' | 'mail' | 'login' | 'whatsapp'
 
 const PASSWORD_MASK = '********'
 const DEFAULT_LOGO = '/leapbud_logo.png'
@@ -56,12 +59,18 @@ const defaultBranding = (): BrandingConfig => ({ ...DEFAULT_BRANDING })
 
 const form = reactive({
   rentInvoiceLeadDays: 7,
+  loginMaxFailedAttempts: 5,
+  loginLockoutMinutes: 15,
+  loginCaptchaEnabled: false,
   mailSmtp: defaultMail(),
   branding: defaultBranding(),
 })
 
 const snapshot = reactive({
   rentInvoiceLeadDays: 7,
+  loginMaxFailedAttempts: 5,
+  loginLockoutMinutes: 15,
+  loginCaptchaEnabled: false,
   mailSmtp: defaultMail(),
   branding: defaultBranding(),
 })
@@ -84,6 +93,18 @@ const sections = computed(() => [
     icon: Message,
     title: t('systemSettings.sections.mail'),
     desc: t('systemSettings.sections.mailNavDesc'),
+  },
+  {
+    id: 'login' as const,
+    icon: Lock,
+    title: t('systemSettings.sections.login'),
+    desc: t('systemSettings.sections.loginNavDesc'),
+  },
+  {
+    id: 'whatsapp' as const,
+    icon: ChatDotRound,
+    title: t('systemSettings.sections.whatsapp'),
+    desc: t('systemSettings.sections.whatsappNavDesc'),
   },
 ])
 
@@ -134,6 +155,9 @@ function brandingEqual(a: BrandingConfig, b: BrandingConfig) {
 function markDirty() {
   dirty.value =
     Math.trunc(Number(form.rentInvoiceLeadDays)) !== snapshot.rentInvoiceLeadDays ||
+    Math.trunc(Number(form.loginMaxFailedAttempts)) !== snapshot.loginMaxFailedAttempts ||
+    Math.trunc(Number(form.loginLockoutMinutes)) !== snapshot.loginLockoutMinutes ||
+    !!form.loginCaptchaEnabled !== !!snapshot.loginCaptchaEnabled ||
     !mailEqual(form.mailSmtp, snapshot.mailSmtp) ||
     !brandingEqual(form.branding, snapshot.branding)
 }
@@ -164,6 +188,9 @@ function applyBranding(src: BrandingConfig | null | undefined): BrandingConfig {
 
 function applySnapshot() {
   snapshot.rentInvoiceLeadDays = Math.trunc(Number(form.rentInvoiceLeadDays)) || 7
+  snapshot.loginMaxFailedAttempts = Math.trunc(Number(form.loginMaxFailedAttempts)) || 5
+  snapshot.loginLockoutMinutes = Math.trunc(Number(form.loginLockoutMinutes)) || 15
+  snapshot.loginCaptchaEnabled = !!form.loginCaptchaEnabled
   snapshot.mailSmtp = { ...form.mailSmtp }
   snapshot.branding = { ...form.branding }
   dirty.value = false
@@ -187,6 +214,9 @@ async function load() {
   try {
     const { data } = await fetchSystemSettings()
     form.rentInvoiceLeadDays = data.rentInvoiceLeadDays
+    form.loginMaxFailedAttempts = data.loginMaxFailedAttempts ?? 5
+    form.loginLockoutMinutes = data.loginLockoutMinutes ?? 15
+    form.loginCaptchaEnabled = !!data.loginCaptchaEnabled
     form.mailSmtp = applyMail(data.mailSmtp || defaultMail())
     form.branding = applyBranding(data.branding)
     meta.updatedAt = data.updatedAt
@@ -204,6 +234,9 @@ async function load() {
 
 function resetForm() {
   form.rentInvoiceLeadDays = snapshot.rentInvoiceLeadDays
+  form.loginMaxFailedAttempts = snapshot.loginMaxFailedAttempts
+  form.loginLockoutMinutes = snapshot.loginLockoutMinutes
+  form.loginCaptchaEnabled = snapshot.loginCaptchaEnabled
   form.mailSmtp = { ...snapshot.mailSmtp }
   form.branding = { ...snapshot.branding }
   dirty.value = false
@@ -260,6 +293,20 @@ async function save() {
     })
     return
   }
+  const maxFailed = Math.trunc(Number(form.loginMaxFailedAttempts))
+  if (!Number.isFinite(maxFailed) || maxFailed < 1 || maxFailed > 30) {
+    await ElMessageBox.alert(t('systemSettings.loginMaxFailedInvalid'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
+  const lockMinutes = Math.trunc(Number(form.loginLockoutMinutes))
+  if (!Number.isFinite(lockMinutes) || lockMinutes < 1 || lockMinutes > 1440) {
+    await ElMessageBox.alert(t('systemSettings.loginLockoutMinutesInvalid'), t('common.tip'), {
+      type: 'warning',
+    })
+    return
+  }
   const host = form.mailSmtp.host.trim()
   const email = form.mailSmtp.email.trim()
   if (!host || !email) {
@@ -286,6 +333,9 @@ async function save() {
     const pwd = form.mailSmtp.password
     const { data } = await updateSystemSettingsApi({
       rentInvoiceLeadDays: days,
+      loginMaxFailedAttempts: maxFailed,
+      loginLockoutMinutes: lockMinutes,
+      loginCaptchaEnabled: !!form.loginCaptchaEnabled,
       mailSmtp: {
         host,
         port: Math.trunc(Number(form.mailSmtp.port)) || 587,
@@ -303,6 +353,9 @@ async function save() {
       },
     })
     form.rentInvoiceLeadDays = data.rentInvoiceLeadDays
+    form.loginMaxFailedAttempts = data.loginMaxFailedAttempts ?? maxFailed
+    form.loginLockoutMinutes = data.loginLockoutMinutes ?? lockMinutes
+    form.loginCaptchaEnabled = !!data.loginCaptchaEnabled
     form.mailSmtp = applyMail(data.mailSmtp || defaultMail())
     form.branding = applyBranding(data.branding)
     meta.updatedAt = data.updatedAt
@@ -347,12 +400,15 @@ onMounted(() => {
     </aside>
 
     <div class="system-settings__main">
-      <div class="system-settings__canvas">
+      <div
+        class="system-settings__canvas"
+        :class="{ 'system-settings__canvas--fill': activeSection === 'whatsapp' }"
+      >
         <el-form label-position="top" class="system-settings__form" @submit.prevent>
           <section v-if="activeSection === 'branding'" class="settings-card">
             <header class="settings-card__head">
               <div class="settings-card__icon" aria-hidden="true">
-                <el-icon :size="22"><Brush /></el-icon>
+                <el-icon :size="19"><Brush /></el-icon>
               </div>
               <div class="settings-card__head-text">
                 <h3 class="settings-card__title">
@@ -362,7 +418,7 @@ onMounted(() => {
                     placement="top"
                     :fallback-placements="['top', 'left', 'right']"
                   >
-                    <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </h3>
               </div>
@@ -492,7 +548,7 @@ onMounted(() => {
           <section v-else-if="activeSection === 'billing'" class="settings-card">
             <header class="settings-card__head">
               <div class="settings-card__icon" aria-hidden="true">
-                <el-icon :size="22"><Ticket /></el-icon>
+                <el-icon :size="19"><Ticket /></el-icon>
               </div>
               <div class="settings-card__head-text">
                 <h3 class="settings-card__title">
@@ -502,7 +558,7 @@ onMounted(() => {
                     placement="top"
                     :fallback-placements="['top', 'left', 'right']"
                   >
-                    <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </h3>
               </div>
@@ -541,10 +597,115 @@ onMounted(() => {
             </div>
           </section>
 
+          <section v-else-if="activeSection === 'login'" class="settings-card">
+            <header class="settings-card__head">
+              <div class="settings-card__icon" aria-hidden="true">
+                <el-icon :size="19"><Lock /></el-icon>
+              </div>
+              <div class="settings-card__head-text">
+                <h3 class="settings-card__title">
+                  <span>{{ t('systemSettings.sections.login') }}</span>
+                  <el-tooltip
+                    :content="t('systemSettings.sections.loginDesc')"
+                    placement="top"
+                    :fallback-placements="['top', 'left', 'right']"
+                  >
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </h3>
+              </div>
+            </header>
+
+            <div class="settings-card__body">
+              <div class="field-block field-block--inline">
+                <div class="field-block__copy">
+                  <label class="field-block__label" for="ss-login-max-failed">
+                    <span>{{ t('systemSettings.fields.loginMaxFailedAttempts') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.loginMaxFailedAttempts')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                </div>
+                <div class="field-block__control field-block__control--compact">
+                  <el-input-number
+                    id="ss-login-max-failed"
+                    v-model="form.loginMaxFailedAttempts"
+                    class="settings-num"
+                    size="large"
+                    :min="1"
+                    :max="30"
+                    :step="1"
+                    :disabled="!perms.update"
+                    controls-position="right"
+                    @change="markDirty"
+                  />
+                  <span class="field-block__unit">{{ t('systemSettings.unit.times') }}</span>
+                </div>
+              </div>
+
+              <div class="field-block field-block--inline">
+                <div class="field-block__copy">
+                  <label class="field-block__label" for="ss-login-lockout-minutes">
+                    <span>{{ t('systemSettings.fields.loginLockoutMinutes') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.loginLockoutMinutes')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                </div>
+                <div class="field-block__control field-block__control--compact">
+                  <el-input-number
+                    id="ss-login-lockout-minutes"
+                    v-model="form.loginLockoutMinutes"
+                    class="settings-num"
+                    size="large"
+                    :min="1"
+                    :max="1440"
+                    :step="1"
+                    :disabled="!perms.update"
+                    controls-position="right"
+                    @change="markDirty"
+                  />
+                  <span class="field-block__unit">{{ t('systemSettings.unit.minutes') }}</span>
+                </div>
+              </div>
+
+              <div class="field-block field-block--inline">
+                <div class="field-block__copy">
+                  <label class="field-block__label" for="ss-login-captcha">
+                    <span>{{ t('systemSettings.fields.loginCaptchaEnabled') }}</span>
+                    <el-tooltip
+                      :content="t('systemSettings.hints.loginCaptchaEnabled')"
+                      placement="top"
+                      :fallback-placements="['top', 'left', 'right']"
+                    >
+                      <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </label>
+                </div>
+                <div class="field-block__control field-block__control--compact">
+                  <el-switch
+                    id="ss-login-captcha"
+                    v-model="form.loginCaptchaEnabled"
+                    :disabled="!perms.update"
+                    @change="markDirty"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section v-else-if="activeSection === 'mail'" class="settings-card">
             <header class="settings-card__head">
               <div class="settings-card__icon" aria-hidden="true">
-                <el-icon :size="22"><Message /></el-icon>
+                <el-icon :size="19"><Message /></el-icon>
               </div>
               <div class="settings-card__head-text">
                 <h3 class="settings-card__title">
@@ -554,7 +715,7 @@ onMounted(() => {
                     placement="top"
                     :fallback-placements="['top', 'left', 'right']"
                   >
-                    <el-icon class="settings-tip" :size="16"><QuestionFilled /></el-icon>
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </h3>
               </div>
@@ -686,10 +847,33 @@ onMounted(() => {
               </div>
             </div>
           </section>
+
+          <section v-else-if="activeSection === 'whatsapp'" class="settings-card">
+            <header class="settings-card__head">
+              <div class="settings-card__icon" aria-hidden="true">
+                <el-icon :size="19"><ChatDotRound /></el-icon>
+              </div>
+              <div class="settings-card__head-text">
+                <h3 class="settings-card__title">
+                  <span>{{ t('systemSettings.sections.whatsapp') }}</span>
+                  <el-tooltip
+                    :content="t('systemSettings.sections.whatsappDesc')"
+                    placement="top"
+                    :fallback-placements="['top', 'left', 'right']"
+                  >
+                    <el-icon class="settings-tip" :size="15"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </h3>
+              </div>
+            </header>
+            <div class="settings-card__body settings-card__body--fill">
+              <WhatsappSettingsPanel />
+            </div>
+          </section>
         </el-form>
       </div>
 
-      <footer class="system-settings__footer">
+      <footer v-if="activeSection !== 'whatsapp'" class="system-settings__footer">
         <div class="system-settings__meta">
           <template v-if="meta.updatedAt">
             {{
@@ -743,6 +927,32 @@ onMounted(() => {
   height: 100%;
   min-height: 0;
   font-size: var(--ss-body);
+}
+
+/* 小屏（约 14 寸笔记本）：设置分类侧栏略收窄，给右侧表格更多横向空间 */
+@media (max-width: 1439.98px) {
+  .system-settings {
+    grid-template-columns: 168px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .system-settings__nav {
+    padding: 8px;
+  }
+
+  .system-settings__nav-item {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .system-settings__nav-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .system-settings__nav-desc {
+    display: none;
+  }
 }
 
 .system-settings__nav {
@@ -856,6 +1066,16 @@ onMounted(() => {
   padding-right: 2px;
 }
 
+.system-settings__canvas--fill {
+  overflow: hidden;
+}
+
+.system-settings__canvas--fill .system-settings__form,
+.system-settings__canvas--fill .settings-card {
+  min-height: 0;
+  height: 100%;
+}
+
 .system-settings__form {
   display: flex;
   flex-direction: column;
@@ -881,9 +1101,9 @@ onMounted(() => {
 
 .settings-card__head {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px 18px 14px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #ebebeb);
   /* 勿再叠旧橙色 radial（accent #d9822b）；仅中性浅灰 + 主题淡染 */
   background: linear-gradient(
@@ -896,9 +1116,9 @@ onMounted(() => {
 .settings-card__icon {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   flex-shrink: 0;
   color: var(--lb-brand, #0f4a32);
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
@@ -913,7 +1133,8 @@ onMounted(() => {
 
 .settings-card__head-text {
   min-width: 0;
-  padding-top: 1px;
+  display: flex;
+  align-items: center;
 }
 
 .settings-card__title {
@@ -921,9 +1142,9 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 1.18rem;
+  font-size: 1.08rem;
   font-weight: 750;
-  line-height: 1.3;
+  line-height: 1.2;
   color: var(--lb-ink, #1a1a1a);
   letter-spacing: 0.01em;
 }
@@ -943,6 +1164,18 @@ onMounted(() => {
   flex: 1 1 auto;
   min-height: 0;
   padding: 16px 18px 18px;
+}
+
+.settings-card__body--fill {
+  display: flex;
+  flex-direction: column;
+  /* WhatsApp 等满高面板：收紧标题栏与内容（Tab）间距；用完整 padding 避免被媒体查询简写冲掉 */
+  padding: 8px 18px 18px;
+}
+
+.settings-card__body--fill > * {
+  flex: 1;
+  min-height: 0;
 }
 
 /* 小屏（笔记本宽度）：一行两列；大屏（≥1440）：单列通栏 */
@@ -1064,6 +1297,10 @@ onMounted(() => {
   border-radius: 12px;
   background: color-mix(in srgb, var(--lb-brand, #0f4a32) 3%, #f5f5f5);
   border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 10%, #e6e6e6);
+}
+
+.settings-card__body > .field-block--inline + .field-block--inline {
+  margin-top: 12px;
 }
 
 .field-block__copy {
@@ -1352,11 +1589,15 @@ onMounted(() => {
   }
 
   .settings-card__title {
-    font-size: 1.1rem;
+    font-size: 1rem;
   }
 
   .settings-card__body {
     padding: 14px 16px 16px;
+  }
+
+  .settings-card__body--fill {
+    padding: 6px 16px 16px;
   }
 
   .field-grid {

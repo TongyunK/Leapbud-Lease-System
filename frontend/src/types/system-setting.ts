@@ -31,6 +31,9 @@ export type BrandingConfig = {
 
 export type SystemSettings = {
   rentInvoiceLeadDays: number
+  loginMaxFailedAttempts: number
+  loginLockoutMinutes: number
+  loginCaptchaEnabled: boolean
   contractExpiringSoon: ContractExpiringSoonConfig
   mailSmtp: MailSmtpConfig
   branding: BrandingConfig
@@ -40,6 +43,9 @@ export type SystemSettings = {
 
 export type UpdateSystemSettingsPayload = {
   rentInvoiceLeadDays: number
+  loginMaxFailedAttempts: number
+  loginLockoutMinutes: number
+  loginCaptchaEnabled: boolean
   mailSmtp?: UpdateMailSmtpPayload
   branding?: UpdateBrandingPayload
 }

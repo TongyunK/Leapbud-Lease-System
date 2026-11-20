@@ -22,6 +22,7 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import { formatDateTime } from '@/utils/format'
@@ -393,6 +394,7 @@ function triggerLabel(trigger: string) {
 <template>
   <div class="admin-page scheduled-jobs-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <div class="head-title-block">
         <h2>{{ t('menu.scheduledJobs') }}</h2>
       </div>
@@ -408,8 +410,12 @@ function triggerLabel(trigger: string) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           :key="tableLayoutKey"
           :data="paged"

@@ -20,6 +20,7 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import RoomTypeBadge from '@/components/RoomTypeBadge.vue'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
 import BatchProgressDialog from '@/components/BatchProgressDialog.vue'
@@ -256,6 +257,7 @@ async function toggleActive(row: RoomTypeOption) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.roomTypes') }}</h2>
       <div class="head-actions">
         <ClearTableFiltersButton :count="activeConditionCount" @clear="clearAll" />
@@ -265,8 +267,12 @@ async function toggleActive(row: RoomTypeOption) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
           :key="`${tableLayoutKey}-${listActionColWidth}`"

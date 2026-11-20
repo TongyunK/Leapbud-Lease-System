@@ -3,23 +3,124 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+const whatsappBusinessNumbers = [
+  {
+    id: 'wbn_85265500398',
+    label: '85265500398',
+    phoneNumber: '85265500398',
+    sortOrder: 1,
+    active: true,
+  },
+];
+
+const whatsappTemplateCategories = [
+  {
+    id: 'wa_cat_monthly_invoice',
+    code: 'monthly_invoice',
+    label: '月度賬單發送',
+    badgeTone: 'leased',
+    remark: '每月租金／賬單發送',
+    sortOrder: 0,
+    active: true,
+  },
+  {
+    id: 'wa_cat_payment_reminder',
+    code: 'payment_reminder',
+    label: '繳費提醒',
+    badgeTone: 'signing',
+    remark: '繳費截止前提醒',
+    sortOrder: 1,
+    active: true,
+  },
+  {
+    id: 'wa_cat_overdue_handling_fee',
+    code: 'overdue_handling_fee',
+    label: '逾期手續費提醒',
+    badgeTone: 'terminating',
+    remark: '超時未繳費逾期 n 天加收手續費提醒',
+    sortOrder: 2,
+    active: true,
+  },
+];
+
+/** 演示：每座大厦一条「月度賬單」模板（分类固定为 monthly_invoice；可绑多座大厦） */
+const whatsappTemplates = [
+  {
+    id: 'wt_ceo06',
+    buildingIds: ['b1'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: 'ceo06',
+    templateName: 'ceo06',
+    sortOrder: 1,
+    active: true,
+  },
+  {
+    id: 'wt_6sp',
+    buildingIds: ['b2'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: '6sp',
+    templateName: '6sp',
+    sortOrder: 2,
+    active: true,
+  },
+  {
+    id: 'wt_tl5',
+    buildingIds: ['b3'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: 'tl5',
+    templateName: 'tl5',
+    sortOrder: 3,
+    active: true,
+  },
+  {
+    id: 'wt_sp03',
+    buildingIds: ['b4'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: 'sp03',
+    templateName: 'sp03',
+    sortOrder: 4,
+    active: true,
+  },
+  {
+    id: 'wt_sp',
+    buildingIds: ['b5'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: 'sp',
+    templateName: 'sp',
+    sortOrder: 5,
+    active: true,
+  },
+  {
+    id: 'wt_kt9',
+    buildingIds: ['b6'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: 'kt9',
+    templateName: 'kt9',
+    sortOrder: 6,
+    active: true,
+  },
+  {
+    id: 'wt_kt9_legacy',
+    buildingIds: ['b7'],
+    categoryId: 'wa_cat_monthly_invoice',
+    label: 'kt9_legacy',
+    templateName: 'kt9_legacy',
+    sortOrder: 7,
+    active: false,
+  },
+];
+
 const buildings = [
   {
     id: 'b1',
     name: '環薈中心',
     address: '香港九龍荔枝角永康街77號環薈中心',
     addressEn: '77 Wing Hong Street, lai Chi Kok, Kowloon, Hong Kong',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260610/1781072979705_環薈中心 協議書2.0 20260427.xlsx',
-    apiTemplateSuffix: 'ceo06',
     workingHours: 'Mon-Fri 9am-6pm',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260427/1777271389655_INVOICE_ROOM.xlsx',
     bankAccountHolder: 'Leapxen Company Limited',
     bankAccount: '012-58621488812',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260430/1777515570961_收据D118.xlsx',
-    useWbaNumber: '85265500398',
+    whatsappBusinessNumberId: 'wbn_85265500398',
+    whatsappAutoSendEnabled: false,
     email: '',
     manager: '',
     managerPhone: '',
@@ -31,16 +132,10 @@ const buildings = [
     addressEn: '3/F., PHS 6 HK SPINNERS IND BLDG.NO. 481 CASTLE PEAK ROAD, KLN., H.K.',
     manager: '黃小姐',
     managerPhone: '84988116',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260320/1773990687060_紗廠6期3樓協議書1.0-20251024.xlsx',
-    apiTemplateSuffix: '6sp',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250509/1746754753774_複本 紗廠6期INV_2(3).xlsx',
+    whatsappAutoSendEnabled: false,
     fpsId: '117456723',
     bankAccountHolder: 'BOC:01 SQUARE LIMITED',
     bankAccount: '012-898-2-050261-1',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250728/1753671263303_紗廠6期收據.xlsx',
     email: '',
     workingHours: '',
   },
@@ -51,11 +146,7 @@ const buildings = [
     addressEn: '5/F, New Timely Factory Building, 497 Castle Peak Road, Lai Chi Kok, Kowloon. H.K.',
     manager: '黃小姐',
     managerPhone: '84898116',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260320/1773991111083_時來工業大廈 協議書3.0 20260320.xlsx',
-    apiTemplateSuffix: 'tl5',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250609/1749438299917_INVOICE_ROOM.xlsx',
+    whatsappAutoSendEnabled: false,
     fpsId: '116275025',
     bankAccountHolder: 'Leapbud Management Ltd',
     bankAccount: 'HSBC : 129-496485-001',
@@ -63,8 +154,6 @@ const buildings = [
       'The crossed cheque should make payable to " Leapbud Management Limited " and send to Rm.SP57 Flat D, 2/F., HONG KONG SPINNERS INDUSTRIAL BUILDING PHASE 5, 760-762 CHEUNG SHA WAN ROAD, LAI CHI KOK, KLN.',
     paymentAdvice:
       'Leapbud Management Limited\n5/F NEW TIMELY FACTORY BUILDING\nNO.497 CASTLE PEAK ROAD KOWLOON',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250401/1743475634462_1737601364667_1724004313867_1723797768710_收据D118.xlsx',
     email: '',
     workingHours: '',
   },
@@ -76,11 +165,7 @@ const buildings = [
       'Flat C2 ., 3/F, Hong Kong Spinners Industrial Building Phase 5, 760-762 Cheung Sha Wan Road , Lai Chi Kok, Kowloon. H.K.',
     manager: '黃小姐',
     managerPhone: '84898116',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260320/1773991122049_紗廠3樓 協議書 3.0 20260320.xlsx',
-    apiTemplateSuffix: 'sp03',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250609/1749438313418_INVOICE_ROOM.xlsx',
+    whatsappAutoSendEnabled: false,
     fpsId: '116831603',
     bankAccountHolder: 'Leapbud Management Ltd',
     bankAccount: 'HSBC:129-496493-001',
@@ -88,8 +173,6 @@ const buildings = [
       'The crossed cheque should make payable to " Leapbud Management Limited " and send to Rm.SP57 Flat D, 2/F., HONG KONG SPINNERS INDUSTRIAL BUILDING PHASE 5, 760-762 CHEUNG SHA WAN ROAD, LAI CHI KOK, KLN.',
     paymentAdvice:
       'Leapbud Management Limited\nUnit D 2/F Hong Kong Spinners Industrial \nBuilding Phase V\n760-762 Cheung Sha Wan Road\nKOWLOON\nHONG KONG',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250401/1743475663440_1737601364667_1724004313867_1723797768710_收据D118.xlsx',
     email: '',
     workingHours: '',
   },
@@ -101,11 +184,7 @@ const buildings = [
       'Flat D ., 2/F, Hong Kong Spinners Industrial Building Phase 5, 760-762 Cheung Sha Wan Road , Lai Chi Kok, Kowloon. H.K.',
     manager: '黃小姐',
     managerPhone: '84898116',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260320/1773991228829_紗廠2樓 協議書3.0 20260320.xlsx',
-    apiTemplateSuffix: 'sp',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250609/1749438386554_INVOICE_ROOM.xlsx',
+    whatsappAutoSendEnabled: false,
     fpsId: '116313404',
     bankAccountHolder: 'Leapbud Management Ltd',
     bankAccount: 'HSBC : 129-496519-001',
@@ -113,8 +192,6 @@ const buildings = [
       'The crossed cheque should make payable to " Leapbud Management Limited " and send to Flat D, 2/F., HONG KONG SPINNERS INDUSTRIAL BUILDING PHASE 5, 760-762 CHEUNG SHA WAN ROAD, LAI CHI KOK, KLN.,',
     paymentAdvice:
       'Leapbud Management Limited\nUnit D, 2/F., Hong Kong Spinners Industrial \nBuilding Phase 5,\n760-762 Cheung Sha Wan Road\nLAI CHI KOK, KLN\nHONG KONG',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250401/1743475670050_1737601364667_1724004313867_1723797768710_收据D118.xlsx',
     email: '',
     workingHours: '',
   },
@@ -125,11 +202,7 @@ const buildings = [
     addressEn: '9/F, Ka To Factory Building, 2 Cheung Yue Street, Lai Chi Kok, Kowloon. H.K.',
     manager: '黃小姐',
     managerPhone: '84898116',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260320/1773991136354_嘉圖協議書-2024版 3.0 20260320.xlsx',
-    apiTemplateSuffix: 'kt9',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250609/1749438400679_INVOICE_ROOM.xlsx',
+    whatsappAutoSendEnabled: false,
     fpsId: '116394875',
     bankAccountHolder: 'Leapbud Management Ltd',
     bankAccount: 'HSBC : 129-496501-001',
@@ -137,8 +210,6 @@ const buildings = [
       'The crossed cheque should make payable to " Leapbud Management Limited " and send to Rm.SP57 Flat D, 2/F., HONG KONG SPINNERS INDUSTRIAL BUILDING PHASE 5, 760-762 CHEUNG SHA WAN ROAD, LAI CHI KOK, KLN.',
     paymentAdvice:
       'LEAPSING COMPANY LIMITED\n9/F, Ka To Factory Building,\n2 CHEUNG YUE STREET, LAI CHI KOK,\nKOWLOON.',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250401/1743475692421_1737601364667_1724004313867_1723797768710_收据D118.xlsx',
     email: '',
     workingHours: '',
   },
@@ -149,11 +220,7 @@ const buildings = [
     addressEn: '9/F, Ka To Factory Building, 2 Cheung Yue Street, Lai Chi Kok, Kowloon. H.K.',
     manager: '黃小姐',
     managerPhone: '84898116',
-    agreementTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20260320/1773991147419_嘉圖協議書-2024版 (2) - 副本.xlsx',
-    apiTemplateSuffix: 'kt9',
-    invoiceTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250328/1743130958303_INVOICE_ROOM.xlsx',
+    whatsappAutoSendEnabled: false,
     fpsId: '105582373',
     bankAccountHolder: 'LEAPSING COMPANY LIMITED',
     bankAccount: 'HSBC : 521-168179-001',
@@ -161,8 +228,6 @@ const buildings = [
       'The crossed cheque should make payable to " LEAPSING COMPANY LIMITED " and send to Rm.SP57 Flat D, 2/F., HONG KONG SPINNERS INDUSTRIAL BUILDING PHASE 5, 760-762 CHEUNG SHA WAN ROAD, LAI CHI KOK, KLN.',
     paymentAdvice:
       'LEAPSING COMPANY LIMITED\n9/F, Ka To Factory Building,\n2 CHEUNG YUE STREET, LAI CHI KOK,\nKOWLOON.',
-    receiptTemplate:
-      '/upload/project/6690fb969f515600ad6667bd/main/file/20250401/1743475699376_1737601364667_1724004313867_1723797768710_收据D118.xlsx',
     email: '',
     workingHours: '',
     active: false,
@@ -330,11 +395,49 @@ async function main() {
   // 迁移旧演示账号 staff → user（若仍存在）
   await prisma.user.deleteMany({ where: { account: 'staff' } });
 
+  for (const n of whatsappBusinessNumbers) {
+    await prisma.whatsappBusinessNumber.upsert({
+      where: { id: n.id },
+      create: { ...n, createdById: admin.id, updatedById: admin.id },
+      update: n,
+    });
+  }
+
+  for (const c of whatsappTemplateCategories) {
+    await prisma.whatsappTemplateCategory.upsert({
+      where: { id: c.id },
+      create: { ...c, createdById: admin.id, updatedById: admin.id },
+      update: c,
+    });
+  }
+
   for (const b of buildings) {
     await prisma.building.upsert({
       where: { id: b.id },
       create: { ...b, createdById: admin.id, updatedById: admin.id },
       update: b,
+    });
+  }
+
+  for (const t of whatsappTemplates) {
+    const { buildingIds, ...tpl } = t;
+    await prisma.whatsappTemplate.upsert({
+      where: { id: t.id },
+      create: {
+        ...tpl,
+        createdById: admin.id,
+        updatedById: admin.id,
+        buildings: {
+          create: buildingIds.map((buildingId) => ({ buildingId })),
+        },
+      },
+      update: {
+        ...tpl,
+        buildings: {
+          deleteMany: {},
+          create: buildingIds.map((buildingId) => ({ buildingId })),
+        },
+      },
     });
   }
 

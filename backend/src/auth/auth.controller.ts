@@ -25,6 +25,18 @@ export class AuthController {
     private readonly jwt: JwtService,
   ) {}
 
+  /** 公开：登录选项（是否开启机器人验证） */
+  @Get('login-options')
+  loginOptions() {
+    return this.authService.getLoginOptions();
+  }
+
+  /** 公开：获取图形验证码 */
+  @Get('captcha')
+  captcha() {
+    return this.authService.issueLoginCaptcha();
+  }
+
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

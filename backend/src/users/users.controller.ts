@@ -56,6 +56,14 @@ export class UsersController {
     return this.usersService.update(id, dto, actorUserId(user));
   }
 
+  /** 手动解除登录密码错误锁定 */
+  @RequirePermissions('users:unlock')
+  @Post(':id/unlock')
+  @ApiOkResponse({ description: 'Clear login lockout for user' })
+  unlockLogin(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
+    return this.usersService.unlockLogin(id, actorUserId(user));
+  }
+
   @RequirePermissions('users:delete')
   @Delete(':id')
   remove(@Param('id') id: string) {

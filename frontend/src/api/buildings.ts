@@ -14,8 +14,8 @@ export type BuildingWritePayload = {
   fpsId?: string
   bankAccountHolder?: string
   bankAccount?: string
-  apiTemplateSuffix?: string
-  useWbaNumber?: string
+  whatsappBusinessNumberId?: string | null
+  whatsappAutoSendEnabled?: boolean
   chequePaymentBy?: string
   paymentAdvice?: string
   agreementTemplateId?: string | null

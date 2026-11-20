@@ -169,12 +169,41 @@ async function onPreviewTemplate(id?: string | null) {
         <h3>{{ t('building.sections.whatsapp') }}</h3>
         <dl class="detail-grid">
           <div>
-            <dt>{{ t('building.fields.useWbaNumber') }}</dt>
-            <dd>{{ dash(building.useWbaNumber) }}</dd>
+            <dt>{{ t('building.fields.whatsappBusinessNumber') }}</dt>
+            <dd>
+              {{
+                building.whatsappBusinessNumberLabel || building.whatsappBusinessPhoneNumber
+                  ? `${building.whatsappBusinessNumberLabel || '—'}${
+                      building.whatsappBusinessPhoneNumber
+                        ? `（${building.whatsappBusinessPhoneNumber}）`
+                        : ''
+                    }`
+                  : '—'
+              }}
+            </dd>
           </div>
           <div>
-            <dt>{{ t('building.fields.apiTemplateSuffix') }}</dt>
-            <dd>{{ dash(building.apiTemplateSuffix) }}</dd>
+            <dt>{{ t('building.fields.whatsappTemplatesBound') }}</dt>
+            <dd>
+              <template v-if="(building.whatsappTemplates || []).length">
+                <div
+                  v-for="tpl in building.whatsappTemplates"
+                  :key="tpl.id"
+                  class="wa-bound-templates__row"
+                >
+                  {{ tpl.categoryLabel }}：{{ tpl.label }}（{{ tpl.templateName }}）
+                </div>
+              </template>
+              <template v-else>—</template>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('building.fields.whatsappAutoSendEnabled') }}</dt>
+            <dd>
+              {{
+                building.whatsappAutoSendEnabled ? t('common.yes') : t('common.no')
+              }}
+            </dd>
           </div>
         </dl>
       </section>

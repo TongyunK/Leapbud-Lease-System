@@ -3,7 +3,7 @@ import { useResourcePermissions } from '@/composables/useResourcePermissions'
 const perms = useResourcePermissions('users')
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { OfficeBuilding, Plus, QuestionFilled, Search } from '@element-plus/icons-vue'
+import { Lock, OfficeBuilding, Plus, QuestionFilled, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchBuildings } from '@/api/buildings'
 import { fetchRoles } from '@/api/roles'
@@ -13,6 +13,7 @@ import {
   batchDeleteUsersApi,
   fetchUsers,
   updateUserApi,
+  unlockUserLoginApi,
 } from '@/api/users'
 import type { UserRecord, UserStatus } from '@/types/user'
 import type { BuildingRecord } from '@/types/building'
@@ -23,6 +24,7 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import { useActionColWidth } from '@/composables/useActionColWidth'
 import { useTableColWidth } from '@/composables/useTableColWidth'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
@@ -41,6 +43,15 @@ const userActionColWidth = computed(() =>
     perms.delete && t('common.delete'),
   ]),
 )
+
+function apiErrorMessage(e: unknown, fallback: string) {
+  const err = e as { response?: { data?: { message?: string | string[] } }; message?: string }
+  const msg = err?.response?.data?.message
+  if (Array.isArray(msg) && msg[0]) return String(msg[0])
+  if (typeof msg === 'string' && msg.trim()) return msg
+  if (err?.message?.trim()) return err.message
+  return fallback
+}
 const { colW, codeColW, datetimeColWidth, auditUserColWidth, tableLayoutKey } = useTableColWidth()
 
 const keyword = ref('')
@@ -435,11 +446,55 @@ async function onDelete(row: UserRecord) {
     /* cancel or error */
   }
 }
+
+function escapeHtml(raw: string) {
+  return String(raw)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+async function onUnlockLogin(row: UserRecord) {
+  if (!perms.unlock || !row.loginLocked) return
+  const remaining =
+    row.loginLockedRemainingMinutes != null && row.loginLockedRemainingMinutes > 0
+      ? row.loginLockedRemainingMinutes
+      : 1
+  try {
+    await ElMessageBox.confirm(
+      t('user.unlockLoginConfirmHtml', {
+        account: escapeHtml(row.account),
+        n: remaining,
+      }),
+      t('user.unlockLogin'),
+      {
+        type: 'info',
+        confirmButtonText: t('user.unlockLogin'),
+        dangerouslyUseHTMLString: true,
+      },
+    )
+  } catch {
+    return
+  }
+  try {
+    const { data } = await unlockUserLoginApi(row.id)
+    const idx = list.value.findIndex((u) => u.id === row.id)
+    if (idx >= 0) list.value[idx] = { ...list.value[idx], ...data }
+    await ElMessageBox.alert(t('user.unlockLoginDone'), t('common.tip'), { type: 'success' })
+  } catch (e: unknown) {
+    await ElMessageBox.alert(apiErrorMessage(e, t('user.unlockLoginFailed')), t('common.tip'), {
+      type: 'error',
+    })
+  }
+}
 </script>
 
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.users') }}</h2>
       <div class="head-actions">
         <el-input
@@ -456,8 +511,12 @@ async function onDelete(row: UserRecord) {
       </div>
     </div>
 
-    <div v-if="!useCards" class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div class="table-card" v-if="!useCards">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
           :key="`${tableLayoutKey}-${userActionColWidth}`"
@@ -480,7 +539,16 @@ async function onDelete(row: UserRecord) {
           <el-table-column type="index" :index="rowIndex" label="#" width="52" fixed="left" align="center" header-align="center" />
           <el-table-column
             prop="account"
-            :min-width="codeColW(t('user.fields.account'), { interactive: true, samples: paged.map((r) => r.account) })"
+            :min-width="
+              codeColW(t('user.fields.account'), {
+                interactive: true,
+                samples: paged.map((r) =>
+                  r.loginLocked
+                    ? `${r.account} ${t('user.loginLockedBadge')}${perms.unlock ? ` ${t('user.unlockLogin')}` : ''}`
+                    : r.account,
+                ),
+              })
+            "
             class-name="col-code"
             label-class-name="col-code"
           >
@@ -495,6 +563,36 @@ async function onDelete(row: UserRecord) {
                 @update:model-value="(v) => setFilter('account', v)"
                 @update:sort-order="(v) => setSort('account', v)"
               />
+            </template>
+            <template #default="{ row }">
+              <span class="user-account-cell">
+                <span class="user-account-cell__code">{{ row.account }}</span>
+                <span v-if="row.loginLocked" class="user-lock-group">
+                  <el-tooltip
+                    :content="
+                      t('user.loginLockedUntilTip', {
+                        at: row.loginLockedUntil || '—',
+                        n: row.loginLockedRemainingMinutes ?? 1,
+                      })
+                    "
+                    placement="top"
+                  >
+                    <span class="user-lock-chip">
+                      <el-icon :size="14" class="user-lock-chip__icon"><Lock /></el-icon>
+                      <span>{{ t('user.loginLockedBadge') }}</span>
+                    </span>
+                  </el-tooltip>
+                  <button
+                    v-if="perms.unlock"
+                    v-admin-glow="perms.codes.unlock"
+                    type="button"
+                    class="user-unlock-btn"
+                    @click="onUnlockLogin(row)"
+                  >
+                    {{ t('user.unlockLogin') }}
+                  </button>
+                </span>
+              </span>
             </template>
           </el-table-column>
           <el-table-column
@@ -685,12 +783,45 @@ async function onDelete(row: UserRecord) {
       </div>
     </div>
 
-    <div v-else class="data-cards" v-loading="loading">
+    <div
+      v-else
+      class="data-cards"
+      v-loading="loading"
+      element-loading-background="rgba(247, 250, 248, 0.78)"
+    >
       <article v-for="row in paged" :key="row.id" class="data-card">
         <div class="data-card__head">
           <div>
             <h3 class="data-card__title">{{ row.displayName || row.account }}</h3>
-            <p class="data-card__meta">{{ row.account }} · {{ row.roleName || roleLabel(row.role) }} · {{ buildingLabel(row) }}</p>
+            <p class="data-card__meta">
+              <span>{{ row.account }}</span>
+              <span v-if="row.loginLocked" class="user-lock-group">
+                <el-tooltip
+                  :content="
+                    t('user.loginLockedUntilTip', {
+                      at: row.loginLockedUntil || '—',
+                      n: row.loginLockedRemainingMinutes ?? 1,
+                    })
+                  "
+                  placement="top"
+                >
+                  <span class="user-lock-chip">
+                    <el-icon :size="14" class="user-lock-chip__icon"><Lock /></el-icon>
+                    <span>{{ t('user.loginLockedBadge') }}</span>
+                  </span>
+                </el-tooltip>
+                <button
+                  v-if="perms.unlock"
+                  v-admin-glow="perms.codes.unlock"
+                  type="button"
+                  class="user-unlock-btn"
+                  @click="onUnlockLogin(row)"
+                >
+                  {{ t('user.unlockLogin') }}
+                </button>
+              </span>
+              <span>· {{ row.roleName || roleLabel(row.role) }} · {{ buildingLabel(row) }}</span>
+            </p>
           </div>
           <el-switch
             :model-value="row.status === 'active'"
@@ -876,6 +1007,79 @@ async function onDelete(row: UserRecord) {
 </template>
 
 <style scoped>
+.user-account-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.user-account-cell__code {
+  font-variant-numeric: tabular-nums;
+}
+
+.user-lock-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.user-lock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #b7791f 28%, #e8e0d4);
+  background: color-mix(in srgb, #b7791f 10%, #fffaf3);
+  color: #8a5a12;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.user-lock-chip__icon {
+  color: #a66b1d;
+  font-size: 14px;
+}
+
+.user-unlock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 28%, #d5d5d5);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 7%, #fff);
+  color: var(--lb-brand, #0f4a32);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.user-unlock-btn:hover {
+  border-color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 12%, #fff);
+  color: var(--lb-brand-dark, var(--lb-brand, #0f4a32));
+}
+
+.data-card__meta .user-lock-group {
+  margin: 0 2px 0 4px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

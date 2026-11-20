@@ -56,27 +56,74 @@ function formatDateTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+export type BuildingWhatsappTemplateSummary = {
+  id: string
+  label: string
+  templateName: string
+  categoryId: string
+  categoryCode: string
+  categoryLabel: string
+  active: boolean
+}
+
 export type BuildingWithRooms = Building & {
   rooms?: Pick<Room, 'id'>[];
   agreementTemplateRef?: { id: string; name: string; fileName: string } | null;
   invoiceTemplateRef?: { id: string; name: string; fileName: string } | null;
   receiptTemplateRef?: { id: string; name: string; fileName: string } | null;
+  whatsappBusinessNumberRef?: { id: string; label: string; phoneNumber: string } | null;
+  whatsappTemplateLinks?: Array<{
+    template: {
+      id: string
+      label: string
+      templateName: string
+      active: boolean
+      category: { id: string; code: string; label: string }
+    }
+  }>;
   createdByUser?: AuditUserRef | null;
   updatedByUser?: AuditUserRef | null;
 };
 
 const templateRefSelect = { id: true, name: true, fileName: true } as const;
+const whatsappNumberRefSelect = { id: true, label: true, phoneNumber: true } as const;
+const whatsappTemplateListSelect = {
+  id: true,
+  label: true,
+  templateName: true,
+  active: true,
+  category: { select: { id: true, code: true, label: true } },
+} as const;
 
 export const buildingListInclude = {
   rooms: { select: { id: true } },
   agreementTemplateRef: { select: templateRefSelect },
   invoiceTemplateRef: { select: templateRefSelect },
   receiptTemplateRef: { select: templateRefSelect },
+  whatsappBusinessNumberRef: { select: whatsappNumberRefSelect },
+  whatsappTemplateLinks: {
+    select: {
+      template: { select: whatsappTemplateListSelect },
+    },
+  },
   ...auditUserInclude,
 } as const;
 
 /** 对齐前端 BuildingRecord */
 export function toBuildingDto(row: BuildingWithRooms) {
+  const whatsappTemplates: BuildingWhatsappTemplateSummary[] = [...(row.whatsappTemplateLinks ?? [])]
+    .map((link) => link.template)
+    .filter(Boolean)
+    .sort((a, b) => a.category.label.localeCompare(b.category.label, 'zh-Hant'))
+    .map((t) => ({
+      id: t.id,
+      label: t.label,
+      templateName: t.templateName,
+      categoryId: t.category.id,
+      categoryCode: t.category.code,
+      categoryLabel: t.category.label,
+      active: t.active,
+    }))
   return {
     id: row.id,
     name: row.name,
@@ -87,7 +134,7 @@ export function toBuildingDto(row: BuildingWithRooms) {
     agreementTemplateId: row.agreementTemplateId ?? null,
     agreementTemplateName: row.agreementTemplateRef?.name ?? '',
     agreementTemplateFileName: row.agreementTemplateRef?.fileName ?? '',
-    apiTemplateSuffix: row.apiTemplateSuffix ?? undefined,
+    whatsappTemplates,
     email: row.email,
     workingHours: row.workingHours,
     invoiceTemplateId: row.invoiceTemplateId ?? null,
@@ -102,7 +149,10 @@ export function toBuildingDto(row: BuildingWithRooms) {
     receiptTemplateName: row.receiptTemplateRef?.name ?? '',
     receiptTemplateFileName: row.receiptTemplateRef?.fileName ?? '',
     roomIds: (row.rooms ?? []).map((r) => r.id),
-    useWbaNumber: row.useWbaNumber ?? undefined,
+    whatsappBusinessNumberId: row.whatsappBusinessNumberId ?? null,
+    whatsappBusinessNumberLabel: row.whatsappBusinessNumberRef?.label ?? '',
+    whatsappBusinessPhoneNumber: row.whatsappBusinessNumberRef?.phoneNumber ?? '',
+    whatsappAutoSendEnabled: row.whatsappAutoSendEnabled,
     active: row.active,
     createdBy: auditActorLabel(row.createdByUser),
     createdAt: formatDateTime(row.createdAt),

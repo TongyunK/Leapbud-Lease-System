@@ -134,6 +134,26 @@ export class UsersService {
     }
   }
 
+  /** 管理员手动解除登录锁定（清零失败次数与锁定截止时间） */
+  async unlockLogin(id: string, actor = '') {
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`User ${id} not found`);
+    const now = new Date();
+    const locked = Boolean(existing.loginLockedUntil && existing.loginLockedUntil > now);
+    if (!locked && existing.failedLoginCount <= 0) {
+      throw new BadRequestException('該帳號目前未處於登入鎖定狀態');
+    }
+    await this.prisma.user.update({
+      where: { id },
+      data: {
+        failedLoginCount: 0,
+        loginLockedUntil: null,
+        updatedById: actor || null,
+      },
+    });
+    return this.findOne(id);
+  }
+
   async remove(id: string) {
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`User ${id} not found`);

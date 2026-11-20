@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 :root {
@@ -58,7 +58,9 @@
   --el-checkbox-input-border-color-hover: var(--lb-brand);
   --el-switch-on-color: var(--lb-brand, #0f4a32);
   --el-switch-off-color: #c8c8c8;
-  font-family: 'Outfit', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+  /* TC + SC 同栈：避免简体分类名等在 Noto Sans TC 缺字时回退系统字体，造成同句字号／笔画不一 */
+  font-family: 'Outfit', 'Noto Sans TC', 'Noto Sans SC', 'PingFang TC', 'PingFang SC',
+    'Microsoft JhengHei', 'Microsoft YaHei', sans-serif;
   color: var(--lb-ink);
   background: var(--lb-surface);
   font-synthesis: none;
@@ -494,7 +496,7 @@ button {
   max-width: 100%;
   min-height: 100%;
   height: 100%;
-  --lb-table-body: 0.86rem;
+  --lb-table-body: 0.87rem;
   --lb-table-head: 0.82rem;
   --lb-table-action: 0.78rem;
   /* 操作列最右按钮与列右缘：大屏 10px；小屏见下方 media（与 useActionColWidth 同读此变量） */
@@ -503,7 +505,7 @@ button {
 
 @media (max-width: 1279.98px) {
   .admin-page {
-    --lb-table-body: 0.85rem;
+    --lb-table-body: 0.86rem;
     --lb-table-head: 0.80rem;
     --lb-table-action: 0.75rem;
   }
@@ -511,7 +513,7 @@ button {
 
 @media (min-width: 1440px) {
   .admin-page {
-    --lb-table-body: 0.89rem;
+    --lb-table-body: 0.93rem;
     --lb-table-head: 0.85rem;
     --lb-table-action: 0.79rem;
   }
@@ -519,7 +521,7 @@ button {
 
 @media (min-width: 1800px) {
   .admin-page {
-    --lb-table-body: 0.93rem;
+    --lb-table-body: 0.97rem;
     --lb-table-head: 0.89rem;
     --lb-table-action: 0.81rem;
   }
@@ -549,36 +551,50 @@ button {
   margin-inline-end: -8px;
 }
 
-.lb-refresh-list-btn.el-button {
+.lb-refresh-list-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
+  min-width: 28px;
   min-height: 28px;
-  padding: 0 !important;
-  border-radius: 999px !important;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e0e0e0);
   /* 中性浅灰 + 主题淡染；勿用旧绿灰 #eef1ef / #dce3de */
-  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #e0e0e0) !important;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f3f3f3) !important;
-  color: var(--lb-muted, #666) !important;
-  box-shadow: none !important;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #f3f3f3);
+  color: var(--lb-muted, #666);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
-.lb-refresh-list-btn.el-button:hover,
-.lb-refresh-list-btn.el-button:focus {
-  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #d0d0d0) !important;
-  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #ececec) !important;
-  color: var(--lb-brand, #0f4a32) !important;
+.lb-refresh-list-btn:hover,
+.lb-refresh-list-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #d0d0d0);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #ececec);
+  color: var(--lb-brand, #0f4a32);
+  outline: none;
 }
 
-.lb-refresh-list-btn.el-button.is-spinning,
-.lb-refresh-list-btn.el-button:disabled {
-  color: var(--lb-brand, #0f4a32) !important;
-  opacity: 1 !important;
+.lb-refresh-list-btn.is-spinning,
+.lb-refresh-list-btn:disabled {
+  color: var(--lb-brand, #0f4a32);
+  opacity: 1;
   cursor: wait;
 }
 
 .lb-refresh-list-btn__icon {
   display: inline-flex;
-  transition: transform 0.2s ease;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  transform-origin: center;
 }
 
 .lb-refresh-list-btn.is-spinning .lb-refresh-list-btn__icon {
@@ -1268,6 +1284,12 @@ button {
   z-index: 2000;
 }
 
+.table-card > .el-loading-mask .el-loading-spinner,
+.table-scroll > .el-loading-mask .el-loading-spinner,
+.data-cards > .el-loading-mask .el-loading-spinner {
+  margin-top: -19px;
+}
+
 .table-card > .el-loading-mask .el-loading-spinner .circular,
 .table-scroll > .el-loading-mask .el-loading-spinner .circular,
 .data-cards > .el-loading-mask .el-loading-spinner .circular {
@@ -1279,6 +1301,8 @@ button {
 .table-scroll > .el-loading-mask .el-loading-spinner .path,
 .data-cards > .el-loading-mask .el-loading-spinner .path {
   stroke: var(--lb-brand, #0f4a32);
+  stroke-width: 3;
+  animation-duration: 1.4s;
 }
 
 .table-card .el-table,
@@ -3235,6 +3259,11 @@ button {
   margin-right: 0 !important;
 }
 
+.lb-message-box .el-message-box__status.el-message-box-icon--info,
+.lb-message-box .el-message-box__status.el-message-box-icon--success {
+  color: var(--lb-brand, #0f4a32) !important;
+}
+
 .lb-message-box .el-message-box__status.el-message-box-icon--warning {
   color: #d9822b !important;
 }
@@ -3249,6 +3278,11 @@ button {
   font-size: 0.95rem !important;
   line-height: 1.55 !important;
   font-weight: 500;
+}
+
+/** 解鎖确认：数字与「分鐘」不拆行 */
+.lb-message-box .user-unlock-remain {
+  white-space: nowrap;
 }
 
 .lb-message-box .el-message-box__btns {
@@ -3515,14 +3549,14 @@ button {
 
 /* append-to-body 拿不到 .admin-page 变量，抽屉根节点自带同一套表格字号 */
 .related-list-drawer {
-  --lb-table-body: 0.86rem;
+  --lb-table-body: 0.87rem;
   --lb-table-head: 0.82rem;
   --lb-table-action: 0.78rem;
 }
 
 @media (max-width: 1279.98px) {
   .related-list-drawer {
-    --lb-table-body: 0.85rem;
+    --lb-table-body: 0.86rem;
     --lb-table-head: 0.80rem;
     --lb-table-action: 0.75rem;
   }
@@ -3530,7 +3564,7 @@ button {
 
 @media (min-width: 1440px) {
   .related-list-drawer {
-    --lb-table-body: 0.89rem;
+    --lb-table-body: 0.93rem;
     --lb-table-head: 0.85rem;
     --lb-table-action: 0.79rem;
   }
@@ -3538,7 +3572,7 @@ button {
 
 @media (min-width: 1800px) {
   .related-list-drawer {
-    --lb-table-body: 0.93rem;
+    --lb-table-body: 0.97rem;
     --lb-table-head: 0.89rem;
     --lb-table-action: 0.81rem;
   }

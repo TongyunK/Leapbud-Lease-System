@@ -81,6 +81,24 @@ export class UpdateSystemSettingsDto {
   @Max(90)
   rentInvoiceLeadDays!: number
 
+  /** 登录：连续密码错误锁定次数（1–30） */
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  loginMaxFailedAttempts!: number
+
+  /** 登录：锁定冷却分钟数（1–1440） */
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  loginLockoutMinutes!: number
+
+  /** 登录：是否开启图形验证码（防机器人） */
+  @IsBoolean()
+  loginCaptchaEnabled!: boolean
+
   /** 可选：一并保存邮件 SMTP */
   @IsOptional()
   @ValidateNested()

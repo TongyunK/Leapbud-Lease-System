@@ -4,6 +4,65 @@ export const SETTING_RENT_INVOICE_LEAD_DAYS = 'rent_invoice_lead_days'
 /** 默认提前天数（与历史硬编码一致） */
 export const DEFAULT_RENT_INVOICE_LEAD_DAYS = 7
 
+/** 登录：连续密码错误达到此次数后锁定 */
+export const SETTING_LOGIN_MAX_FAILED_ATTEMPTS = 'login_max_failed_attempts'
+/** 登录：锁定冷却分钟数 */
+export const SETTING_LOGIN_LOCKOUT_MINUTES = 'login_lockout_minutes'
+/** 登录：是否开启图形验证码（防机器人） */
+export const SETTING_LOGIN_CAPTCHA_ENABLED = 'login_captcha_enabled'
+
+export const DEFAULT_LOGIN_MAX_FAILED_ATTEMPTS = 5
+export const DEFAULT_LOGIN_LOCKOUT_MINUTES = 15
+export const DEFAULT_LOGIN_CAPTCHA_ENABLED = false
+
+export const LOGIN_SETTING_KEYS = [
+  SETTING_LOGIN_MAX_FAILED_ATTEMPTS,
+  SETTING_LOGIN_LOCKOUT_MINUTES,
+  SETTING_LOGIN_CAPTCHA_ENABLED,
+] as const
+
+export const LOGIN_SETTING_META: Record<
+  (typeof LOGIN_SETTING_KEYS)[number],
+  { label: string; remark: string; sortOrder: number; defaultValue: string }
+> = {
+  [SETTING_LOGIN_MAX_FAILED_ATTEMPTS]: {
+    label: '登入密碼連續錯誤鎖定次數',
+    remark: '同一帳號連續輸錯密碼達到此次數後進入冷卻鎖定。範圍 1–30，預設 5。',
+    sortOrder: 50,
+    defaultValue: String(DEFAULT_LOGIN_MAX_FAILED_ATTEMPTS),
+  },
+  [SETTING_LOGIN_LOCKOUT_MINUTES]: {
+    label: '登入鎖定冷卻分鐘數',
+    remark: '觸發鎖定後須等待多少分鐘才能再次嘗試登入。範圍 1–1440，預設 15。',
+    sortOrder: 51,
+    defaultValue: String(DEFAULT_LOGIN_LOCKOUT_MINUTES),
+  },
+  [SETTING_LOGIN_CAPTCHA_ENABLED]: {
+    label: '登入機器人驗證',
+    remark: '開啟後登入頁須輸入圖形驗證碼。預設關閉。',
+    sortOrder: 52,
+    defaultValue: DEFAULT_LOGIN_CAPTCHA_ENABLED ? 'true' : 'false',
+  },
+}
+
+export function parseLoginMaxFailedAttempts(raw: string | null | undefined): number {
+  const n = Number.parseInt(String(raw ?? '').trim(), 10)
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_LOGIN_MAX_FAILED_ATTEMPTS
+  return Math.min(30, n)
+}
+
+export function parseLoginLockoutMinutes(raw: string | null | undefined): number {
+  const n = Number.parseInt(String(raw ?? '').trim(), 10)
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_LOGIN_LOCKOUT_MINUTES
+  return Math.min(1440, n)
+}
+
+export function parseLoginCaptchaEnabled(raw: string | null | undefined): boolean {
+  const s = String(raw ?? '').trim().toLowerCase()
+  if (!s) return DEFAULT_LOGIN_CAPTCHA_ENABLED
+  return s === 'true' || s === '1' || s === 'yes' || s === 'on'
+}
+
 /** 合约列表「即将到期」快捷筛选条件（JSON） */
 export const SETTING_CONTRACT_EXPIRING_SOON = 'contract_expiring_soon'
 
@@ -179,6 +238,7 @@ export type SystemSettingKey =
   | typeof SETTING_CONTRACT_EXPIRING_SOON
   | (typeof MAIL_SETTING_KEYS)[number]
   | (typeof BRAND_SETTING_KEYS)[number]
+  | (typeof LOGIN_SETTING_KEYS)[number]
 
 /** 从 key→value 映射拼装邮件配置（password 为库内原值，可能是 enc:v1 密文） */
 export function mailSmtpFromValueMap(

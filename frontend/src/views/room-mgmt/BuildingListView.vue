@@ -12,8 +12,10 @@ import {
   fetchDocumentTemplates,
   previewDocumentTemplateApi,
 } from '@/api/document-templates'
+import { fetchWhatsappBusinessNumbers } from '@/api/whatsapp-business-numbers'
 import type { DocumentTemplateRecord, DocumentTemplateType } from '@/types/document-template'
 import type { BuildingRecord } from '@/types/building'
+import type { WhatsappBusinessNumber } from '@/types/whatsapp'
 import type { RoomRecord } from '@/types/room'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import { useServerPagedList } from '@/composables/useServerPagedList'
@@ -238,10 +240,22 @@ async function loadManagerOptions() {
   managerFilterOptions.value = names.map((m) => ({ value: m, label: m }))
 }
 
+const whatsappNumberOptions = ref<WhatsappBusinessNumber[]>([])
+
+async function loadWhatsappOptions() {
+  try {
+    const { data } = await fetchWhatsappBusinessNumbers({ activeOnly: true })
+    whatsappNumberOptions.value = data
+  } catch {
+    /* interceptor / silent */
+  }
+}
+
 onMounted(() => {
   void loadList()
   void loadManagerOptions()
   void loadTemplateOptions()
+  void loadWhatsappOptions()
 })
 
 const dialogWidth = computed(() => (isMobile.value ? '94%' : '760px'))
@@ -257,14 +271,34 @@ const form = reactive({
   fpsId: '',
   bankAccountHolder: '',
   bankAccount: '',
-  apiTemplateSuffix: '',
-  useWbaNumber: '',
+  whatsappBusinessNumberId: '' as string,
+  whatsappAutoSendEnabled: false,
   chequePaymentBy: '',
   paymentAdvice: '',
   agreementTemplateId: '' as string,
   invoiceTemplateId: '' as string,
   receiptTemplateId: '' as string,
   active: true,
+})
+
+/** 编辑时 pin 已绑定（含停用）项，避免下拉丢失当前值 */
+const whatsappNumberSelectOptions = computed(() => {
+  const list = [...whatsappNumberOptions.value]
+  const id = form.whatsappBusinessNumberId
+  if (id && !list.some((n) => n.id === id) && editing.value?.whatsappBusinessNumberId === id) {
+    list.unshift({
+      id,
+      label: editing.value.whatsappBusinessNumberLabel || editing.value.whatsappBusinessPhoneNumber || id,
+      phoneNumber: editing.value.whatsappBusinessPhoneNumber || '',
+      sortOrder: 0,
+      active: false,
+      createdBy: '',
+      createdAt: '',
+      updatedBy: '',
+      updatedAt: '',
+    })
+  }
+  return list
 })
 
 const TEMPLATE_SLOTS: {
@@ -410,6 +444,15 @@ async function runImportFile(ev: Event) {
       return
     }
 
+    let waNumbers: WhatsappBusinessNumber[] = []
+    try {
+      const numsRes = await fetchWhatsappBusinessNumbers({ activeOnly: false })
+      waNumbers = numsRes.data
+    } catch {
+      /* 解析时无目录则号码留空 */
+    }
+    const phoneToId = new Map(waNumbers.map((n) => [n.phoneNumber.trim().toLowerCase(), n.id]))
+
     const payloads: BuildingWritePayload[] = []
     for (const row of rawRows) {
       const parsed = rowToBuildingIoPayload(row, t)
@@ -426,7 +469,24 @@ async function runImportFile(ev: Event) {
         ])
         continue
       }
-      payloads.push(parsed)
+      const phoneKey = parsed.whatsappBusinessPhoneNumber.trim().toLowerCase()
+      payloads.push({
+        name: parsed.name,
+        address: parsed.address,
+        addressEn: parsed.addressEn,
+        manager: parsed.manager,
+        managerPhone: parsed.managerPhone,
+        email: parsed.email,
+        workingHours: parsed.workingHours,
+        fpsId: parsed.fpsId,
+        bankAccountHolder: parsed.bankAccountHolder,
+        bankAccount: parsed.bankAccount,
+        chequePaymentBy: parsed.chequePaymentBy,
+        paymentAdvice: parsed.paymentAdvice,
+        active: parsed.active,
+        whatsappAutoSendEnabled: parsed.whatsappAutoSendEnabled,
+        whatsappBusinessNumberId: phoneKey ? phoneToId.get(phoneKey) || null : null,
+      })
     }
 
     setImportTotal(rawRows.length)
@@ -467,6 +527,7 @@ async function runImportFile(ev: Event) {
 function openCreate() {
   editing.value = null
   void loadTemplateOptions()
+  void loadWhatsappOptions()
   Object.assign(form, {
     name: '',
     address: '',
@@ -478,8 +539,8 @@ function openCreate() {
     fpsId: '',
     bankAccountHolder: '',
     bankAccount: '',
-    apiTemplateSuffix: '',
-    useWbaNumber: '',
+    whatsappBusinessNumberId: '',
+    whatsappAutoSendEnabled: false,
     chequePaymentBy: '',
     paymentAdvice: '',
     agreementTemplateId: '',
@@ -493,6 +554,7 @@ function openCreate() {
 function openEdit(row: BuildingRecord) {
   editing.value = row
   void loadTemplateOptions()
+  void loadWhatsappOptions()
   Object.assign(form, {
     name: row.name,
     address: row.address,
@@ -504,8 +566,8 @@ function openEdit(row: BuildingRecord) {
     fpsId: row.fpsId || '',
     bankAccountHolder: row.bankAccountHolder || '',
     bankAccount: row.bankAccount || '',
-    apiTemplateSuffix: row.apiTemplateSuffix || '',
-    useWbaNumber: row.useWbaNumber || '',
+    whatsappBusinessNumberId: row.whatsappBusinessNumberId || '',
+    whatsappAutoSendEnabled: !!row.whatsappAutoSendEnabled,
     chequePaymentBy: row.chequePaymentBy || '',
     paymentAdvice: row.paymentAdvice || '',
     agreementTemplateId: row.agreementTemplateId || '',
@@ -539,6 +601,8 @@ async function saveForm() {
       agreementTemplateId: form.agreementTemplateId || null,
       invoiceTemplateId: form.invoiceTemplateId || null,
       receiptTemplateId: form.receiptTemplateId || null,
+      whatsappBusinessNumberId: form.whatsappBusinessNumberId || null,
+      whatsappAutoSendEnabled: !!form.whatsappAutoSendEnabled,
     }
     if (editing.value) {
       await updateBuildingApi(editing.value.id, payload)
@@ -1010,11 +1074,38 @@ async function saveForm() {
           <div class="form-section">
             <h3>{{ t('building.sections.whatsapp') }}</h3>
           </div>
-          <el-form-item :label="t('building.fields.useWbaNumber')">
-            <el-input v-model="form.useWbaNumber" />
+          <el-form-item :label="t('building.fields.whatsappBusinessNumber')">
+            <el-select
+              v-model="form.whatsappBusinessNumberId"
+              clearable
+              value-on-clear=""
+              filterable
+              class="template-bind-select"
+              :placeholder="t('common.pleaseSelect')"
+            >
+              <el-option
+                v-for="opt in whatsappNumberSelectOptions"
+                :key="opt.id"
+                :label="`${opt.label}（${opt.phoneNumber}）`"
+                :value="opt.id"
+              />
+            </el-select>
           </el-form-item>
-          <el-form-item :label="t('building.fields.apiTemplateSuffix')">
-            <el-input v-model="form.apiTemplateSuffix" />
+          <el-form-item :label="t('building.fields.whatsappTemplatesBound')">
+            <div v-if="(editing?.whatsappTemplates || []).length" class="wa-bound-templates">
+              <div
+                v-for="tpl in editing?.whatsappTemplates || []"
+                :key="tpl.id"
+                class="wa-bound-templates__row"
+              >
+                <span class="wa-bound-templates__cat">{{ tpl.categoryLabel }}</span>
+                <span class="wa-bound-templates__name">{{ tpl.label }}（{{ tpl.templateName }}）</span>
+              </div>
+            </div>
+            <p v-else class="wa-bound-templates__empty">{{ t('building.whatsappTemplatesBoundEmpty') }}</p>
+          </el-form-item>
+          <el-form-item :label="t('building.fields.whatsappAutoSendEnabled')">
+            <el-switch v-model="form.whatsappAutoSendEnabled" />
           </el-form-item>
 
           <div class="form-section">
@@ -1129,5 +1220,33 @@ async function saveForm() {
 .template-bind-select {
   flex: 1;
   min-width: 0;
+}
+
+.wa-bound-templates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.wa-bound-templates__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  color: #2f3d36;
+}
+
+.wa-bound-templates__cat {
+  font-weight: 650;
+  color: var(--lb-brand, #0f4a32);
+}
+
+.wa-bound-templates__empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #7a8a82;
+  line-height: 1.4;
 }
 </style>

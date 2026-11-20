@@ -19,6 +19,7 @@ import { useTableSortFilter } from '@/composables/useTableSortFilter'
 import TablePagination from '@/components/TablePagination.vue'
 import TableColumnHeader from '@/components/TableColumnHeader.vue'
 import ClearTableFiltersButton from '@/components/ClearTableFiltersButton.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import SizeIcon from '@/components/icons/SizeIcon.vue'
 import WindowIcon from '@/components/icons/WindowIcon.vue'
 import AcIcon from '@/components/icons/AcIcon.vue'
@@ -305,6 +306,7 @@ async function toggleActive(row: RoomConfigOption) {
 <template>
   <div class="admin-page room-config-page">
     <div class="admin-page-head admin-page-head--with-config-tabs">
+      <RefreshListButton :loading="loading" @refresh="loadList" />
       <h2>{{ t('menu.roomConfigs') }}</h2>
       <div class="config-type-tabs" role="tablist" :aria-label="t('menu.roomConfigs')">
         <button
@@ -332,8 +334,12 @@ async function toggleActive(row: RoomConfigOption) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           ref="tableRef"
           :key="`${tableLayoutKey}-${listActionColWidth}`"

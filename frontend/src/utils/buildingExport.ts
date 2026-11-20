@@ -11,8 +11,9 @@ export const BUILDING_IO_FIELD_KEYS = [
   'fpsId',
   'bankAccountHolder',
   'bankAccount',
-  'apiTemplateSuffix',
-  'useWbaNumber',
+  'whatsappBusinessPhoneNumber',
+  'whatsappTemplateName',
+  'whatsappAutoSendEnabled',
   'chequePaymentBy',
   'paymentAdvice',
   'active',
@@ -30,7 +31,17 @@ function fieldHeader(key: BuildingIoFieldKey, t: Translate): string {
   if (key === 'createdBy' || key === 'createdAt' || key === 'updatedBy' || key === 'updatedAt') {
     return t(`common.${key}`)
   }
+  if (key === 'whatsappBusinessPhoneNumber') return t('building.fields.whatsappBusinessNumber')
+  if (key === 'whatsappTemplateName') return t('building.fields.whatsappTemplatesBound')
   return t(`building.fields.${key}`)
+}
+
+function formatWhatsappTemplatesBound(b: BuildingRecord): string {
+  const list = b.whatsappTemplates || []
+  if (!list.length) return ''
+  return list
+    .map((x) => `${x.categoryLabel || x.categoryCode}:${x.templateName || x.label}`)
+    .join('；')
 }
 
 const HEADER_ALIASES: Record<BuildingIoFieldKey, string[]> = {
@@ -44,8 +55,26 @@ const HEADER_ALIASES: Record<BuildingIoFieldKey, string[]> = {
   fpsId: ['FPS', 'FPS ID', 'FPS_ID', '轉數快', '轉數快編號', '转数快编号'],
   bankAccountHolder: ['銀行戶名', '银行户名', '戶主', '户主'],
   bankAccount: ['銀行帳戶', '银行账户', '帳戶', '账户'],
-  apiTemplateSuffix: ['API模板後綴', 'API模板后缀'],
-  useWbaNumber: ['WBA_NUMBER', '使用WBA'],
+  whatsappBusinessPhoneNumber: [
+    'WhatsApp發送號碼',
+    'WhatsApp发送号码',
+    'WBA_NUMBER',
+    '使用WBA',
+    'WhatsApp number',
+  ],
+  whatsappTemplateName: [
+    'WhatsApp發送模板',
+    'WhatsApp发送模板',
+    'API模板後綴',
+    'API模板后缀',
+    'WhatsApp template',
+  ],
+  whatsappAutoSendEnabled: [
+    '自動發送WhatsApp',
+    '自动发送WhatsApp',
+    'Auto-send WhatsApp',
+    'WhatsApp auto send',
+  ],
   chequePaymentBy: ['Cheque Payment By', '支票付款說明', '支票付款说明', '支票抬頭', '支票抬头'],
   paymentAdvice: ['Payment Advice', '付款通知', '付款提示'],
   active: ['狀態', '状态', '啟用', '启用'],
@@ -71,8 +100,11 @@ export function buildingToIoRow(
     [h('fpsId')]: b.fpsId || '',
     [h('bankAccountHolder')]: b.bankAccountHolder || '',
     [h('bankAccount')]: b.bankAccount || '',
-    [h('apiTemplateSuffix')]: b.apiTemplateSuffix || '',
-    [h('useWbaNumber')]: b.useWbaNumber || '',
+    [h('whatsappBusinessPhoneNumber')]: b.whatsappBusinessPhoneNumber || '',
+    [h('whatsappTemplateName')]: formatWhatsappTemplatesBound(b),
+    [h('whatsappAutoSendEnabled')]: b.whatsappAutoSendEnabled
+      ? t('common.yes')
+      : t('common.no'),
     [h('chequePaymentBy')]: b.chequePaymentBy || '',
     [h('paymentAdvice')]: b.paymentAdvice || '',
     [h('active')]: b.active ? t('user.status.active') : t('user.status.disabled'),
@@ -96,8 +128,9 @@ export function buildingIoTemplateExampleRow(t: Translate): Record<string, strin
     [h('fpsId')]: '',
     [h('bankAccountHolder')]: '',
     [h('bankAccount')]: '',
-    [h('apiTemplateSuffix')]: '',
-    [h('useWbaNumber')]: '',
+    [h('whatsappBusinessPhoneNumber')]: '',
+    [h('whatsappTemplateName')]: '',
+    [h('whatsappAutoSendEnabled')]: t('common.no'),
     [h('chequePaymentBy')]: '',
     [h('paymentAdvice')]: '',
     [h('active')]: t('user.status.active'),
@@ -147,6 +180,14 @@ function parseActive(raw: string, t: Translate): boolean {
   return true
 }
 
+function parseYesNo(raw: string, t: Translate): boolean {
+  const v = raw.trim().toLowerCase()
+  if (!v) return false
+  if (['1', 'true', 'yes', 'y', '是', '開', '开', '啟用', '启用'].includes(v)) return true
+  if (v === t('common.yes').toLowerCase()) return true
+  return false
+}
+
 export type BuildingIoPayload = {
   name: string
   address: string
@@ -158,8 +199,9 @@ export type BuildingIoPayload = {
   fpsId: string
   bankAccountHolder: string
   bankAccount: string
-  apiTemplateSuffix: string
-  useWbaNumber: string
+  whatsappBusinessPhoneNumber: string
+  whatsappTemplateName: string
+  whatsappAutoSendEnabled: boolean
   chequePaymentBy: string
   paymentAdvice: string
   active: boolean
@@ -182,8 +224,12 @@ export function rowToBuildingIoPayload(
     fpsId: pickBuildingIoValue(row, 'fpsId', t),
     bankAccountHolder: pickBuildingIoValue(row, 'bankAccountHolder', t),
     bankAccount: pickBuildingIoValue(row, 'bankAccount', t),
-    apiTemplateSuffix: pickBuildingIoValue(row, 'apiTemplateSuffix', t),
-    useWbaNumber: pickBuildingIoValue(row, 'useWbaNumber', t),
+    whatsappBusinessPhoneNumber: pickBuildingIoValue(row, 'whatsappBusinessPhoneNumber', t),
+    whatsappTemplateName: pickBuildingIoValue(row, 'whatsappTemplateName', t),
+    whatsappAutoSendEnabled: parseYesNo(
+      pickBuildingIoValue(row, 'whatsappAutoSendEnabled', t),
+      t,
+    ),
     chequePaymentBy: pickBuildingIoValue(row, 'chequePaymentBy', t),
     paymentAdvice: pickBuildingIoValue(row, 'paymentAdvice', t),
     active: parseActive(pickBuildingIoValue(row, 'active', t), t),

@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { MailModule } from '../mail/mail.module';
+import { LoginCaptchaService } from './login-captcha.service';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { MailModule } from '../mail/mail.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, LoginCaptchaService],
   exports: [JwtModule, AuthService],
 })
 export class AuthModule {}

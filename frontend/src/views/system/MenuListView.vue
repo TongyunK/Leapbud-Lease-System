@@ -11,6 +11,7 @@ import { useMenuRoleAccessStore } from '@/stores/menuRoleAccess'
 import type { MenuRecord, MenuType } from '@/types/menu'
 import { useIsMobile } from '@/composables/useMediaQuery'
 import AuditDetailSection from '@/components/AuditDetailSection.vue'
+import RefreshListButton from '@/components/RefreshListButton.vue'
 import { measureActionColWidth } from '@/composables/useActionColWidth'
 import { useNavStore } from '@/stores/nav'
 import { menuDisplayName } from '@/utils/menuLabel'
@@ -310,6 +311,7 @@ async function toggleActive(row: MenuRecord) {
 <template>
   <div class="admin-page">
     <div class="admin-page-head">
+      <RefreshListButton :loading="loading" @refresh="loadMatrix" />
       <h2>{{ t('menu.menus') }}</h2>
       <div class="head-actions">
         <el-button
@@ -324,8 +326,12 @@ async function toggleActive(row: MenuRecord) {
       </div>
     </div>
 
-    <div class="table-card" v-loading="loading || reordering">
-      <div class="table-scroll">
+    <div class="table-card">
+      <div
+        class="table-scroll"
+        v-loading="loading || reordering"
+        element-loading-background="rgba(247, 250, 248, 0.78)"
+      >
         <el-table
           :data="matrixMenus"
           height="100%"

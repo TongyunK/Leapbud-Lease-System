@@ -38,6 +38,10 @@ function optionalTemplateId(v: string | null | undefined): string | null | undef
   return id || null;
 }
 
+function optionalRefId(v: string | null | undefined): string | null | undefined {
+  return optionalTemplateId(v);
+}
+
 @Injectable()
 export class BuildingsService {
   constructor(
@@ -58,6 +62,27 @@ export class BuildingsService {
       throw new BadRequestException(
         `模板「${row.name}」类型为 ${row.type}，不能用作 ${expectedType}`,
       );
+    }
+    return resolved;
+  }
+
+  /**
+   * 校验 WhatsApp 号码 / 模板绑定。
+   * - 清空：null
+   * - 已绑定停用项：允许保留（currentId 相同）
+   * - 新选：仅允许 active
+   */
+  private async assertWhatsappBusinessNumberId(
+    id: string | null | undefined,
+    currentId?: string | null,
+  ): Promise<string | null | undefined> {
+    const resolved = optionalRefId(id);
+    if (resolved === undefined) return undefined;
+    if (resolved === null) return null;
+    const row = await this.prisma.whatsappBusinessNumber.findUnique({ where: { id: resolved } });
+    if (!row) throw new BadRequestException(`WhatsApp 商業號碼不存在：${resolved}`);
+    if (!row.active && resolved !== currentId) {
+      throw new BadRequestException(`WhatsApp 商業號碼「${row.label}」已停用，不可新選`);
     }
     return resolved;
   }
@@ -228,6 +253,9 @@ export class BuildingsService {
       dto.receiptTemplateId,
       DocumentTemplateType.receipt,
     );
+    const whatsappBusinessNumberId = await this.assertWhatsappBusinessNumberId(
+      dto.whatsappBusinessNumberId,
+    );
 
     const row = await this.prisma.building.create({
       data: {
@@ -241,13 +269,13 @@ export class BuildingsService {
         fpsId: s(dto.fpsId) || null,
         bankAccountHolder: s(dto.bankAccountHolder) || null,
         bankAccount: s(dto.bankAccount) || null,
-        apiTemplateSuffix: s(dto.apiTemplateSuffix) || null,
-        useWbaNumber: s(dto.useWbaNumber) || null,
         chequePaymentBy: s(dto.chequePaymentBy) || null,
         paymentAdvice: s(dto.paymentAdvice) || null,
         agreementTemplateId: agreementTemplateId ?? null,
         invoiceTemplateId: invoiceTemplateId ?? null,
         receiptTemplateId: receiptTemplateId ?? null,
+        whatsappBusinessNumberId: whatsappBusinessNumberId ?? null,
+        whatsappAutoSendEnabled: dto.whatsappAutoSendEnabled === true,
         active: dto.active !== undefined ? !!dto.active : true,
         createdById: actorId,
         updatedById: actorId,
@@ -273,6 +301,10 @@ export class BuildingsService {
       dto.receiptTemplateId,
       DocumentTemplateType.receipt,
     );
+    const whatsappBusinessNumberId = await this.assertWhatsappBusinessNumberId(
+      dto.whatsappBusinessNumberId,
+      existing.whatsappBusinessNumberId,
+    );
 
     const row = await this.prisma.building.update({
       where: { id },
@@ -288,15 +320,15 @@ export class BuildingsService {
         bankAccountHolder:
           dto.bankAccountHolder !== undefined ? s(dto.bankAccountHolder) || null : undefined,
         bankAccount: dto.bankAccount !== undefined ? s(dto.bankAccount) || null : undefined,
-        apiTemplateSuffix:
-          dto.apiTemplateSuffix !== undefined ? s(dto.apiTemplateSuffix) || null : undefined,
-        useWbaNumber: dto.useWbaNumber !== undefined ? s(dto.useWbaNumber) || null : undefined,
         chequePaymentBy:
           dto.chequePaymentBy !== undefined ? s(dto.chequePaymentBy) || null : undefined,
         paymentAdvice: dto.paymentAdvice !== undefined ? s(dto.paymentAdvice) || null : undefined,
         ...(agreementTemplateId !== undefined ? { agreementTemplateId } : {}),
         ...(invoiceTemplateId !== undefined ? { invoiceTemplateId } : {}),
         ...(receiptTemplateId !== undefined ? { receiptTemplateId } : {}),
+        ...(whatsappBusinessNumberId !== undefined ? { whatsappBusinessNumberId } : {}),
+        whatsappAutoSendEnabled:
+          dto.whatsappAutoSendEnabled !== undefined ? !!dto.whatsappAutoSendEnabled : undefined,
         active: dto.active,
         ...(actor ? { updatedById: actor } : {}),
       },

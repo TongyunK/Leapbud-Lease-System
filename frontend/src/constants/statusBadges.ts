@@ -63,6 +63,29 @@ export function receiptKindTone(kind: string | null | undefined): StatusTone {
   return RECEIPT_KIND_TONES[key] || 'neutral'
 }
 
+/** WhatsApp 模板分类可选胶囊色（与 StatusBadge tone / 后端 badge_tone 一致） */
+export const WHATSAPP_CATEGORY_BADGE_TONE_OPTIONS: StatusTone[] = [
+  'idle',
+  'signing',
+  'contracting',
+  'leased',
+  'leasing',
+  'terminating',
+  'disabled',
+  'neutral',
+]
+
+export function whatsappTemplateCategoryTone(
+  toneOrCode: string | null | undefined,
+): StatusTone {
+  const key = (toneOrCode || '').trim()
+  if (!key) return 'neutral'
+  if ((WHATSAPP_CATEGORY_BADGE_TONE_OPTIONS as string[]).includes(key) || key === 'active') {
+    return key as StatusTone
+  }
+  return 'neutral'
+}
+
 export function userStatusTone(status: string | null | undefined): StatusTone {
   const key = (status || '') as keyof typeof USER_STATUS_TONES
   return USER_STATUS_TONES[key] || 'neutral'

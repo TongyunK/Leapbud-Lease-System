@@ -8,7 +8,9 @@ export type PermissionAction =
   | 'batchDelete'
   /** 物理删除（客户需求等：与软取消 delete 区分） */
   | 'purge'
-  | 'batchPurge';
+  | 'batchPurge'
+  /** 手动解除登录锁定（用户管理） */
+  | 'unlock';
 
 export type PermissionModuleDef = {
   module: string;
@@ -68,6 +70,7 @@ const ACTION_LABEL: Record<PermissionAction, string> = {
   batchDelete: '批量刪除',
   purge: '刪除',
   batchPurge: '批量刪除',
+  unlock: '解鎖',
 };
 
 /** 个别模块动作文案（权限码不变；客户需求：跟进/取消；物理删除用 purge） */
@@ -102,6 +105,7 @@ const ACTIONS: PermissionAction[] = [
 /** 仅挂在指定模块上的额外动作（默认不授予普通 user；超管运行时全权限） */
 const EXTRA_MODULE_ACTIONS: Partial<Record<string, PermissionAction[]>> = {
   customerRequirements: ['purge', 'batchPurge'],
+  users: ['unlock'],
 };
 
 function actionLabel(module: string, action: PermissionAction): string {

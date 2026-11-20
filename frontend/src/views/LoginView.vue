@@ -3,10 +3,11 @@ import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
-import { User, Lock, View, Hide } from '@element-plus/icons-vue'
+import { User, Lock, View, Hide, RefreshRight } from '@element-plus/icons-vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import { useUserStore } from '@/stores/user'
 import { useBrandingStore } from '@/stores/branding'
+import { fetchLoginCaptchaApi, fetchLoginOptionsApi } from '@/api/auth'
 import { isValidLoginAccount, sanitizeAccountInput } from '@/utils/validators'
 
 const { t } = useI18n()
@@ -21,6 +22,11 @@ const password = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const formError = ref('')
+const captchaEnabled = ref(false)
+const captchaId = ref('')
+const captchaCode = ref('')
+const captchaImage = ref('')
+const captchaLoading = ref(false)
 
 const heroTitleRef = ref<HTMLElement | null>(null)
 const brandPaneRef = ref<HTMLElement | null>(null)
@@ -61,6 +67,33 @@ function scheduleFitHeroTitle() {
   void nextTick(() => fitHeroTitle())
 }
 
+async function loadCaptcha() {
+  if (!captchaEnabled.value) return
+  captchaLoading.value = true
+  try {
+    const { data } = await fetchLoginCaptchaApi()
+    captchaId.value = data.captchaId
+    captchaImage.value = data.imageDataUrl
+    captchaCode.value = ''
+  } catch {
+    captchaId.value = ''
+    captchaImage.value = ''
+    formError.value = t('login.captchaLoadFailed')
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
+async function loadLoginOptions() {
+  try {
+    const { data } = await fetchLoginOptionsApi()
+    captchaEnabled.value = !!data.captchaEnabled
+    if (captchaEnabled.value) await loadCaptcha()
+  } catch {
+    captchaEnabled.value = false
+  }
+}
+
 onMounted(() => {
   document.documentElement.style.overflow = 'hidden'
   document.body.style.overflow = 'hidden'
@@ -71,6 +104,7 @@ onMounted(() => {
     heroResizeObs.observe(brandPaneRef.value)
   }
   window.addEventListener('resize', scheduleFitHeroTitle)
+  void loadLoginOptions()
 })
 
 onUnmounted(() => {
@@ -93,6 +127,16 @@ function onAccountInput(value: string) {
   formError.value = ''
 }
 
+function apiErrorMessage(e: unknown, fallback: string) {
+  const err = e as { response?: { data?: { message?: string | string[]; code?: string } } }
+  const data = err?.response?.data
+  if (data?.code === 'CAPTCHA_INVALID') return t('login.captchaInvalid')
+  const msg = data?.message
+  if (Array.isArray(msg) && msg[0]) return String(msg[0])
+  if (typeof msg === 'string' && msg.trim()) return msg
+  return fallback
+}
+
 async function onSubmit() {
   formError.value = ''
   const accountVal = account.value.trim()
@@ -108,16 +152,52 @@ async function onSubmit() {
     return
   }
 
+  if (captchaEnabled.value && !captchaCode.value.trim()) {
+    formError.value = t('login.captchaRequired')
+    return
+  }
+
   loading.value = true
   try {
     await userStore.login({
       account: accountVal,
       password: passwordVal,
+      captchaId: captchaEnabled.value ? captchaId.value : undefined,
+      captchaCode: captchaEnabled.value ? captchaCode.value.trim() : undefined,
     })
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
     await router.replace(redirect || '/home')
-  } catch {
-    formError.value = t('login.loginFailed')
+  } catch (e: unknown) {
+    const data = (
+      e as {
+        response?: {
+          data?: {
+            code?: string
+            remainingMinutes?: number
+            failedAttempts?: number
+            maxFailedAttempts?: number
+            message?: string | string[]
+          }
+        }
+      }
+    )?.response?.data
+    if (data?.code === 'LOGIN_LOCKED' && data.remainingMinutes != null) {
+      formError.value = t('login.locked', { n: data.remainingMinutes })
+    } else if (
+      data?.code === 'LOGIN_FAILED' &&
+      data.failedAttempts != null &&
+      data.maxFailedAttempts != null
+    ) {
+      formError.value = t('login.loginFailedWithCount', {
+        n: data.failedAttempts,
+        max: data.maxFailedAttempts,
+      })
+    } else if (data?.code === 'CAPTCHA_INVALID') {
+      formError.value = t('login.captchaInvalid')
+    } else {
+      formError.value = apiErrorMessage(e, t('login.loginFailed'))
+    }
+    if (captchaEnabled.value) void loadCaptcha()
   } finally {
     loading.value = false
   }
@@ -130,7 +210,7 @@ async function onSubmit() {
       <LanguageSwitcher />
     </div>
 
-    <div class="login__stage">
+    <div class="login__stage" :class="{ 'login__stage--captcha': captchaEnabled }">
       <aside ref="brandPaneRef" class="login__brand">
         <button
           type="button"
@@ -196,6 +276,30 @@ async function onSubmit() {
             </el-input>
           </label>
 
+          <label v-if="captchaEnabled" class="field field--captcha">
+            <span>{{ t('login.captcha') }}</span>
+            <div class="captcha-row">
+              <el-input
+                v-model="captchaCode"
+                maxlength="8"
+                clearable
+                :placeholder="t('login.captchaPlaceholder')"
+                @input="formError = ''"
+              />
+              <button
+                type="button"
+                class="captcha-img-btn"
+                :title="t('login.captchaRefresh')"
+                :aria-label="t('login.captchaRefresh')"
+                :disabled="captchaLoading"
+                @click="loadCaptcha"
+              >
+                <img v-if="captchaImage" :src="captchaImage" alt="" class="captcha-img" />
+                <el-icon v-else class="captcha-img-btn__fallback" :size="18"><RefreshRight /></el-icon>
+              </button>
+            </div>
+          </label>
+
           <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
 
           <el-button
@@ -257,12 +361,20 @@ async function onSubmit() {
   animation: stage-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.login__stage--captcha {
+  height: min(520px, 72dvh);
+}
+
 /* 大屏台式机再放大一点 */
 @media (min-width: 1440px) {
   .login__stage {
     width: min(820px, 58vw);
     height: min(520px, 58dvh);
     border-radius: 26px;
+  }
+
+  .login__stage--captcha {
+    height: min(580px, 64dvh);
   }
 }
 
@@ -271,6 +383,10 @@ async function onSubmit() {
     width: min(900px, 50vw);
     height: min(540px, 52dvh);
     border-radius: 28px;
+  }
+
+  .login__stage--captcha {
+    height: min(600px, 58dvh);
   }
 }
 
@@ -404,6 +520,53 @@ async function onSubmit() {
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--lb-ink);
+}
+
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.captcha-img-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 132px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--lb-brand, #0f4a32) 16%, #d8d8d8);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 4%, #fff);
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.captcha-img-btn:hover:not(:disabled) {
+  border-color: var(--lb-brand, #0f4a32);
+  background: color-mix(in srgb, var(--lb-brand, #0f4a32) 8%, #fff);
+}
+
+.captcha-img-btn:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+.captcha-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.captcha-img-btn__fallback {
+  color: var(--lb-brand, #0f4a32);
 }
 
 .form :deep(.el-input__wrapper) {

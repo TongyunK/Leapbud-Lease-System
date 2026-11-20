@@ -28,6 +28,9 @@ import { ReceiptsModule } from './receipts/receipts.module';
 import { DocumentTemplatesModule } from './document-templates/document-templates.module';
 import { NumberingRulesModule } from './numbering-rules/numbering-rules.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
+import { WhatsappBusinessNumbersModule } from './whatsapp-business-numbers/whatsapp-business-numbers.module';
+import { WhatsappTemplatesModule } from './whatsapp-templates/whatsapp-templates.module';
+import { WhatsappTemplateCategoriesModule } from './whatsapp-template-categories/whatsapp-template-categories.module';
 import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -47,6 +50,9 @@ import { UploadsModule } from './uploads/uploads.module';
     RoomConfigsModule,
     RoomTypesModule,
     CustomerSourcesModule,
+    WhatsappBusinessNumbersModule,
+    WhatsappTemplatesModule,
+    WhatsappTemplateCategoriesModule,
     CustomersModule,
     OccupantsModule,
     CustomerRequirementsModule,

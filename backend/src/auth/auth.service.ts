@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -20,6 +22,16 @@ import {
   forgotPasswordUiMessage,
   normalizeMailLocale,
 } from '../mail/mail.i18n';
+import {
+  LOGIN_SETTING_KEYS,
+  SETTING_LOGIN_CAPTCHA_ENABLED,
+  SETTING_LOGIN_LOCKOUT_MINUTES,
+  SETTING_LOGIN_MAX_FAILED_ATTEMPTS,
+  parseLoginCaptchaEnabled,
+  parseLoginLockoutMinutes,
+  parseLoginMaxFailedAttempts,
+} from '../system-settings/system-settings.constants';
+import { assertCaptchaOrThrow, LoginCaptchaService } from './login-captcha.service';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -32,9 +44,74 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly mail: MailService,
+    private readonly captcha: LoginCaptchaService,
   ) {}
 
+  /** 公开：登录页是否需要图形验证码 */
+  async getLoginOptions() {
+    return { captchaEnabled: await this.isLoginCaptchaEnabled() };
+  }
+
+  /** 公开：签发图形验证码（仅开关开启时可用） */
+  async issueLoginCaptcha() {
+    if (!(await this.isLoginCaptchaEnabled())) {
+      throw new BadRequestException('Login captcha is disabled');
+    }
+    return this.captcha.create();
+  }
+
+  private async isLoginCaptchaEnabled(): Promise<boolean> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: SETTING_LOGIN_CAPTCHA_ENABLED },
+      select: { value: true },
+    });
+    return parseLoginCaptchaEnabled(row?.value);
+  }
+
+  private throwLoginLocked(remainingMinutes: number): never {
+    const mins = Math.max(1, Math.ceil(remainingMinutes));
+    throw new HttpException(
+      {
+        statusCode: 401,
+        code: 'LOGIN_LOCKED',
+        remainingMinutes: mins,
+        message: `帳號已鎖定，請於 ${mins} 分鐘後再試`,
+      },
+      HttpStatus.UNAUTHORIZED,
+    );
+  }
+
+  private throwLoginFailed(failedAttempts: number, maxFailedAttempts: number): never {
+    throw new HttpException(
+      {
+        statusCode: 401,
+        code: 'LOGIN_FAILED',
+        failedAttempts,
+        maxFailedAttempts,
+        message: `帳號或密碼錯誤（已連續錯誤 ${failedAttempts}/${maxFailedAttempts} 次）`,
+      },
+      HttpStatus.UNAUTHORIZED,
+    );
+  }
+
+  private async loadLoginLockoutConfig() {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...LOGIN_SETTING_KEYS] } },
+      select: { key: true, value: true },
+    });
+    const map: Record<string, string> = {};
+    for (const r of rows) map[r.key] = r.value;
+    return {
+      maxFailedAttempts: parseLoginMaxFailedAttempts(map[SETTING_LOGIN_MAX_FAILED_ATTEMPTS]),
+      lockoutMinutes: parseLoginLockoutMinutes(map[SETTING_LOGIN_LOCKOUT_MINUTES]),
+    };
+  }
+
   async login(dto: LoginDto) {
+    if (await this.isLoginCaptchaEnabled()) {
+      assertCaptchaOrThrow(this.captcha.consume(dto.captchaId, dto.captchaCode));
+    }
+
     const account = dto.account.trim();
     const user = await this.prisma.user.findUnique({
       where: { account },
@@ -43,9 +120,33 @@ export class AuthService {
     if (!user || user.status !== 'active') {
       throw new UnauthorizedException('Invalid account or password');
     }
+
+    const now = new Date();
+    if (user.loginLockedUntil && user.loginLockedUntil > now) {
+      const remainingMs = user.loginLockedUntil.getTime() - now.getTime();
+      this.throwLoginLocked(remainingMs / 60_000);
+    }
+
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
-      throw new UnauthorizedException('Invalid account or password');
+      const { maxFailedAttempts, lockoutMinutes } = await this.loadLoginLockoutConfig();
+      // 冷却已过：从 0 重新计数
+      const baseCount =
+        user.loginLockedUntil && user.loginLockedUntil <= now ? 0 : user.failedLoginCount;
+      const failedLoginCount = baseCount + 1;
+      if (failedLoginCount >= maxFailedAttempts) {
+        const loginLockedUntil = new Date(now.getTime() + lockoutMinutes * 60_000);
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { failedLoginCount, loginLockedUntil },
+        });
+        this.throwLoginLocked(lockoutMinutes);
+      }
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginCount, loginLockedUntil: null },
+      });
+      this.throwLoginFailed(failedLoginCount, maxFailedAttempts);
     }
 
     const accessToken = await this.jwt.signAsync({
@@ -54,15 +155,24 @@ export class AuthService {
       role: user.role,
     });
 
-    // 仅更新最后登录时间，避免触发 @updatedAt
+    // 成功登录：清零失败计数／锁定，并更新最后登录时间（避免触发 @updatedAt）
     const lastLoginAt = new Date();
     await this.prisma.$executeRaw`
-      UPDATE "users" SET "last_login_at" = ${lastLoginAt} WHERE "id" = ${user.id}
+      UPDATE "users"
+      SET "last_login_at" = ${lastLoginAt},
+          "failed_login_count" = 0,
+          "login_locked_until" = NULL
+      WHERE "id" = ${user.id}
     `;
 
     return {
       accessToken,
-      user: toUserDto({ ...user, lastLoginAt }),
+      user: toUserDto({
+        ...user,
+        lastLoginAt,
+        failedLoginCount: 0,
+        loginLockedUntil: null,
+      }),
     };
   }
 

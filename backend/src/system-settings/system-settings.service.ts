@@ -10,6 +10,8 @@ import {
   DEFAULT_CONTRACT_EXPIRING_SOON,
   DEFAULT_MAIL_SMTP,
   DEFAULT_RENT_INVOICE_LEAD_DAYS,
+  LOGIN_SETTING_KEYS,
+  LOGIN_SETTING_META,
   MAIL_SETTING_KEYS,
   MAIL_SETTING_META,
   SETTING_BRAND_LOGO,
@@ -17,6 +19,9 @@ import {
   SETTING_BRAND_THEME_COLOR,
   SETTING_BRAND_TITLE,
   SETTING_CONTRACT_EXPIRING_SOON,
+  SETTING_LOGIN_CAPTCHA_ENABLED,
+  SETTING_LOGIN_LOCKOUT_MINUTES,
+  SETTING_LOGIN_MAX_FAILED_ATTEMPTS,
   SETTING_MAIL_SENDING_EMAIL,
   SETTING_MAIL_SENDING_EMAIL_HOST,
   SETTING_MAIL_SENDING_EMAIL_PASSWORD,
@@ -28,6 +33,9 @@ import {
   brandingFromValueMap,
   mailSmtpFromValueMap,
   normalizeThemeColor,
+  parseLoginCaptchaEnabled,
+  parseLoginLockoutMinutes,
+  parseLoginMaxFailedAttempts,
   type BrandingConfig,
   type ContractExpiringSoonConfig,
   type ExpiringSoonStatusMode,
@@ -44,6 +52,9 @@ import {
 
 export type SystemSettingsView = {
   rentInvoiceLeadDays: number
+  loginMaxFailedAttempts: number
+  loginLockoutMinutes: number
+  loginCaptchaEnabled: boolean
   contractExpiringSoon: ContractExpiringSoonConfig
   mailSmtp: MailSmtpConfigView
   branding: BrandingConfig
@@ -126,6 +137,32 @@ export class SystemSettingsService {
     return this.parseLeadDays(row?.value)
   }
 
+  /** 业务侧读取：登录锁定参数 */
+  async getLoginLockoutConfig(): Promise<{
+    maxFailedAttempts: number
+    lockoutMinutes: number
+  }> {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...LOGIN_SETTING_KEYS] } },
+      select: { key: true, value: true },
+    })
+    const map: Record<string, string> = {}
+    for (const r of rows) map[r.key] = r.value
+    return {
+      maxFailedAttempts: parseLoginMaxFailedAttempts(map[SETTING_LOGIN_MAX_FAILED_ATTEMPTS]),
+      lockoutMinutes: parseLoginLockoutMinutes(map[SETTING_LOGIN_LOCKOUT_MINUTES]),
+    }
+  }
+
+  /** 业务侧／公开：登录是否开启图形验证码 */
+  async isLoginCaptchaEnabled(): Promise<boolean> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: SETTING_LOGIN_CAPTCHA_ENABLED },
+      select: { value: true },
+    })
+    return parseLoginCaptchaEnabled(row?.value)
+  }
+
   /** 业务侧读取：合约「即将到期」筛选条件 */
   async getContractExpiringSoon(): Promise<ContractExpiringSoonConfig> {
     const row = await this.prisma.systemSetting.findUnique({
@@ -163,7 +200,7 @@ export class SystemSettingsService {
   }
 
   async getView(): Promise<SystemSettingsView> {
-    const [leadRow, expiringRow, mailRows, brandRows] = await Promise.all([
+    const [leadRow, expiringRow, mailRows, brandRows, loginRows] = await Promise.all([
       this.prisma.systemSetting.findUnique({
         where: { key: SETTING_RENT_INVOICE_LEAD_DAYS },
         include: { updatedByUser: { select: auditUserSelect } },
@@ -180,16 +217,22 @@ export class SystemSettingsService {
         where: { key: { in: [...BRAND_SETTING_KEYS] } },
         include: { updatedByUser: { select: auditUserSelect } },
       }),
+      this.prisma.systemSetting.findMany({
+        where: { key: { in: [...LOGIN_SETTING_KEYS] } },
+        include: { updatedByUser: { select: auditUserSelect } },
+      }),
     ])
 
     const mailMap: Record<string, string> = {}
     for (const r of mailRows) mailMap[r.key] = r.value
     const brandMap: Record<string, string> = {}
     for (const r of brandRows) brandMap[r.key] = r.value
+    const loginMap: Record<string, string> = {}
+    for (const r of loginRows) loginMap[r.key] = r.value
 
-    const candidates = [leadRow, expiringRow, ...mailRows, ...brandRows].filter(Boolean) as Array<
-      NonNullable<typeof leadRow>
-    >
+    const candidates = [leadRow, expiringRow, ...mailRows, ...brandRows, ...loginRows].filter(
+      Boolean,
+    ) as Array<NonNullable<typeof leadRow>>
     const newer = candidates.reduce<(typeof leadRow) | null>((acc, row) => {
       if (!row?.updatedAt) return acc
       if (!acc?.updatedAt) return row
@@ -198,6 +241,11 @@ export class SystemSettingsService {
 
     return {
       rentInvoiceLeadDays: this.parseLeadDays(leadRow?.value),
+      loginMaxFailedAttempts: parseLoginMaxFailedAttempts(
+        loginMap[SETTING_LOGIN_MAX_FAILED_ATTEMPTS],
+      ),
+      loginLockoutMinutes: parseLoginLockoutMinutes(loginMap[SETTING_LOGIN_LOCKOUT_MINUTES]),
+      loginCaptchaEnabled: parseLoginCaptchaEnabled(loginMap[SETTING_LOGIN_CAPTCHA_ENABLED]),
       contractExpiringSoon: this.parseExpiringSoon(expiringRow?.value),
       mailSmtp: this.toMailSmtpView(mailSmtpFromValueMap(mailMap)),
       branding: brandingFromValueMap(brandMap, roomImagePublicUrl),
@@ -210,6 +258,14 @@ export class SystemSettingsService {
     const days = Math.trunc(Number(dto.rentInvoiceLeadDays))
     if (!Number.isFinite(days) || days < 1 || days > 90) {
       throw new BadRequestException('rentInvoiceLeadDays must be an integer between 1 and 90')
+    }
+    const maxFailed = Math.trunc(Number(dto.loginMaxFailedAttempts))
+    if (!Number.isFinite(maxFailed) || maxFailed < 1 || maxFailed > 30) {
+      throw new BadRequestException('loginMaxFailedAttempts must be an integer between 1 and 30')
+    }
+    const lockMinutes = Math.trunc(Number(dto.loginLockoutMinutes))
+    if (!Number.isFinite(lockMinutes) || lockMinutes < 1 || lockMinutes > 1440) {
+      throw new BadRequestException('loginLockoutMinutes must be an integer between 1 and 1440')
     }
 
     await this.prisma.systemSetting.upsert({
@@ -228,6 +284,16 @@ export class SystemSettingsService {
         updatedById: actorId || null,
       },
     })
+
+    await Promise.all([
+      this.upsertOneSetting(SETTING_LOGIN_MAX_FAILED_ATTEMPTS, String(maxFailed), actorId),
+      this.upsertOneSetting(SETTING_LOGIN_LOCKOUT_MINUTES, String(lockMinutes), actorId),
+      this.upsertOneSetting(
+        SETTING_LOGIN_CAPTCHA_ENABLED,
+        dto.loginCaptchaEnabled === true ? 'true' : 'false',
+        actorId,
+      ),
+    ])
 
     if (dto.mailSmtp) {
       await this.upsertMailSmtp(dto.mailSmtp, actorId)
@@ -250,14 +316,19 @@ export class SystemSettingsService {
   }
 
   private async upsertOneSetting(
-    key: (typeof MAIL_SETTING_KEYS)[number] | (typeof BRAND_SETTING_KEYS)[number],
+    key:
+      | (typeof MAIL_SETTING_KEYS)[number]
+      | (typeof BRAND_SETTING_KEYS)[number]
+      | (typeof LOGIN_SETTING_KEYS)[number],
     value: string,
     actorId?: string | null,
   ) {
     const meta =
       key in MAIL_SETTING_META
         ? MAIL_SETTING_META[key as (typeof MAIL_SETTING_KEYS)[number]]
-        : BRAND_SETTING_META[key as (typeof BRAND_SETTING_KEYS)[number]]
+        : key in LOGIN_SETTING_META
+          ? LOGIN_SETTING_META[key as (typeof LOGIN_SETTING_KEYS)[number]]
+          : BRAND_SETTING_META[key as (typeof BRAND_SETTING_KEYS)[number]]
     await this.prisma.systemSetting.upsert({
       where: { key },
       create: {

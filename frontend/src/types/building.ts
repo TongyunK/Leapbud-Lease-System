@@ -8,7 +8,15 @@ export interface BuildingRecord {
   agreementTemplateId?: string | null
   agreementTemplateName?: string
   agreementTemplateFileName?: string
-  apiTemplateSuffix?: string
+  whatsappTemplates?: Array<{
+    id: string
+    label: string
+    templateName: string
+    categoryId: string
+    categoryCode: string
+    categoryLabel: string
+    active: boolean
+  }>
   email: string
   workingHours: string
   invoiceTemplateId?: string | null
@@ -23,7 +31,10 @@ export interface BuildingRecord {
   receiptTemplateName?: string
   receiptTemplateFileName?: string
   roomIds: string[]
-  useWbaNumber?: string
+  whatsappBusinessNumberId?: string | null
+  whatsappBusinessNumberLabel?: string
+  whatsappBusinessPhoneNumber?: string
+  whatsappAutoSendEnabled?: boolean
   active: boolean
   createdBy: string
   createdAt: string
